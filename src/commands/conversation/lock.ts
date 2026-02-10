@@ -1,16 +1,27 @@
+import { randomBytes } from "node:crypto";
 import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import { PermissionPolicy, PermissionUpdateType } from "@xmtp/node-sdk";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
+import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+
+function randomAlphanumeric(length: number): string {
+  const chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const bytes = randomBytes(length);
+  return Array.from(bytes)
+    .map((b: number) => chars[b % chars.length])
+    .join("");
+}
 
 export default class ConversationLock extends ConvosBaseCommand {
   static description = `Lock or unlock a conversation.
 
-Locking prevents new members from joining by setting the XMTP
-addMember permission to 'deny' (per ADR 006). This also
-invalidates all existing invites.
+Locking prevents new members from joining (per ADR 006) by:
+1. Rotating the invite tag (cryptographically invalidates all existing invites)
+2. Setting the XMTP addMember permission to 'deny'
 
 Unlocking restores the ability to add members. Previously shared
 invites remain invalid — generate new ones after unlocking.
@@ -61,7 +72,9 @@ Only super admins can lock/unlock.`;
     }
 
     const client = await createClientForIdentity(identity, config);
-    const conversation = await client.conversations.getConversationById(args.id);
+    const conversation = await client.conversations.getConversationById(
+      args.id,
+    );
     if (!conversation) this.error(`Conversation not found: ${args.id}`);
 
     const group = requireGroup(conversation);
@@ -72,6 +85,18 @@ Only super admins can lock/unlock.`;
         PermissionPolicy.Admin,
       );
     } else {
+      // Step 1: Rotate the invite tag to invalidate all existing invites
+      let appData = "";
+      try {
+        appData = group.appData ?? "";
+      } catch {
+        // No appData yet
+      }
+      const metadata = parseAppData(appData);
+      metadata.tag = randomAlphanumeric(10);
+      await group.updateAppData(serializeAppData(metadata));
+
+      // Step 2: Set addMember permission to deny
       await group.updatePermission(
         PermissionUpdateType.AddMember,
         PermissionPolicy.Deny,
@@ -85,7 +110,7 @@ Only super admins can lock/unlock.`;
       action,
       message: flags.unlock
         ? "Conversation unlocked. Generate new invites to allow members."
-        : "Conversation locked. No new members can join.",
+        : "Conversation locked. Invite tag rotated and all existing invites invalidated.",
     });
   }
 }
