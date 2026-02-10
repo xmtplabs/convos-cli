@@ -2,4 +2,7 @@ node_modules/
 dist/
 oclif.manifest.json
 *.tsbuildinfo
+*.tgz
 .DS_Store
+.env
+.test-data/

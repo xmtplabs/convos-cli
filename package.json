@@ -10,9 +10,16 @@
     "ephemeral",
     "per-conversation-identity"
   ],
-  "homepage": "https://github.com/convos-org/convos-cli",
+  "homepage": "https://github.com/xmtplabs/convos-cli",
+  "bugs": {
+    "url": "https://github.com/xmtplabs/convos-cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xmtplabs/convos-cli.git"
+  },
   "license": "MIT",
-  "author": "Convos <eng@convos.org>",
+  "author": "XMTP Labs <eng@xmtp.com>",
   "type": "module",
   "exports": {
     ".": {
@@ -36,12 +43,14 @@
   "files": [
     "bin",
     "dist",
-    "oclif.manifest.json"
+    "oclif.manifest.json",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsx bin/dev.js",
-    "prepack": "yarn build && yarn oclif manifest",
+    "prepack": "npm run build && npx oclif manifest",
     "start": "tsx bin/run.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -100,5 +109,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
