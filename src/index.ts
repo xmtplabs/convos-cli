@@ -21,6 +21,8 @@ export {
   createInviteSlug,
   parseInvite,
   verifyInvite,
+  verifyInviteSignature,
+  recoverInvitePublicKey,
   inviteToSlug,
   encryptConversationToken,
   decryptConversationToken,

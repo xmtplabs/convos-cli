@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
 import {
   createInviteSlug,
   parseInvite,
   verifyInvite,
+  verifyInviteSignature,
+  recoverInvitePublicKey,
   inviteToSlug,
   encryptConversationToken,
   decryptConversationToken,
@@ -112,7 +115,7 @@ describe("invite crypto", () => {
       expect(parsed.tag).toBe("testTag123");
       expect(parsed.creatorInboxId).toBe(testInboxId);
       expect(parsed.expiresAfterUse).toBe(false);
-      expect(verifyInvite(parsed)).toBe(true);
+      expect(await verifyInvite(parsed)).toBe(true);
 
       // Decrypt the conversation token
       const decrypted = decryptConversationToken(
@@ -203,7 +206,18 @@ describe("invite crypto", () => {
   });
 
   describe("invite verification", () => {
-    it("rejects invite with empty tag", () => {
+    it("accepts a validly signed invite", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "validSig",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+      expect(await verifyInvite(parsed)).toBe(true);
+    });
+
+    it("rejects invite with empty tag", async () => {
       const bad = {
         tag: "",
         creatorInboxId: testInboxId,
@@ -212,10 +226,10 @@ describe("invite crypto", () => {
         payloadBytes: new Uint8Array([1]),
         signature: new Uint8Array(65),
       };
-      expect(verifyInvite(bad)).toBe(false);
+      expect(await verifyInvite(bad)).toBe(false);
     });
 
-    it("rejects invite with wrong signature length", () => {
+    it("rejects invite with wrong signature length", async () => {
       const bad = {
         tag: "test",
         creatorInboxId: testInboxId,
@@ -224,7 +238,146 @@ describe("invite crypto", () => {
         payloadBytes: new Uint8Array([1]),
         signature: new Uint8Array(32), // wrong: should be 65
       };
-      expect(verifyInvite(bad)).toBe(false);
+      expect(await verifyInvite(bad)).toBe(false);
+    });
+
+    it("rejects corrupted signature against the original signing key", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "corruptSig",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+
+      // Corrupt the signature — ECDSA recovery may still produce a public key,
+      // but it won't match the original signing key
+      const badSig = new Uint8Array(parsed.signature);
+      badSig[0] ^= 0xff;
+      badSig[1] ^= 0xff;
+      const corrupted = { ...parsed, signature: badSig };
+
+      expect(await verifyInviteSignature(corrupted, testPrivateKey)).toBe(false);
+    });
+
+    it("rejects invite with tampered payload", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "tampered",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+
+      // Tamper with the payload bytes (signature won't match)
+      const badPayload = new Uint8Array(parsed.payloadBytes);
+      badPayload[0] ^= 0xff;
+      const tampered = { ...parsed, payloadBytes: badPayload };
+
+      // The signature will still be 65 bytes and structurally valid,
+      // but recovery will produce a different public key or fail
+      // Either way, verifyInviteSignature should reject it
+      expect(await verifyInviteSignature(tampered, testPrivateKey)).toBe(false);
+    });
+  });
+
+  describe("signature verification against known key", () => {
+    it("verifies signature matches the signing key", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "sigMatch",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+
+      expect(await verifyInviteSignature(parsed, testPrivateKey)).toBe(true);
+    });
+
+    it("rejects signature from a different key", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "sigMismatch",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+
+      const differentKey = "0x" + randomBytes(32).toString("hex");
+      expect(await verifyInviteSignature(parsed, differentKey)).toBe(false);
+    });
+
+    it("rejects corrupted signature against correct key", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "corruptedAgainstKey",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+
+      const badSig = new Uint8Array(parsed.signature);
+      badSig[10] ^= 0xff;
+      const corrupted = { ...parsed, signature: badSig };
+
+      expect(await verifyInviteSignature(corrupted, testPrivateKey)).toBe(false);
+    });
+  });
+
+  describe("public key recovery", () => {
+    it("recovers a consistent public key from a valid invite", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "recoveryTest",
+        testPrivateKey,
+      );
+      const parsed = parseInvite(slug);
+
+      const pubKey = await recoverInvitePublicKey(parsed);
+      expect(pubKey).toMatch(/^0x04/); // uncompressed public key prefix
+      expect(pubKey.length).toBe(132); // 0x + 130 hex chars = 65 bytes
+    });
+
+    it("recovers the same public key for invites signed by the same key", async () => {
+      const slug1 = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "recover1",
+        testPrivateKey,
+      );
+      const slug2 = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "recover2",
+        testPrivateKey,
+      );
+
+      const pubKey1 = await recoverInvitePublicKey(parseInvite(slug1));
+      const pubKey2 = await recoverInvitePublicKey(parseInvite(slug2));
+
+      expect(pubKey1).toBe(pubKey2);
+    });
+
+    it("recovers a different public key for a different signing key", async () => {
+      const slug1 = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "diffKey1",
+        testPrivateKey,
+      );
+      const differentKey = "0x" + randomBytes(32).toString("hex");
+      const slug2 = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "diffKey2",
+        differentKey,
+      );
+
+      const pubKey1 = await recoverInvitePublicKey(parseInvite(slug1));
+      const pubKey2 = await recoverInvitePublicKey(parseInvite(slug2));
+
+      expect(pubKey1).not.toBe(pubKey2);
     });
   });
 });

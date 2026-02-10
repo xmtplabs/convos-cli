@@ -1,9 +1,10 @@
 import { Args, Flags } from "@oclif/core";
-import { getAccountAddress } from "../../utils/xmtp.js";
+import { getAccountAddress, isGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
+import { parseAppData } from "../../utils/metadata.js";
 
 export default class ConversationsJoin extends ConvosBaseCommand {
   static description = `Join a conversation using an invite slug or URL.
@@ -88,7 +89,7 @@ slug as query parameter 'i'.`;
     const invite = parseInvite(args.invite);
 
     // Validate
-    if (!verifyInvite(invite)) {
+    if (!(await verifyInvite(invite))) {
       this.error("Invalid invite signature");
     }
 
@@ -192,7 +193,25 @@ slug as query parameter 'i'.`;
       return;
     }
 
-    // Step 5: Link identity to conversation
+    // Step 5: Verify the group's invite tag matches the invite we used (ADR 001)
+    // This protects against being added to a different conversation than requested.
+    try {
+      const conv = await client.conversations.getConversationById(conversationId);
+      if (conv && isGroup(conv)) {
+        const appData = conv.appData ?? "";
+        const metadata = parseAppData(appData);
+        if (metadata.tag && metadata.tag !== invite.tag) {
+          this.warn(
+            `Invite tag mismatch: expected "${invite.tag}" but group has "${metadata.tag}". ` +
+            "You may have been added to a different conversation than expected.",
+          );
+        }
+      }
+    } catch {
+      // Non-fatal: tag verification is a safety check, don't block joining
+    }
+
+    // Step 6: Link identity to conversation
     store.update(identity.id, {
       conversationId,
       inboxId: client.inboxId,

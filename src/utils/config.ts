@@ -1,7 +1,7 @@
 import type { XmtpEnv } from "@xmtp/node-sdk";
 
 /**
- * Convos-specific config. The per-identity wallet/db keys are NOT here —
+ * Convos-specific config. The per-identity wallet/db keys are not here —
  * they live in each Identity. This holds global settings only.
  */
 export interface ConvosConfig {

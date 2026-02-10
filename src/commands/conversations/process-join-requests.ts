@@ -5,7 +5,8 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore, type Identity } from "../../utils/identities.js";
-import { parseInvite, decryptConversationToken, verifyInvite } from "../../utils/invite.js";
+import { parseInvite, decryptConversationToken, verifyInvite, verifyInviteSignature } from "../../utils/invite.js";
+import { parseAppData } from "../../utils/metadata.js";
 
 export default class ProcessJoinRequests extends ConvosBaseCommand {
   static description = `Process pending join requests for all conversations.
@@ -77,27 +78,34 @@ join requests as they arrive (recommended for always-on usage).`;
     // Look up the DM conversation to manage consent
     const dmConversation = await client.conversations.getConversationById(message.conversationId) as Dm | undefined;
 
-    // Verify signature
-    if (!verifyInvite(invite)) {
-      this.log(`Invalid signature from ${message.senderInboxId} — blocking DM`);
+    // Step 1: Verify structural validity and signature recoverability
+    if (!(await verifyInvite(invite))) {
+      this.log(`Invalid invite structure/signature from ${message.senderInboxId} — blocking DM`);
       if (dmConversation) dmConversation.updateConsentState(ConsentState.Denied);
       return;
     }
 
-    // Verify creator inbox ID matches us
+    // Step 2: Verify the signature was made by this identity's wallet key
+    if (!(await verifyInviteSignature(invite, identity.walletKey))) {
+      this.log(`Invite signature doesn't match our wallet key — blocking DM`);
+      if (dmConversation) dmConversation.updateConsentState(ConsentState.Denied);
+      return;
+    }
+
+    // Step 3: Verify creator inbox ID matches us
     if (invite.creatorInboxId !== client.inboxId) {
       this.log(`Invite not for this inbox — blocking DM`);
       if (dmConversation) dmConversation.updateConsentState(ConsentState.Denied);
       return;
     }
 
-    // Check expiration
+    // Step 4: Check expiration
     if (invite.expiresAt && invite.expiresAt < new Date()) {
       this.log(`Invite expired — skipping`);
       return;
     }
 
-    // Decrypt conversation token
+    // Step 5: Decrypt conversation token
     let conversationId: string;
     try {
       conversationId = decryptConversationToken(
@@ -111,7 +119,7 @@ join requests as they arrive (recommended for always-on usage).`;
       return;
     }
 
-    // Verify conversation exists
+    // Step 6: Verify conversation exists
     const conversation = await client.conversations.getConversationById(conversationId);
     if (!conversation) {
       this.log(`Conversation ${conversationId} not found — skipping`);
@@ -120,7 +128,19 @@ join requests as they arrive (recommended for always-on usage).`;
 
     const group = requireGroup(conversation);
 
-    // Add the requester
+    // Step 7: Verify the invite tag matches the group's current tag
+    try {
+      const appData = group.appData ?? "";
+      const metadata = parseAppData(appData);
+      if (metadata.tag && invite.tag !== metadata.tag) {
+        this.log(`Invite tag mismatch (invite=${invite.tag}, group=${metadata.tag}) — rejecting`);
+        return;
+      }
+    } catch {
+      // If we can't read appData, skip tag check but continue
+    }
+
+    // Step 8: Add the requester
     this.log(
       `Adding ${message.senderInboxId} to conversation ${conversationId}`,
     );

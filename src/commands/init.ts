@@ -11,7 +11,7 @@ export default class Init extends Command {
   static description = `Initialize Convos CLI configuration.
 
 Sets up the ~/.convos directory structure and default environment.
-Unlike standard XMTP, Convos does NOT generate a single wallet key.
+Unlike standard XMTP, Convos does not generate a single wallet key.
 Each conversation creates its own identity (see 'convos identity create').
 
 This command creates:

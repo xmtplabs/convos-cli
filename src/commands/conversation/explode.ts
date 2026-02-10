@@ -37,7 +37,7 @@ export default class ConversationExplode extends ConvosBaseCommand {
 Sends an ExplodeSettings message to notify all members, updates the
 group metadata with the expiration timestamp, removes all members,
 then deletes the local identity including wallet key, database
-encryption key, and XMTP database. This is IRREVERSIBLE.
+encryption key, and XMTP database. This is irreversible.
 
 Per ADR 004: destroying the per-conversation identity destroys the
 cryptographic material needed to decrypt messages. Recovery is
@@ -105,7 +105,7 @@ Only the conversation creator (super admin) should explode.`;
 
     const isImmediate = !flags.scheduled;
     const confirmMessage = isImmediate
-      ? "This will PERMANENTLY DESTROY the conversation and delete all cryptographic keys.\n" +
+      ? "This will permanently destroy the conversation and delete all cryptographic keys.\n" +
         "All members will be removed. Messages cannot be recovered."
       : `This will schedule the conversation to explode at ${expiresAt.toISOString()}.\n` +
         "All members will be notified. When the time arrives, clients will destroy their local data.";
@@ -120,7 +120,7 @@ Only the conversation creator (super admin) should explode.`;
 
     const group = requireGroup(conversation);
 
-    // Step 1: Send ExplodeSettings message (must happen BEFORE removing members)
+    // Step 1: Send ExplodeSettings message (must happen before removing members)
     const encodedContent = encodeExplodeSettings(expiresAt);
     await group.send(encodedContent, { shouldPush: true });
 

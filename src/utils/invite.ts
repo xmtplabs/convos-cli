@@ -7,8 +7,8 @@ import {
 } from "node:crypto";
 import { deflateSync, inflateSync } from "node:zlib";
 import protobuf from "protobufjs";
-import { hexToBytes as viemHexToBytes } from "viem";
-import { sign as viemSign } from "viem/accounts";
+import { hexToBytes as viemHexToBytes, recoverPublicKey } from "viem";
+import { sign as viemSign, privateKeyToAccount } from "viem/accounts";
 
 // ─── Protobuf Schemas (matching convos-ios invite.proto) ───
 
@@ -370,17 +370,69 @@ export function parseInvite(inviteInput: string): ParsedInvite {
 }
 
 /**
- * Verify the invite signature is structurally valid.
- * Full verification (matching recovered pubkey to creator) requires the creator's public key.
+ * Verify the invite has a valid structure and a recoverable ECDSA signature.
+ *
+ * This performs:
+ * 1. Structural validation (all required fields present)
+ * 2. Cryptographic signature verification (can recover a public key from the
+ *    secp256k1 ECDSA signature over SHA256(payloadBytes))
+ *
+ * Note: this does not verify the recovered public key matches a specific
+ * creator — that requires additional context. Use `verifyInviteSignature()`
+ * on the creator side to match against a known wallet key.
  */
-export function verifyInvite(invite: ParsedInvite): boolean {
+export async function verifyInvite(invite: ParsedInvite): Promise<boolean> {
   try {
-    // Basic structural validation
+    // Structural validation
     if (!invite.tag || invite.tag.length === 0) return false;
     if (!invite.creatorInboxId || invite.creatorInboxId.length === 0) return false;
     if (!invite.conversationToken || invite.conversationToken.length === 0) return false;
     if (!invite.signature || invite.signature.length !== 65) return false;
+    if (!invite.payloadBytes || invite.payloadBytes.length === 0) return false;
+
+    // Cryptographic verification: recover public key from signature
+    await recoverInvitePublicKey(invite);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Recover the signer's public key from an invite's signature.
+ *
+ * Uses secp256k1 ECDSA recovery on SHA256(payloadBytes).
+ * Returns the uncompressed public key (0x04... prefix, 65 bytes).
+ */
+export async function recoverInvitePublicKey(invite: ParsedInvite): Promise<`0x${string}`> {
+  const messageHash = `0x${sha256(Buffer.from(invite.payloadBytes)).toString("hex")}` as `0x${string}`;
+
+  // Reconstruct signature as 65-byte hex: r (32) + s (32) + v (1)
+  const r = Buffer.from(invite.signature.slice(0, 32)).toString("hex");
+  const s = Buffer.from(invite.signature.slice(32, 64)).toString("hex");
+  const v = invite.signature[64]; // recovery ID (0 or 1)
+  const signatureHex = `0x${r}${s}${v === 1 ? "01" : "00"}` as `0x${string}`;
+
+  return recoverPublicKey({ hash: messageHash, signature: signatureHex });
+}
+
+/**
+ * Verify that an invite was signed by a specific wallet private key.
+ *
+ * Used on the creator side (process-join-requests) to confirm the invite
+ * was genuinely created by this identity's wallet. Recovers the signer's
+ * public key from the signature and compares it to the public key derived
+ * from the given private key.
+ */
+export async function verifyInviteSignature(
+  invite: ParsedInvite,
+  walletPrivateKey: string,
+): Promise<boolean> {
+  try {
+    const keyHex = (walletPrivateKey.startsWith("0x") ? walletPrivateKey : `0x${walletPrivateKey}`) as `0x${string}`;
+    const account = privateKeyToAccount(keyHex);
+    const recoveredPubKey = await recoverInvitePublicKey(invite);
+    return recoveredPubKey.toLowerCase() === account.publicKey.toLowerCase();
   } catch {
     return false;
   }
