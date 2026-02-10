@@ -263,11 +263,17 @@ convos conversation lock <conversation-id> --unlock
 
 ### Explode a Conversation
 
-Permanently destroy a conversation and all its cryptographic keys. This removes the identity, wallet keys, database, and all local data. **Irreversible.**
+Permanently destroy a conversation and all its cryptographic keys. Sends an ExplodeSettings notification to all members (so iOS and other clients can trigger their cleanup), updates group metadata with the expiration timestamp, removes all members, then destroys the local identity. **Irreversible.**
 
 ```bash
+# explode immediately
 convos conversation explode <conversation-id> --force
+
+# schedule explosion for a future date (ISO8601)
+convos conversation explode <conversation-id> --scheduled "2025-03-01T00:00:00Z"
 ```
+
+When scheduled, the ExplodeSettings message is sent with a future `expiresAt` date. Members are notified but not removed — clients handle cleanup when the time arrives. When immediate (no `--scheduled`), members are removed and the local identity is destroyed right away.
 
 ### Sync Data from Network
 
