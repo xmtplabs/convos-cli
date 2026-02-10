@@ -43,6 +43,7 @@
   "files": [
     "bin",
     "dist",
+    "skills",
     "oclif.manifest.json",
     "README.md",
     "LICENSE"

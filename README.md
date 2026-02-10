@@ -352,6 +352,30 @@ import {
 
 See the [exports](./src/index.ts) for the full API.
 
+## AI Coding Agent Skill
+
+This package includes an [agent skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) (`skills/convos-cli/SKILL.md`) that teaches AI coding agents how to use the Convos CLI.
+
+**Claude Code**
+
+Add the skill directory to your project's `.claude/settings.json`:
+
+```json
+{
+  "skills": ["./node_modules/@convos/cli/skills"]
+}
+```
+
+**Other agents** (Cursor, Windsurf, Codex, etc.)
+
+Use [openskills](https://github.com/numman-ali/openskills) to install the skill:
+
+```bash
+npx openskills install ./node_modules/@convos/cli/skills
+```
+
+Or point your agent to `node_modules/@convos/cli/skills/convos-cli/SKILL.md` directly.
+
 ## Testing
 
 ```bash
