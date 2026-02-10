@@ -80,9 +80,20 @@ Only super admins can lock/unlock.`;
     const group = requireGroup(conversation);
 
     if (flags.unlock) {
+      // Rotate invite tag first so the new invite is ready before members can add others
+      let appData = "";
+      try {
+        appData = group.appData ?? "";
+      } catch {
+        // No appData yet
+      }
+      const metadata = parseAppData(appData);
+      metadata.tag = randomAlphanumeric(10);
+      await group.updateAppData(serializeAppData(metadata));
+
       await group.updatePermission(
         PermissionUpdateType.AddMember,
-        PermissionPolicy.Admin,
+        PermissionPolicy.Allow,
       );
     } else {
       // Step 1: Rotate the invite tag to invalidate all existing invites
