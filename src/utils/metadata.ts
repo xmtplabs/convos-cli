@@ -138,7 +138,12 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
 
     const toNum = (v: number | { toNumber(): number } | undefined): number | undefined => {
       if (v == null) return undefined;
-      return typeof v === "number" ? v : v.toNumber();
+      const n = typeof v === "number" ? v : v.toNumber();
+      // Treat 0 as unset — protobuf sfixed64 defaults to 0 when the field
+      // is absent, and epoch 0 (1970-01-01) is never a valid expiration.
+      // Without this, re-serializing would write expiresAtUnix=0 which iOS
+      // interprets as "expired in 1970" and hides the conversation.
+      return n === 0 ? undefined : n;
     };
 
     return {

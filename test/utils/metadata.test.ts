@@ -62,6 +62,42 @@ describe("conversation metadata", () => {
       expect(decoded.expiresAtUnix).toBe(1700000000);
     });
 
+    it("does not inject expiresAtUnix=0 on roundtrip when field is absent", () => {
+      // Regression: protobuf sfixed64 defaults to 0, and re-serializing
+      // that value caused iOS to interpret it as "expires at epoch 0"
+      // (1970-01-01), hiding the conversation from the list.
+      const original = { tag: "noExpiry", profiles: [] };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+      expect(decoded.expiresAtUnix).toBeUndefined();
+
+      // Simulate lock: read, rotate tag, write back
+      decoded.tag = "rotatedTag";
+      const reEncoded = serializeAppData(decoded);
+      const reParsed = parseAppData(reEncoded);
+      expect(reParsed.expiresAtUnix).toBeUndefined();
+      expect(reParsed.tag).toBe("rotatedTag");
+    });
+
+    it("does not inject expiresAtUnix=0 on roundtrip with profiles", () => {
+      const original = {
+        tag: "withProfiles",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+      };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+      expect(decoded.expiresAtUnix).toBeUndefined();
+      expect(decoded.profiles).toHaveLength(1);
+    });
+
+    it("preserves real expiresAtUnix through roundtrip", () => {
+      const ts = 1739200000;
+      const original = { tag: "exp", profiles: [], expiresAtUnix: ts };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+      expect(decoded.expiresAtUnix).toBe(ts);
+    });
+
     it("parses legacy JSON appData", () => {
       const legacy = JSON.stringify({ tag: "oldTag" });
       const decoded = parseAppData(legacy);
