@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
-import { getAccountAddress } from "../../utils/xmtp.js";
+import { getAccountAddress, isGroup } from "../../utils/xmtp.js";
+import { PermissionPolicy } from "@xmtp/node-bindings";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
@@ -62,6 +63,11 @@ Use --sync to fetch the latest state from the network.`;
 
         for (const conversation of conversations) {
           const members = await conversation.members();
+          let isLocked = false;
+          if (isGroup(conversation)) {
+            const { policySet } = conversation.permissions();
+            isLocked = policySet.addMemberPolicy === PermissionPolicy.Deny;
+          }
           output.push({
             conversationId: conversation.id,
             identityId: identity.id,
@@ -71,6 +77,7 @@ Use --sync to fetch the latest state from the network.`;
             createdAt: conversation.createdAt.toISOString(),
             memberCount: members.length,
             isActive: conversation.isActive,
+            isLocked,
           });
         }
       } catch (error) {
