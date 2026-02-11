@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { Flags } from "@oclif/core";
 import { getAccountAddress } from "../../utils/xmtp.js";
 import { GroupPermissionsOptions, type CreateGroupOptions } from "@xmtp/node-sdk";
@@ -8,6 +7,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
   static description = `Create a new Convos conversation.
@@ -181,11 +181,4 @@ The creator becomes super admin. Others join via invite links.`;
   }
 }
 
-function randomAlphanumeric(length: number): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = randomBytes(length);
-  return Array.from(bytes)
-    .map((b: number) => chars[b % chars.length])
-    .join("");
-}
+

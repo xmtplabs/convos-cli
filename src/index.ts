@@ -41,6 +41,9 @@ export {
   type ConversationCustomMetadata,
 } from "./utils/metadata.js";
 
+// Random utilities
+export { randomAlphanumeric } from "./utils/random.js";
+
 // Re-export XMTP utilities for downstream consumers
 export {
   getAccountAddress,

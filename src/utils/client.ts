@@ -1,11 +1,19 @@
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
 import type { Identity } from "./identities.js";
 import { createIdentityStore } from "./identities.js";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const pkg = JSON.parse(
+  readFileSync(join(__dirname, "..", "..", "package.json"), "utf-8"),
+) as { version: string };
+const DEFAULT_APP_VERSION = `convos-cli/${pkg.version}`;
 
 const LOG_LEVELS: Record<string, LogLevel> = {
   off: LogLevel.Off,
@@ -52,7 +60,7 @@ export async function createClientForIdentity(
     loggingLevel: config.logLevel ? LOG_LEVELS[config.logLevel] : undefined,
     structuredLogging: config.structuredLogging,
     disableDeviceSync: true, // Per ADR 002: each conversation is independent
-    appVersion: config.appVersion ?? "convos-cli/0.1.0",
+    appVersion: config.appVersion ?? DEFAULT_APP_VERSION,
   });
 
   // Cache the inbox ID on the identity

@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import { PermissionPolicy, PermissionUpdateType } from "@xmtp/node-sdk";
@@ -6,15 +5,7 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseAppData, serializeAppData } from "../../utils/metadata.js";
-
-function randomAlphanumeric(length: number): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = randomBytes(length);
-  return Array.from(bytes)
-    .map((b: number) => chars[b % chars.length])
-    .join("");
-}
+import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationLock extends ConvosBaseCommand {
   static description = `Lock or unlock a conversation.

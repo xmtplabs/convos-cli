@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import qrcode from "qrcode-terminal";
@@ -7,6 +6,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationInvite extends ConvosBaseCommand {
   static description = `Generate an invite link for a conversation.
@@ -161,11 +161,4 @@ Invite URLs use the format:
   }
 }
 
-function randomAlphanumeric(length: number): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = randomBytes(length);
-  return Array.from(bytes)
-    .map((b: number) => chars[b % chars.length])
-    .join("");
-}
+

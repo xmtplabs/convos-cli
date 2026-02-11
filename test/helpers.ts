@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
-import { generatePrivateKey } from "viem/accounts";
 
 const CLI_PATH = resolve(import.meta.dirname, "../bin/run.js");
 const TEST_DIR = resolve(import.meta.dirname, "../.test-data");
@@ -34,87 +33,6 @@ export function parseJsonOutput<T>(output: string): T {
 
 export function getTestEnvPath(): string {
   return join(TEST_DIR, `.env-${randomBytes(8).toString("hex")}`);
-}
-
-/**
- * Creates a test identity with unique wallet and encryption keys.
- * Uses 'local' environment for testing against local XMTP node.
- */
-export function createTestIdentity(): {
-  walletKey: string;
-  dbEncryptionKey: string;
-  dbPath: string;
-} {
-  const walletKey = generatePrivateKey();
-  const dbEncryptionKey = randomBytes(32).toString("hex");
-  const dbPath = join(TEST_DIR, `test-${randomBytes(8).toString("hex")}.db3`);
-  return { walletKey, dbEncryptionKey, dbPath };
-}
-
-/**
- * Gets the base flags for running commands with a test identity.
- */
-export function getBaseFlags(identity: {
-  walletKey: string;
-  dbEncryptionKey: string;
-  dbPath: string;
-}): string[] {
-  return [
-    "--wallet-key",
-    identity.walletKey,
-    "--db-encryption-key",
-    identity.dbEncryptionKey,
-    "--db-path",
-    identity.dbPath,
-    "--env",
-    "local",
-  ];
-}
-
-/**
- * Runs a command with the test identity's base flags.
- */
-export async function runWithIdentity(
-  identity: {
-    walletKey: string;
-    dbEncryptionKey: string;
-    dbPath: string;
-  },
-  args: string[],
-  options?: { timeout?: number },
-): Promise<RunResult> {
-  return runCommand([...args, ...getBaseFlags(identity)], options);
-}
-
-/**
- * Creates a registered XMTP identity by running the client info command.
- */
-export async function createRegisteredIdentity(): Promise<{
-  walletKey: string;
-  dbEncryptionKey: string;
-  dbPath: string;
-  inboxId: string;
-  address: string;
-  installationId: string;
-}> {
-  const identity = createTestIdentity();
-  const result = await runWithIdentity(identity, ["client", "info", "--json"]);
-  if (result.exitCode !== 0) {
-    throw new Error(`Failed to create registered identity: ${result.stderr}`);
-  }
-  const info = parseJsonOutput<{
-    properties: {
-      inboxId: string;
-      address: string;
-      installationId: string;
-    };
-  }>(result.stdout);
-  return {
-    ...identity,
-    inboxId: info.properties.inboxId,
-    address: info.properties.address,
-    installationId: info.properties.installationId,
-  };
 }
 
 export function sleep(ms: number): Promise<void> {
