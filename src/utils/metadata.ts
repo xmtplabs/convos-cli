@@ -71,13 +71,7 @@ function decompressIfNeeded(data: Buffer): Buffer {
   if (data.length === 0) return data;
   if (data[0] === COMPRESSION_MARKER) {
     // iOS format: [marker][4-byte size BE][zlib data]
-    // Try iOS format first (skip marker + 4-byte size), fall back to legacy (skip marker only)
-    let decompressed: Buffer;
-    try {
-      decompressed = Buffer.from(inflateSync(data.subarray(5)));
-    } catch {
-      decompressed = Buffer.from(inflateSync(data.subarray(1)));
-    }
+    const decompressed = Buffer.from(inflateSync(data.subarray(5)));
     if (decompressed.length > MAX_DECOMPRESSED_SIZE) {
       throw new Error("Decompressed metadata exceeds size limit");
     }

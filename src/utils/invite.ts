@@ -205,12 +205,7 @@ function compressIfSmaller(data: Buffer): Buffer {
 function decompressIfNeeded(data: Buffer): Buffer {
   if (data[0] === COMPRESSION_MARKER) {
     // iOS format: [marker][4-byte size BE][zlib data]
-    // Try iOS format first (skip marker + 4-byte size), fall back to legacy (skip marker only)
-    try {
-      return Buffer.from(inflateSync(data.subarray(5)));
-    } catch {
-      return Buffer.from(inflateSync(data.subarray(1)));
-    }
+    return Buffer.from(inflateSync(data.subarray(5)));
   }
   return data;
 }
