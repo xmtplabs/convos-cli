@@ -186,21 +186,31 @@ function base64urlDecode(str: string): Buffer {
 }
 
 // ─── Compression ───
+// Format must match iOS: [marker: 1 byte][original_size: 4 bytes big-endian][zlib data]
 
 const COMPRESSION_MARKER = 0x1f;
 
 function compressIfSmaller(data: Buffer): Buffer {
   if (data.length <= 100) return data;
   const compressed = deflateSync(data);
-  if (compressed.length + 1 < data.length) {
-    return Buffer.concat([Buffer.from([COMPRESSION_MARKER]), compressed]);
+  // 1 byte marker + 4 bytes size + compressed data
+  if (compressed.length + 5 < data.length) {
+    const sizeBytes = Buffer.alloc(4);
+    sizeBytes.writeUInt32BE(data.length);
+    return Buffer.concat([Buffer.from([COMPRESSION_MARKER]), sizeBytes, compressed]);
   }
   return data;
 }
 
 function decompressIfNeeded(data: Buffer): Buffer {
   if (data[0] === COMPRESSION_MARKER) {
-    return Buffer.from(inflateSync(data.subarray(1)));
+    // iOS format: [marker][4-byte size BE][zlib data]
+    // Try iOS format first (skip marker + 4-byte size), fall back to legacy (skip marker only)
+    try {
+      return Buffer.from(inflateSync(data.subarray(5)));
+    } catch {
+      return Buffer.from(inflateSync(data.subarray(1)));
+    }
   }
   return data;
 }

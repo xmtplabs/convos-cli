@@ -53,11 +53,16 @@ export interface ConversationCustomMetadata {
 const COMPRESSION_MARKER = 0x1f;
 const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Format must match iOS: [marker: 1 byte][original_size: 4 bytes big-endian][zlib data]
+
 function compressIfSmaller(data: Buffer): Buffer {
   if (data.length <= 100) return data;
   const compressed = deflateSync(data);
-  if (compressed.length + 1 < data.length) {
-    return Buffer.concat([Buffer.from([COMPRESSION_MARKER]), compressed]);
+  // 1 byte marker + 4 bytes size + compressed data
+  if (compressed.length + 5 < data.length) {
+    const sizeBytes = Buffer.alloc(4);
+    sizeBytes.writeUInt32BE(data.length);
+    return Buffer.concat([Buffer.from([COMPRESSION_MARKER]), sizeBytes, compressed]);
   }
   return data;
 }
@@ -65,7 +70,14 @@ function compressIfSmaller(data: Buffer): Buffer {
 function decompressIfNeeded(data: Buffer): Buffer {
   if (data.length === 0) return data;
   if (data[0] === COMPRESSION_MARKER) {
-    const decompressed = Buffer.from(inflateSync(data.subarray(1)));
+    // iOS format: [marker][4-byte size BE][zlib data]
+    // Try iOS format first (skip marker + 4-byte size), fall back to legacy (skip marker only)
+    let decompressed: Buffer;
+    try {
+      decompressed = Buffer.from(inflateSync(data.subarray(5)));
+    } catch {
+      decompressed = Buffer.from(inflateSync(data.subarray(1)));
+    }
     if (decompressed.length > MAX_DECOMPRESSED_SIZE) {
       throw new Error("Decompressed metadata exceeds size limit");
     }
