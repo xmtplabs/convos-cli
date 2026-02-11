@@ -392,10 +392,11 @@ convos conversation stream "$CONV_ID" --timeout 300
 
 ## Tips
 
-1. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
-2. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
-3. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
-4. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
-5. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
-6. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
-7. **Check command help**: Run `convos <command> --help` for full flag documentation
+1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user.
+2. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
+3. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
+4. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
+5. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
+6. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
+7. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
+8. **Check command help**: Run `convos <command> --help` for full flag documentation
