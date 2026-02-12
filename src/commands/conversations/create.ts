@@ -63,7 +63,7 @@ The creator becomes super admin. Others join via invite links.`;
     permissions: Flags.option({
       options: ["all-members", "admin-only"] as const,
       description: "Permission preset",
-      default: "admin-only" as const,
+      default: "all-members" as const,
     })(),
     identity: Flags.string({
       description: "Use an existing unlinked identity ID",
