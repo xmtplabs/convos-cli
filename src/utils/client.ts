@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  AttachmentCodec,
+  RemoteAttachmentCodec,
+} from "@xmtp/content-type-remote-attachment";
 import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
@@ -54,6 +58,7 @@ export async function createClientForIdentity(
 
   const client = await Client.create(signer, {
     env,
+    codecs: [new AttachmentCodec(), new RemoteAttachmentCodec()],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,
     gatewayHost: config.gatewayHost,
