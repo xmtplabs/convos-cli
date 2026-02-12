@@ -37,6 +37,9 @@ convos init --force
 This creates a `.env` file with:
 
 - `CONVOS_ENV` - Network environment (local, dev, production)
+- `CONVOS_UPLOAD_PROVIDER` - Upload provider for attachments (e.g., `pinata`)
+- `CONVOS_UPLOAD_PROVIDER_TOKEN` - Authentication token for upload provider
+- `CONVOS_UPLOAD_PROVIDER_GATEWAY` - Custom gateway URL for upload provider
 
 **Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
@@ -105,6 +108,51 @@ convos conversation send-reaction <conversation-id> <message-id> remove "👍"
 # send a reply referencing another message
 convos conversation send-reply <conversation-id> <message-id> "Replying to you"
 ```
+
+### Send Attachments
+
+```bash
+# send a photo (small files ≤1MB sent inline, large files auto-uploaded via provider)
+convos conversation send-attachment <conversation-id> ./photo.jpg
+
+# force remote upload even for small files
+convos conversation send-attachment <conversation-id> ./photo.jpg --remote
+
+# override MIME type
+convos conversation send-attachment <conversation-id> ./file.bin --mime-type image/png
+
+# use upload provider via flags (no .env needed)
+convos conversation send-attachment <conversation-id> ./photo.jpg \
+  --upload-provider pinata --upload-provider-token <jwt>
+
+# encrypt only — outputs encrypted file + decryption keys for manual upload
+convos conversation send-attachment <conversation-id> ./photo.jpg --encrypt
+
+# send a pre-uploaded encrypted file with decryption keys
+convos conversation send-remote-attachment <conversation-id> <url> \
+  --content-digest <hex> --secret <base64> --salt <base64> \
+  --nonce <base64> --content-length <bytes> --filename photo.jpg
+
+# download an attachment (handles both inline and remote transparently)
+convos conversation download-attachment <conversation-id> <message-id>
+
+# download to a specific path
+convos conversation download-attachment <conversation-id> <message-id> --output ./photo.jpg
+
+# save encrypted payload without decrypting
+convos conversation download-attachment <conversation-id> <message-id> --raw
+```
+
+To enable automatic upload for large files, configure a provider in your `.env`:
+
+```bash
+CONVOS_UPLOAD_PROVIDER=pinata
+CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
+# Optional: custom gateway URL
+CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+```
+
+Supported upload providers: `pinata`
 
 ### Read Messages
 

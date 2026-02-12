@@ -73,6 +73,7 @@ export class ConvosBaseCommand extends Command {
     );
 
     // Load config from .env file
+    // Priority: explicit --env-file > .env in cwd > ~/.convos/.env
     const envFile = flags["env-file"];
     if (envFile) {
       try {
@@ -83,6 +84,19 @@ export class ConvosBaseCommand extends Command {
         throw new Error(`Failed to load env file: ${envFile}`, {
           cause: error,
         });
+      }
+    } else {
+      const { loadEnvFile } = await import("node:process");
+      const { resolve, join } = await import("node:path");
+      const { homedir } = await import("node:os");
+      try {
+        loadEnvFile(resolve(process.cwd(), ".env"));
+      } catch {
+        try {
+          loadEnvFile(join(homedir(), ".convos", ".env"));
+        } catch {
+          // Silently ignore if neither file exists
+        }
       }
     }
 
@@ -100,6 +114,9 @@ export class ConvosBaseCommand extends Command {
         (env.XMTP_STRUCTURED_LOGGING === "true" ? true : undefined),
       gatewayHost: flags["gateway-host"] ?? env.XMTP_GATEWAY_HOST,
       appVersion: flags["app-version"] ?? env.XMTP_APP_VERSION,
+      uploadProvider: env.CONVOS_UPLOAD_PROVIDER,
+      uploadProviderToken: env.CONVOS_UPLOAD_PROVIDER_TOKEN,
+      uploadProviderGateway: env.CONVOS_UPLOAD_PROVIDER_GATEWAY,
     };
 
     this.jsonOutput = flags.json || env.CONVOS_JSON_OUTPUT === "true";

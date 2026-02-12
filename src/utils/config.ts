@@ -10,4 +10,7 @@ export interface ConvosConfig {
   structuredLogging?: boolean;
   gatewayHost?: string;
   appVersion?: string;
+  uploadProvider?: string;
+  uploadProviderToken?: string;
+  uploadProviderGateway?: string;
 }
