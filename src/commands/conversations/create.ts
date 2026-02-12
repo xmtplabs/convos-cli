@@ -6,7 +6,7 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
-import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { parseAppData, serializeAppData, upsertProfile } from "../../utils/metadata.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
@@ -129,7 +129,17 @@ The creator becomes super admin. Others join via invite links.`;
 
     // Generate invite tag and store in appData
     const inviteTag = randomAlphanumeric(10);
-    const metadata = { tag: inviteTag, profiles: [] };
+    let metadata = { tag: inviteTag, profiles: [] as { inboxId: string; name?: string }[] };
+
+    // Write creator's profile to shared metadata so other members can see it
+    const profileName = flags["profile-name"];
+    if (profileName) {
+      metadata = upsertProfile(metadata, {
+        inboxId: client.inboxId,
+        name: profileName,
+      });
+    }
+
     await group.updateAppData(serializeAppData(metadata));
 
     // Generate invite slug and URL

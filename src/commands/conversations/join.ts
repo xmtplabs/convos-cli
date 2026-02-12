@@ -4,7 +4,11 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
-import { parseAppData } from "../../utils/metadata.js";
+import {
+  parseAppData,
+  serializeAppData,
+  upsertProfile,
+} from "../../utils/metadata.js";
 
 export default class ConversationsJoin extends ConvosBaseCommand {
   static description = `Join a conversation using an invite slug or URL.
@@ -206,9 +210,19 @@ slug as query parameter 'i'.`;
             "You may have been added to a different conversation than expected.",
           );
         }
+
+        // Step 5b: Write joiner's profile to shared metadata
+        const profileName = flags["profile-name"];
+        if (profileName) {
+          const updated = upsertProfile(metadata, {
+            inboxId: client.inboxId,
+            name: profileName,
+          });
+          await conv.updateAppData(serializeAppData(updated));
+        }
       }
     } catch {
-      // Non-fatal: tag verification is a safety check, don't block joining
+      // Non-fatal: tag verification + profile write are best-effort
     }
 
     // Step 6: Link identity to conversation
