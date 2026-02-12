@@ -136,8 +136,8 @@ convos identity remove <identity-id> --force
 # Create a conversation (auto-creates per-conversation identity)
 convos conversations create --name "Project Team" --profile-name "Alice"
 
-# Create with admin-only permissions (default)
-convos conversations create --name "Announcement Channel"
+# Create with admin-only permissions
+convos conversations create --name "Announcement Channel" --permissions admin-only
 
 # List all conversations across all identities
 convos conversations list --sync
