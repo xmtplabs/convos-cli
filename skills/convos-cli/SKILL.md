@@ -107,6 +107,12 @@ convos conversation send-reaction <conversation-id> <message-id> remove "👍"
 
 # send a reply referencing another message
 convos conversation send-reply <conversation-id> <message-id> "Replying to you"
+
+# reply with a photo
+convos conversation send-reply <conversation-id> <message-id> --file ./photo.jpg
+
+# reply with a large file (auto-uploaded via provider)
+convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
 ```
 
 ### Send Attachments
