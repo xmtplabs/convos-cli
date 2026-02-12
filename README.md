@@ -78,9 +78,12 @@ convos conversation stream <conversation-id>
 
 Running `convos init` creates `~/.convos/.env` with:
 
-| Variable | Description |
-| -------- | ----------- |
-| `CONVOS_ENV` | Network: `local`, `dev`, or `production` |
+| Variable                       | Description                                      |
+| ------------------------------ | ------------------------------------------------ |
+| `CONVOS_ENV`                   | Network: `local`, `dev`, or `production`         |
+| `CONVOS_UPLOAD_PROVIDER`       | Upload provider for attachments (e.g., `pinata`) |
+| `CONVOS_UPLOAD_PROVIDER_TOKEN` | Authentication token for upload provider         |
+| `CONVOS_UPLOAD_PROVIDER_GATEWAY` | Custom gateway URL for upload provider         |
 
 Unlike standard XMTP, there is **no global wallet key**. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
@@ -213,6 +216,54 @@ convos conversation stream <id>
 convos conversation stream <id> --timeout 60
 ```
 
+### Attachments
+
+```bash
+# Send a photo (small files ≤1MB sent inline)
+convos conversation send-attachment <id> ./photo.jpg
+
+# Large files are automatically encrypted and uploaded via configured provider
+convos conversation send-attachment <id> ./video.mp4
+
+# Force remote upload even for small files
+convos conversation send-attachment <id> ./photo.jpg --remote
+
+# Override MIME type
+convos conversation send-attachment <id> ./file.bin --mime-type image/png
+
+# Per-command upload provider (no .env needed)
+convos conversation send-attachment <id> ./photo.jpg \
+  --upload-provider pinata --upload-provider-token <jwt>
+
+# Encrypt only (for manual upload workflows)
+convos conversation send-attachment <id> ./photo.jpg --encrypt
+
+# Send a pre-uploaded encrypted file
+convos conversation send-remote-attachment <id> <url> \
+  --content-digest <hex> --secret <base64> --salt <base64> \
+  --nonce <base64> --content-length <bytes>
+
+# Download an attachment (handles both inline and remote transparently)
+convos conversation download-attachment <id> <message-id>
+
+# Download to a specific path
+convos conversation download-attachment <id> <message-id> --output ./photo.jpg
+
+# Reply with a photo
+convos conversation send-reply <id> <message-id> --file ./photo.jpg
+```
+
+To configure an upload provider for large files, add to your `~/.convos/.env`:
+
+```bash
+CONVOS_UPLOAD_PROVIDER=pinata
+CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
+# Optional: custom gateway URL
+CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+```
+
+Supported upload providers: `pinata`
+
 ### Profiles
 
 Each conversation has independent profiles — you can be a different person in each conversation. Profiles are stored in the group's metadata and visible to all members.
@@ -326,6 +377,7 @@ convos identity info <id> --verbose
 │    conversations create/join/list/sync   │
 │    conversation invite/explode/lock      │
 │    conversation send-text/stream/...     │
+│    conversation send-attachment/download  │
 │    conversation update-profile/profiles  │
 │                                          │
 │  ┌────────────────────────────────────┐  │
