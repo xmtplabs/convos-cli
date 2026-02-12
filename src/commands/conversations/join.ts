@@ -211,21 +211,35 @@ slug as query parameter 'i'.`;
           );
         }
 
-        // Step 5b: Write joiner's profile to shared metadata
-        const profileName = flags["profile-name"];
-        if (profileName) {
+      }
+    } catch {
+      // Non-fatal: tag verification is a safety check, don't block joining
+    }
+
+    // Step 6: Write joiner's profile to shared metadata
+    const profileName = flags["profile-name"];
+    if (profileName) {
+      try {
+        await client.conversations.sync();
+        const conv = await client.conversations.getConversationById(conversationId);
+        if (conv && isGroup(conv)) {
+          await conv.sync();
+          const appData = conv.appData ?? "";
+          const metadata = parseAppData(appData);
           const updated = upsertProfile(metadata, {
             inboxId: client.inboxId,
             name: profileName,
           });
           await conv.updateAppData(serializeAppData(updated));
         }
+      } catch (error) {
+        this.warn(
+          `Could not write profile to group metadata: ${error instanceof Error ? error.message : "unknown"}`,
+        );
       }
-    } catch {
-      // Non-fatal: tag verification + profile write are best-effort
     }
 
-    // Step 6: Link identity to conversation
+    // Step 7: Link identity to conversation
     store.update(identity.id, {
       conversationId,
       inboxId: client.inboxId,
