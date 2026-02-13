@@ -25,8 +25,8 @@ Displays a QR code in the terminal that can be scanned by the
 Convos app. The QR code encodes the full invite URL.
 
 Invite URLs use the format:
-- Dev:        dev.convos.org/v2?i=<slug>
-- Production: convos.org/v2?i=<slug>`;
+- Dev:        dev.popup.convos.org/v2?i=<slug>
+- Production: popup.convos.org/v2?i=<slug>`;
 
   static examples = [
     {
@@ -133,8 +133,8 @@ Invite URLs use the format:
     const env = config.env ?? "dev";
     const baseUrl =
       env === "production"
-        ? "https://convos.org/v2"
-        : "https://dev.convos.org/v2";
+        ? "https://popup.convos.org/v2"
+        : "https://dev.popup.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
     // Display QR code unless --no-qr or --json

@@ -36,7 +36,7 @@ slug as query parameter 'i'.`;
     },
     {
       command:
-        '<%= config.bin %> <%= command.id %> "https://convos.org/v2?i=<slug>"',
+        '<%= config.bin %> <%= command.id %> "https://popup.convos.org/v2?i=<slug>"',
       description: "Join using a full invite URL",
     },
     {

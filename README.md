@@ -173,7 +173,7 @@ convos conversation invite <conversation-id> --json
 convos conversations join <invite-slug>
 
 # Join using a full invite URL
-convos conversations join "https://dev.convos.org/v2?i=<slug>"
+convos conversations join "https://dev.popup.convos.org/v2?i=<slug>"
 
 # Join with a display name
 convos conversations join <slug> --profile-name "Bob"

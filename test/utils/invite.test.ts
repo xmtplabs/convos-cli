@@ -185,7 +185,7 @@ describe("invite crypto", () => {
         testPrivateKey,
       );
 
-      const url = `https://dev.convos.org/v2?i=${encodeURIComponent(slug)}`;
+      const url = `https://dev.popup.convos.org/v2?i=${encodeURIComponent(slug)}`;
       const parsed = parseInvite(url);
       expect(parsed.tag).toBe("urlTest");
     });

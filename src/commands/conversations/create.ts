@@ -160,8 +160,8 @@ The creator becomes super admin. Others join via invite links.`;
     const env = config.env ?? "dev";
     const baseUrl =
       env === "production"
-        ? "https://convos.org/v2"
-        : "https://dev.convos.org/v2";
+        ? "https://popup.convos.org/v2"
+        : "https://dev.popup.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
     // Display QR code unless --json
