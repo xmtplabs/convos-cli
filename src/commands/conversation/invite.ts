@@ -26,7 +26,7 @@ Convos app. The QR code encodes the full invite URL.
 
 Invite URLs use the format:
 - Dev:        dev.convos.org/v2?i=<slug>
-- Production: convos.org/v2?i=<slug>`;
+- Production: popup.convos.org/v2?i=<slug>`;
 
   static examples = [
     {
@@ -133,7 +133,7 @@ Invite URLs use the format:
     const env = config.env ?? "dev";
     const baseUrl =
       env === "production"
-        ? "https://convos.org/v2"
+        ? "https://popup.convos.org/v2"
         : "https://dev.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
