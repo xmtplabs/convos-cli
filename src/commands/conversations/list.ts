@@ -40,7 +40,35 @@ Use --sync to fetch the latest state from the network.`;
     const { flags } = await this.parse(ConversationsList);
     const config = this.getConvosConfig();
     const store = createIdentityStore();
-    const identities = store.list().filter((i) => i.conversationId);
+    const allLinked = store.list().filter((i) => i.conversationId);
+
+    // Deduplicate: only use the oldest identity per conversation ID
+    const seen = new Map<string, boolean>();
+    const identities = [];
+    // list() is sorted newest-first, so iterate in reverse to pick oldest first
+    for (let i = allLinked.length - 1; i >= 0; i--) {
+      const identity = allLinked[i];
+      const convId = identity.conversationId!;
+      if (!seen.has(convId)) {
+        seen.set(convId, true);
+        identities.push(identity);
+      }
+    }
+
+    // Warn about duplicate identities for the same conversation
+    const duplicates = new Map<string, number>();
+    for (const identity of allLinked) {
+      const convId = identity.conversationId!;
+      duplicates.set(convId, (duplicates.get(convId) ?? 0) + 1);
+    }
+    for (const [convId, count] of duplicates) {
+      if (count > 1) {
+        this.warn(
+          `${count} identities found for conversation ${convId}. ` +
+            `Run 'convos identity list' to review and remove duplicates.`,
+        );
+      }
+    }
 
     if (identities.length === 0) {
       this.output({

@@ -67,4 +67,60 @@ describe("identity store", () => {
     store.remove(id1.id);
     expect(store.list()).toHaveLength(0);
   });
+
+  it("getByConversationId returns oldest identity when duplicates exist", async () => {
+    vi.stubEnv("CONVOS_HOME", testDir);
+    const { createIdentityStore } = await import(
+      "../../src/utils/identities.js"
+    );
+    const store = createIdentityStore(testDir);
+
+    // Create two identities linked to the same conversation
+    const id1 = store.create({ label: "first" });
+    // Small delay to ensure different createdAt timestamps
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const id2 = store.create({ label: "second" });
+
+    store.update(id1.id, { conversationId: "conv-dup" });
+    store.update(id2.id, { conversationId: "conv-dup" });
+
+    // getByConversationId should return the oldest (first-created)
+    const result = store.getByConversationId("conv-dup");
+    expect(result).toBeDefined();
+    expect(result!.id).toBe(id1.id);
+
+    // getAllByConversationId should return both
+    const all = store.getAllByConversationId("conv-dup");
+    expect(all).toHaveLength(2);
+    expect(all.map((i) => i.id).sort()).toEqual([id1.id, id2.id].sort());
+  });
+
+  it("getByInviteTag finds identity by invite tag", async () => {
+    vi.stubEnv("CONVOS_HOME", testDir);
+    const { createIdentityStore } = await import(
+      "../../src/utils/identities.js"
+    );
+    const store = createIdentityStore(testDir);
+
+    const id1 = store.create({ label: "tagged" });
+    store.update(id1.id, { inviteTag: "abc123" });
+
+    const id2 = store.create({ label: "untagged" });
+
+    // Find by tag
+    const found = store.getByInviteTag("abc123");
+    expect(found).toBeDefined();
+    expect(found!.id).toBe(id1.id);
+
+    // Non-existent tag
+    const notFound = store.getByInviteTag("nonexistent");
+    expect(notFound).toBeUndefined();
+
+    // Second identity has no tag
+    const noTag = store.getByInviteTag("");
+    expect(noTag).toBeUndefined();
+
+    store.remove(id1.id);
+    store.remove(id2.id);
+  });
 });

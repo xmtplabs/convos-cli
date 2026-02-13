@@ -64,6 +64,13 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
 
+### Standalone Commands
+
+| Command | Purpose |
+| ------- | ------- |
+| `init` | Initialize configuration and directory structure |
+| `reset` | Delete all identities and conversation data (preserves .env) |
+
 ## Output Modes
 
 All commands support `--json` for machine-readable JSON output:
@@ -296,6 +303,18 @@ convos identity info <identity-id>
 
 # remove an identity (destroys all keys — irreversible)
 convos identity remove <identity-id> --force
+```
+
+### Reset All Data
+
+Delete all identities and conversation data. The `.env` configuration is preserved.
+
+```bash
+# reset with confirmation prompt
+convos reset
+
+# reset without confirmation
+convos reset --force
 ```
 
 ### Group Management

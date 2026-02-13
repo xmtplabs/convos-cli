@@ -111,6 +111,18 @@ slug as query parameter 'i'.`;
         ` creator=${invite.creatorInboxId.slice(0, 12)}...`,
     );
 
+    // Check if we've already joined this conversation (same invite tag)
+    const existingIdentity = store.getByInviteTag(invite.tag);
+    if (existingIdentity) {
+      this.error(
+        `Already joined this conversation.\n` +
+          `  Identity: ${existingIdentity.id}\n` +
+          `  Conversation: ${existingIdentity.conversationId ?? "(pending)"}\n` +
+          `  Label: ${existingIdentity.label ?? ""}\n\n` +
+          `Use 'convos conversation send-text ${existingIdentity.conversationId ?? "<id>"}' to send messages.`,
+      );
+    }
+
     // Step 2: Get or create identity
     let identity;
     if (flags.identity) {
@@ -125,6 +137,9 @@ slug as query parameter 'i'.`;
         profileName: flags["profile-name"],
       });
     }
+
+    // Store invite tag immediately so duplicate detection works even if we exit early
+    store.update(identity.id, { inviteTag: invite.tag });
 
     // Step 3: Create XMTP client and send DM to creator
     const client = await createClientForIdentity(identity, config);
@@ -243,6 +258,7 @@ slug as query parameter 'i'.`;
     store.update(identity.id, {
       conversationId,
       inboxId: client.inboxId,
+      inviteTag: invite.tag,
       label: flags.label ?? invite.name ?? identity.label,
       profileName: flags["profile-name"] ?? identity.profileName,
     });

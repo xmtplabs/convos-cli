@@ -120,15 +120,18 @@ The creator becomes super admin. Others join via invite links.`;
     // Convos conversations start with just the creator
     const group = await client.conversations.createGroup([], options);
 
+    // Generate invite tag
+    const inviteTag = randomAlphanumeric(10);
+
     store.update(identity.id, {
       conversationId: group.id,
       inboxId: client.inboxId,
+      inviteTag,
       label: flags.label ?? flags.name ?? identity.label,
       profileName: flags["profile-name"] ?? identity.profileName,
     });
 
-    // Generate invite tag and store in appData
-    const inviteTag = randomAlphanumeric(10);
+    // Store invite tag in appData
     let metadata = { tag: inviteTag, profiles: [] as { inboxId: string; name?: string }[] };
 
     // Write creator's profile to shared metadata so other members can see it

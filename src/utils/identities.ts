@@ -37,6 +37,8 @@ export interface Identity {
   inboxId?: string;
   /** Conversation ID this identity is linked to */
   conversationId?: string;
+  /** Invite tag used to join/create this conversation */
+  inviteTag?: string;
   /** Human-readable label */
   label?: string;
   /** Profile name shared with conversation members */
@@ -51,6 +53,8 @@ export interface IdentityStore {
   list(): Identity[];
   get(id: string): Identity | undefined;
   getByConversationId(conversationId: string): Identity | undefined;
+  getAllByConversationId(conversationId: string): Identity[];
+  getByInviteTag(tag: string): Identity | undefined;
   getUnlinked(): Identity[];
   create(opts?: { label?: string; profileName?: string }): Identity;
   update(id: string, updates: Partial<Identity>): Identity;
@@ -91,7 +95,23 @@ export function createIdentityStore(baseDir?: string): IdentityStore {
     },
 
     getByConversationId(conversationId: string): Identity | undefined {
-      return this.list().find((i) => i.conversationId === conversationId);
+      // Return the oldest identity for this conversation (first-created = most likely original)
+      const matches = this.list().filter(
+        (i) => i.conversationId === conversationId,
+      );
+      return matches.length > 0
+        ? matches[matches.length - 1] // list() sorts newest-first, so last = oldest
+        : undefined;
+    },
+
+    getAllByConversationId(conversationId: string): Identity[] {
+      return this.list().filter(
+        (i) => i.conversationId === conversationId,
+      );
+    },
+
+    getByInviteTag(tag: string): Identity | undefined {
+      return this.list().find((i) => i.inviteTag === tag);
     },
 
     getUnlinked(): Identity[] {
