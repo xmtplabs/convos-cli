@@ -237,7 +237,7 @@ The person being invited must open the invite URL in the Convos app or scan the 
 convos conversations join <invite-slug>
 
 # join using a full invite URL
-convos conversations join "https://dev.popup.convos.org/v2?i=<slug>"
+convos conversations join "https://dev.convos.org/v2?i=<slug>"
 
 # join with a display name
 convos conversations join <slug> --profile-name "Bob"
