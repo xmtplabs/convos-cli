@@ -12,6 +12,7 @@ A command-line interface for [Convos](https://convos.org) — privacy-focused ep
 - **Per-conversation profiles**: Different display name and avatar in each conversation
 - **Explode**: Permanently destroy a conversation and all its cryptographic keys
 - **Lock**: Prevent new members from being added to a conversation
+- **Agent mode**: Single long-running process for bots — streams messages, auto-processes joins, accepts commands via stdin
 - **JSON output**: Every command supports `--json` for scripting and automation
 
 ## How Convos Differs from Standard XMTP
@@ -104,11 +105,117 @@ Configuration is loaded in priority order:
 
 | Topic | Purpose |
 | ----- | ------- |
+| `agent` | Agent mode — long-running sessions with streaming I/O |
 | `identity` | Manage per-conversation identities (inboxes) |
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
 
 Run `convos --help` for all commands, or `convos <command> --help` for details on a specific command.
+
+## Agent Mode
+
+The `agent serve` command runs a single long-running process that combines conversation management, message streaming, join request processing, and command handling — purpose-built for AI agents and bots.
+
+```bash
+# Create a new conversation and start serving
+convos agent serve --name "My Bot" --profile-name "Assistant"
+
+# Attach to an existing conversation
+convos agent serve <conversation-id>
+```
+
+### Why Agent Mode?
+
+Without `agent serve`, an agent has to juggle multiple processes:
+- `convos conversation stream` for incoming messages
+- `convos conversations process-join-requests --watch` for new members
+- `convos conversation send-text` for each outgoing message (spawning a new process each time)
+
+`agent serve` replaces all of that with a single process using an **ndjson** (newline-delimited JSON) protocol on stdin/stdout.
+
+### Protocol
+
+**stdout** emits one JSON object per line:
+
+| Event | Description | Key Fields |
+| ----- | ----------- | ---------- |
+| `ready` | Session initialized | `conversationId`, `inviteUrl`, `inboxId` |
+| `message` | Incoming message | `id`, `senderInboxId`, `content`, `contentType`, `sentAt` |
+| `member_joined` | New member added | `inboxId`, `conversationId` |
+| `sent` | Outgoing message confirmed | `id`, `text` or `type` + details |
+| `error` | Something went wrong | `message` |
+
+**stdin** accepts one JSON command per line:
+
+| Command | Required Fields | Optional Fields |
+| ------- | --------------- | --------------- |
+| `send` | `text` | `replyTo` (message ID) |
+| `react` | `messageId`, `emoji` | `action` (`add`/`remove`, default `add`) |
+| `attach` | `file` (local path) | `mimeType`, `replyTo` |
+| `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
+| `stop` | — | — |
+
+**stderr** receives the QR code and diagnostic logs (never interferes with the JSON protocol).
+
+### Example: Echo Bot
+
+```bash
+#!/usr/bin/env bash
+# Start agent, read events, echo back every message
+convos agent serve --name "Echo Bot" --profile-name "🤖 Echo" | \
+while IFS= read -r event; do
+  type=$(echo "$event" | jq -r '.event')
+  case "$type" in
+    ready)
+      echo "Bot ready! Invite: $(echo "$event" | jq -r '.inviteUrl')" >&2
+      ;;
+    message)
+      content=$(echo "$event" | jq -r '.content')
+      msg_id=$(echo "$event" | jq -r '.id')
+      # Echo the message back as a reply
+      echo "{\"type\":\"send\",\"text\":\"You said: $content\",\"replyTo\":\"$msg_id\"}"
+      ;;
+    member_joined)
+      echo '{"type":"send","text":"Welcome! 👋"}'
+      ;;
+  esac
+done
+```
+
+### Sending Reactions
+
+```bash
+# React to a message
+echo '{"type":"react","messageId":"abc123","emoji":"👍"}' 
+
+# Remove a reaction
+echo '{"type":"react","messageId":"abc123","emoji":"👍","action":"remove"}'
+```
+
+### Sending Attachments
+
+```bash
+# Send a file (≤1MB sent inline, larger files auto-uploaded via provider)
+echo '{"type":"attach","file":"./chart.png"}'
+
+# Reply with an attachment
+echo '{"type":"attach","file":"./report.pdf","replyTo":"abc123"}'
+
+# Send a pre-uploaded encrypted file
+echo '{"type":"remote-attach","url":"https://...","contentDigest":"...","secret":"...","salt":"...","nonce":"...","contentLength":12345}'
+```
+
+### Agent Flags
+
+| Flag | Description |
+| ---- | ----------- |
+| `--name` | Conversation name (when creating new) |
+| `--description` | Conversation description (when creating new) |
+| `--permissions` | `all-members` or `admin-only` (when creating new) |
+| `--profile-name` | Display name for this conversation |
+| `--identity` | Use an existing unlinked identity |
+| `--label` | Local label for the identity |
+| `--no-invite` | Skip generating an invite (attach mode only) |
 
 ## Usage Examples
 
@@ -373,6 +480,7 @@ convos identity info <id> --verbose
 │              @convos/cli                 │
 │                                          │
 │  Commands:                               │
+│    agent serve (long-running bot mode)   │
 │    identity create/list/info/remove      │
 │    conversations create/join/list/sync   │
 │    conversation invite/explode/lock      │

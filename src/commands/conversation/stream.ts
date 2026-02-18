@@ -2,6 +2,11 @@ import { Args, Flags } from "@oclif/core";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
+import {
+  buildProfileMap,
+  normalizeMessageContent,
+  requireGroup,
+} from "../../utils/xmtp.js";
 
 export default class ConversationStream extends ConvosBaseCommand {
   static description = `Stream messages in a conversation.
@@ -54,6 +59,8 @@ The stream continues until timeout, count limit, or Ctrl+C.`;
       this.error(`Conversation not found: ${args.id}`);
     }
 
+    const group = requireGroup(conversation);
+
     let messageCount = 0;
     const stream = await conversation.stream();
 
@@ -64,11 +71,13 @@ The stream continues until timeout, count limit, or Ctrl+C.`;
 
     try {
       for await (const message of stream) {
+        // Rebuild profiles each time so newly-joined members are resolved
+        const profiles = buildProfileMap(group.appData ?? "");
         this.streamOutput({
           id: message.id,
           senderInboxId: message.senderInboxId,
           contentType: message.contentType,
-          content: message.content,
+          content: normalizeMessageContent(message, profiles),
           sentAt: message.sentAt.toISOString(),
           deliveryStatus: message.deliveryStatus,
         });
