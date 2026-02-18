@@ -161,32 +161,6 @@ function describeGroupUpdated(
 }
 
 /**
- * Normalize a GroupUpdated NAPI object into a plain serializable object
- * with a human-readable description.
- */
-function normalizeGroupUpdated(
-  content: GroupUpdated,
-  profiles: ProfileMap,
-): Record<string, unknown> {
-  return {
-    description: describeGroupUpdated(content, profiles).join("; "),
-    initiatedByInboxId: content.initiatedByInboxId,
-    addedInboxes: content.addedInboxes.map((i) => ({ inboxId: i.inboxId })),
-    removedInboxes: content.removedInboxes.map((i) => ({ inboxId: i.inboxId })),
-    leftInboxes: content.leftInboxes.map((i) => ({ inboxId: i.inboxId })),
-    metadataFieldChanges: content.metadataFieldChanges.map((c) => ({
-      fieldName: c.fieldName,
-      ...(c.oldValue !== undefined && { oldValue: c.oldValue }),
-      ...(c.newValue !== undefined && { newValue: c.newValue }),
-    })),
-    addedAdminInboxes: content.addedAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
-    removedAdminInboxes: content.removedAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
-    addedSuperAdminInboxes: content.addedSuperAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
-    removedSuperAdminInboxes: content.removedSuperAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
-  };
-}
-
-/**
  * Content type IDs that we know how to display.
  * Everything else may be a NAPI object that serializes as `[object Object]`.
  */
@@ -211,10 +185,10 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
 }
 
 /**
- * Normalize message content for serialization. NAPI-backed objects (like
- * GroupUpdated) don't have enumerable properties, so JSON.stringify produces
- * `{}` or they coerce to `[object Object]`. This function converts known
- * content types into plain objects with human-readable descriptions.
+ * Normalize message content to a string for display. NAPI-backed objects
+ * (like GroupUpdated) don't have enumerable properties, so JSON.stringify
+ * produces `{}` or they coerce to `[object Object]`. This function always
+ * returns a string safe for display.
  *
  * @param profiles - optional ProfileMap for resolving inbox IDs to names.
  *   When omitted, unresolved members appear as "Somebody".
@@ -222,19 +196,28 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
 export function normalizeMessageContent(
   message: DecodedMessage,
   profiles?: ProfileMap,
-): unknown {
+): string {
   const ct = message.contentType;
+
+  // Text / markdown — already a string
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+
+  // GroupUpdated — human-readable description
   if (
     ct.authorityId === "xmtp.org" &&
     ct.typeId === "group_updated" &&
     message.content != null &&
     typeof message.content === "object"
   ) {
-    return normalizeGroupUpdated(
+    return describeGroupUpdated(
       message.content as GroupUpdated,
       profiles ?? new Map(),
-    );
+    ).join("; ");
   }
+
+  // Reaction — e.g. "reacted 👍 to <msgId>"
   if (
     ct.authorityId === "xmtp.org" &&
     ct.typeId === "reaction" &&
@@ -243,19 +226,14 @@ export function normalizeMessageContent(
   ) {
     const r = message.content as {
       reference: string;
-      referenceInboxId: string;
       action: number;
       content: string;
-      schema: number;
     };
-    return {
-      reference: r.reference,
-      referenceInboxId: r.referenceInboxId,
-      action: r.action,
-      content: r.content,
-      schema: r.schema,
-    };
+    const verb = r.action === 1 ? "removed" : "reacted";
+    return `${verb} ${r.content} to ${r.reference}`;
   }
+
+  // Reply — extract text content if possible
   if (
     ct.authorityId === "xmtp.org" &&
     ct.typeId === "reply" &&
@@ -264,16 +242,19 @@ export function normalizeMessageContent(
   ) {
     const r = message.content as {
       reference: string;
-      referenceInboxId?: string;
       content: unknown;
     };
-    return {
-      reference: r.reference,
-      referenceInboxId: r.referenceInboxId,
-      content: r.content,
-    };
+    const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+    return `reply to ${r.reference}: ${text}`;
   }
-  return message.content;
+
+  // Fallback — stringify safely
+  try {
+    const str = JSON.stringify(message.content);
+    return str !== undefined ? str : "";
+  } catch {
+    return "";
+  }
 }
 
 // ─── Output formatting ───
