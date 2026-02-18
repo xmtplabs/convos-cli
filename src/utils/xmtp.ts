@@ -170,6 +170,9 @@ const DISPLAYABLE_TYPE_IDS = new Set([
   "group_updated",
   "reaction",
   "reply",
+  "attachment",
+  "remoteStaticAttachment",
+  "multiRemoteStaticAttachment",
 ]);
 
 /**
@@ -246,6 +249,45 @@ export function normalizeMessageContent(
     };
     const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
     return `reply to ${r.reference}: ${text}`;
+  }
+
+  // Inline attachment — filename and mime type
+  if (
+    ct.authorityId === "xmtp.org" &&
+    ct.typeId === "attachment" &&
+    message.content != null &&
+    typeof message.content === "object"
+  ) {
+    const a = message.content as { filename?: string; mimeType: string };
+    const name = a.filename || "unnamed";
+    return `[attachment: ${name} (${a.mimeType})]`;
+  }
+
+  // Remote attachment — URL, filename, mime info
+  if (
+    ct.authorityId === "xmtp.org" &&
+    ct.typeId === "remoteStaticAttachment" &&
+    message.content != null &&
+    typeof message.content === "object"
+  ) {
+    const a = message.content as { url: string; filename?: string; contentLength: number };
+    const name = a.filename || "unnamed";
+    return `[remote attachment: ${name} (${a.contentLength} bytes) ${a.url}]`;
+  }
+
+  // Multi remote attachment
+  if (
+    ct.authorityId === "xmtp.org" &&
+    ct.typeId === "multiRemoteStaticAttachment" &&
+    message.content != null &&
+    typeof message.content === "object"
+  ) {
+    const m = message.content as {
+      attachments: Array<{ filename?: string; url: string; contentLength?: number }>;
+    };
+    const count = m.attachments?.length ?? 0;
+    const names = m.attachments?.map((a) => a.filename || "unnamed").join(", ") ?? "";
+    return `[${count} attachments: ${names}]`;
   }
 
   // Fallback — stringify safely
