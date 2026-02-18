@@ -232,7 +232,7 @@ export function normalizeMessageContent(
       action: number;
       content: string;
     };
-    const verb = r.action === 1 ? "removed" : "reacted";
+    const verb = r.action === 2 ? "removed" : "reacted";
     return `${verb} ${r.content} to ${r.reference}`;
   }
 
