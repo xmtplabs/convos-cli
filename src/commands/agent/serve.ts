@@ -37,8 +37,13 @@ import {
   getUploadProvider,
   INLINE_ATTACHMENT_MAX_BYTES,
 } from "../../utils/upload.js";
-import { getAccountAddress, requireGroup } from "../../utils/xmtp.js";
-import { jsonStringify } from "../../utils/xmtp.js";
+import {
+  buildProfileMap,
+  getAccountAddress,
+  jsonStringify,
+  normalizeMessageContent,
+  requireGroup,
+} from "../../utils/xmtp.js";
 
 /**
  * Stdin command types the agent can send.
@@ -358,12 +363,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             // Skip our own messages (they get a "sent" event instead)
             if (message.senderInboxId === client.inboxId) continue;
 
+            // Rebuild profiles each time so newly-joined members are resolved
+            const profiles = buildProfileMap(conversation.appData ?? "");
+
             this.emit({
               event: "message",
               id: message.id,
               senderInboxId: message.senderInboxId,
               contentType: message.contentType,
-              content: message.content,
+              content: normalizeMessageContent(message, profiles),
               sentAt: message.sentAt.toISOString(),
               deliveryStatus: message.deliveryStatus,
             });

@@ -9,6 +9,11 @@ import {
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
+import {
+  buildProfileMap,
+  normalizeMessageContent,
+  requireGroup,
+} from "../../utils/xmtp.js";
 
 const contentTypeOptions = [
   "actions", "attachment", "custom", "group-membership-change",
@@ -144,13 +149,16 @@ Supports filtering, pagination, and sorting.`;
       options.excludeContentTypes = flags["exclude-content-type"].map((ct) => contentTypeMap[ct]);
     }
 
+    const group = requireGroup(conversation);
+    const profiles = buildProfileMap(group.appData ?? "");
+
     const messages = await conversation.messages(options);
     this.output(
       messages.map((m) => ({
         id: m.id,
         senderInboxId: m.senderInboxId,
         contentType: m.contentType,
-        content: m.content,
+        content: normalizeMessageContent(m, profiles),
         sentAt: m.sentAt.toISOString(),
         deliveryStatus: m.deliveryStatus,
       })),

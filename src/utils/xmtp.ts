@@ -7,7 +7,15 @@
  */
 
 import { stdout } from "node:process";
-import { Dm, Group, type Conversation } from "@xmtp/node-sdk";
+import {
+  ContentType,
+  Dm,
+  Group,
+  type DecodedMessage,
+  type Conversation,
+} from "@xmtp/node-sdk";
+import type { GroupUpdated } from "@xmtp/node-bindings";
+import { parseAppData } from "./metadata.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -60,6 +68,151 @@ export function getAccountAddress(walletKey: string): string {
 // ─── Config constants ───
 
 export const VALID_ENVS = ["local", "dev", "production"] as const;
+
+// ─── Message content normalization ───
+
+/** Map of inboxId (lowercase) → display name. */
+export type ProfileMap = Map<string, string>;
+
+/**
+ * Build a ProfileMap from a Group's appData.
+ */
+export function buildProfileMap(appData: string): ProfileMap {
+  const metadata = parseAppData(appData);
+  const map: ProfileMap = new Map();
+  for (const p of metadata.profiles) {
+    if (p.name) {
+      map.set(p.inboxId.toLowerCase(), p.name);
+    }
+  }
+  return map;
+}
+
+/**
+ * Resolve an inbox ID to a display name, falling back to "Somebody".
+ */
+function resolveName(inboxId: string, profiles: ProfileMap): string {
+  return profiles.get(inboxId.toLowerCase()) ?? "Somebody";
+}
+
+/**
+ * Produce human-readable descriptions for a GroupUpdated event.
+ */
+function describeGroupUpdated(
+  content: GroupUpdated,
+  profiles: ProfileMap,
+): string[] {
+  const descriptions: string[] = [];
+  const initiator = resolveName(content.initiatedByInboxId, profiles);
+
+  for (const inbox of content.addedInboxes) {
+    const added = resolveName(inbox.inboxId, profiles);
+    if (inbox.inboxId.toLowerCase() === content.initiatedByInboxId.toLowerCase()) {
+      descriptions.push(`${added} joined by invite`);
+    } else {
+      descriptions.push(`${initiator} added ${added}`);
+    }
+  }
+
+  for (const inbox of content.removedInboxes) {
+    const removed = resolveName(inbox.inboxId, profiles);
+    descriptions.push(`${initiator} removed ${removed}`);
+  }
+
+  for (const inbox of content.leftInboxes) {
+    const left = resolveName(inbox.inboxId, profiles);
+    descriptions.push(`${left} left the group`);
+  }
+
+  for (const change of content.metadataFieldChanges) {
+    const field = change.fieldName.replace(/_/g, " ");
+    if (change.newValue) {
+      descriptions.push(`${initiator} changed ${field} to "${change.newValue}"`);
+    } else {
+      descriptions.push(`${initiator} cleared ${field}`);
+    }
+  }
+
+  for (const inbox of content.addedAdminInboxes) {
+    const admin = resolveName(inbox.inboxId, profiles);
+    descriptions.push(`${initiator} made ${admin} an admin`);
+  }
+
+  for (const inbox of content.removedAdminInboxes) {
+    const admin = resolveName(inbox.inboxId, profiles);
+    descriptions.push(`${initiator} removed ${admin} as admin`);
+  }
+
+  for (const inbox of content.addedSuperAdminInboxes) {
+    const admin = resolveName(inbox.inboxId, profiles);
+    descriptions.push(`${initiator} made ${admin} a super admin`);
+  }
+
+  for (const inbox of content.removedSuperAdminInboxes) {
+    const admin = resolveName(inbox.inboxId, profiles);
+    descriptions.push(`${initiator} removed ${admin} as super admin`);
+  }
+
+  if (descriptions.length === 0) {
+    descriptions.push("Group updated");
+  }
+
+  return descriptions;
+}
+
+/**
+ * Normalize a GroupUpdated NAPI object into a plain serializable object
+ * with a human-readable description.
+ */
+function normalizeGroupUpdated(
+  content: GroupUpdated,
+  profiles: ProfileMap,
+): Record<string, unknown> {
+  return {
+    description: describeGroupUpdated(content, profiles).join("; "),
+    initiatedByInboxId: content.initiatedByInboxId,
+    addedInboxes: content.addedInboxes.map((i) => ({ inboxId: i.inboxId })),
+    removedInboxes: content.removedInboxes.map((i) => ({ inboxId: i.inboxId })),
+    leftInboxes: content.leftInboxes.map((i) => ({ inboxId: i.inboxId })),
+    metadataFieldChanges: content.metadataFieldChanges.map((c) => ({
+      fieldName: c.fieldName,
+      ...(c.oldValue !== undefined && { oldValue: c.oldValue }),
+      ...(c.newValue !== undefined && { newValue: c.newValue }),
+    })),
+    addedAdminInboxes: content.addedAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
+    removedAdminInboxes: content.removedAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
+    addedSuperAdminInboxes: content.addedSuperAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
+    removedSuperAdminInboxes: content.removedSuperAdminInboxes.map((i) => ({ inboxId: i.inboxId })),
+  };
+}
+
+/**
+ * Normalize message content for serialization. NAPI-backed objects (like
+ * GroupUpdated) don't have enumerable properties, so JSON.stringify produces
+ * `{}` or they coerce to `[object Object]`. This function converts known
+ * content types into plain objects with human-readable descriptions.
+ *
+ * @param profiles - optional ProfileMap for resolving inbox IDs to names.
+ *   When omitted, unresolved members appear as "Somebody".
+ */
+export function normalizeMessageContent(
+  message: DecodedMessage,
+  profiles?: ProfileMap,
+): unknown {
+  const ct = message.contentType;
+  if (
+    ct.authorityId === "xmtp.org" &&
+    ct.typeId === "groupUpdated" &&
+    message.content != null &&
+    typeof message.content === "object"
+  ) {
+    return normalizeGroupUpdated(
+      message.content as GroupUpdated,
+      profiles ?? new Map(),
+    );
+  }
+  return message.content;
+}
 
 // ─── Output formatting ───
 
