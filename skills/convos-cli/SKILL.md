@@ -60,6 +60,7 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 
 | Topic | Purpose |
 | ----- | ------- |
+| `agent` | Agent mode — long-running sessions with streaming I/O |
 | `identity` | Manage per-conversation identities (inboxes) |
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
@@ -374,6 +375,117 @@ convos conversations sync
 # sync a single conversation
 convos conversation sync <conversation-id>
 ```
+
+## Agent Mode
+
+The `agent serve` command runs a long-running process that combines conversation creation, message streaming, join request processing, and stdin command handling — ideal for AI agents and bots.
+
+### Quick Start (Agent)
+
+```bash
+# create a new conversation and start serving
+convos agent serve --name "My Bot" --profile-name "Assistant"
+
+# attach to an existing conversation
+convos agent serve <conversation-id>
+
+# create with admin-only permissions
+convos agent serve --name "Agent" --permissions admin-only
+```
+
+### Protocol
+
+The agent uses an **ndjson** (newline-delimited JSON) protocol:
+
+- **stdout**: Events (one JSON object per line)
+- **stdin**: Commands (one JSON object per line)
+- **stderr**: QR code + diagnostic logs
+
+#### Events (stdout)
+
+| Event | Description | Key Fields |
+| ----- | ----------- | ---------- |
+| `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
+| `message` | New message received | `id`, `senderInboxId`, `content`, `contentType`, `sentAt` |
+| `member_joined` | Member joined via invite | `inboxId`, `conversationId` |
+| `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional) |
+| `error` | Error occurred | `message` |
+
+#### Commands (stdin)
+
+```jsonl
+{"type":"send","text":"Hello, world!"}
+{"type":"send","text":"Replying to you","replyTo":"<message-id>"}
+{"type":"react","messageId":"<message-id>","emoji":"👍"}
+{"type":"react","messageId":"<message-id>","emoji":"👍","action":"remove"}
+{"type":"attach","file":"./photo.jpg"}
+{"type":"attach","file":"./photo.jpg","replyTo":"<message-id>"}
+{"type":"attach","file":"./photo.jpg","mimeType":"image/jpeg"}
+{"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
+{"type":"stop"}
+```
+
+| Command | Required Fields | Optional Fields |
+| ------- | --------------- | --------------- |
+| `send` | `text` | `replyTo` |
+| `react` | `messageId`, `emoji` | `action` (`add`/`remove`, default: `add`) |
+| `attach` | `file` (local path) | `mimeType`, `replyTo` |
+| `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
+| `stop` | — | — |
+
+Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
+
+### How It Works
+
+When started, `agent serve`:
+
+1. **Creates or attaches** to a conversation
+2. **Displays QR code** invite on stderr (so users can scan and join)
+3. **Emits `ready` event** with conversation ID, invite URL, and identity info
+4. **Processes pending join requests** from before the agent started
+5. **Streams messages** — emits `message` events as they arrive in real-time
+6. **Streams DM join requests** — automatically adds new members and emits `member_joined`
+7. **Reads stdin** — accepts `send` and `stop` commands
+
+All of these run concurrently. The agent stays alive until `SIGINT`, `SIGTERM`, stdin close, or a `stop` command.
+
+### Example: Agent Integration
+
+```bash
+# Start the agent, pipe commands in, read events out
+convos agent serve --name "Bot" --profile-name "AI Assistant" | while IFS= read -r event; do
+  type=$(echo "$event" | jq -r '.event')
+  case "$type" in
+    ready)
+      echo "Bot ready! Invite URL: $(echo "$event" | jq -r '.inviteUrl')" >&2
+      ;;
+    message)
+      content=$(echo "$event" | jq -r '.content')
+      echo "Received: $content" >&2
+      # Send a reply (write JSON command to agent's stdin)
+      msg_id=$(echo "$event" | jq -r '.id')
+      echo "{\"type\":\"send\",\"text\":\"You said: $content\",\"replyTo\":\"$msg_id\"}"
+      ;;
+    member_joined)
+      inbox=$(echo "$event" | jq -r '.inboxId')
+      echo "New member: $inbox" >&2
+      echo "{\"type\":\"send\",\"text\":\"Welcome!\"}"
+      ;;
+  esac
+done
+```
+
+### Agent Flags
+
+| Flag | Description |
+| ---- | ----------- |
+| `--name` | Conversation name (when creating new) |
+| `--description` | Conversation description (when creating new) |
+| `--permissions` | `all-members` or `admin-only` (when creating new) |
+| `--profile-name` | Display name for this conversation |
+| `--identity` | Use an existing unlinked identity |
+| `--label` | Local label for the identity |
+| `--no-invite` | Skip generating an invite (attach mode) |
 
 ## Important Concepts
 
