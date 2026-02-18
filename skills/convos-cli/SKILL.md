@@ -577,11 +577,12 @@ convos conversation stream "$CONV_ID" --timeout 300
 
 ## Tips
 
-1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user.
-2. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
-3. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
-4. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
-5. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
-6. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
-7. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
-8. **Check command help**: Run `convos <command> --help` for full flag documentation
+1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user. When running `agent serve`, the QR code is saved as a PNG file (path in the `qrCodePath` field of the `ready` event) — display it to the user using the read tool so they can scan it.
+2. **Never use markdown in messages**: Convos does not render markdown. When sending messages (via `send-text`, `send-reply`, or agent `send` commands), always use plain text. Do not use markdown formatting like `**bold**`, `*italic*`, `# headings`, `` `code` ``, `[links](url)`, or bullet lists with `- ` or `* `. Write naturally in plain text instead.
+3. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
+4. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
+5. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
+6. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
+7. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
+8. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
+9. **Check command help**: Run `convos <command> --help` for full flag documentation
