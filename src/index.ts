@@ -56,6 +56,7 @@ export {
   formatHuman,
   jsonStringify,
   buildProfileMap,
+  isDisplayableMessage,
   normalizeMessageContent,
   type ProfileMap,
   isTTY,

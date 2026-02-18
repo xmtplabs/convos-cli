@@ -4,6 +4,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import {
   buildProfileMap,
+  isDisplayableMessage,
   normalizeMessageContent,
   requireGroup,
 } from "../../utils/xmtp.js";
@@ -71,6 +72,7 @@ The stream continues until timeout, count limit, or Ctrl+C.`;
 
     try {
       for await (const message of stream) {
+        if (!isDisplayableMessage(message)) continue;
         // Rebuild profiles each time so newly-joined members are resolved
         const profiles = buildProfileMap(group.appData ?? "");
         this.streamOutput({

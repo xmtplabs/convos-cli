@@ -40,6 +40,7 @@ import {
 import {
   buildProfileMap,
   getAccountAddress,
+  isDisplayableMessage,
   jsonStringify,
   normalizeMessageContent,
   requireGroup,
@@ -362,6 +363,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           for await (const message of stream) {
             // Skip our own messages (they get a "sent" event instead)
             if (message.senderInboxId === client.inboxId) continue;
+            // Skip content types we can't display cleanly
+            if (!isDisplayableMessage(message)) continue;
 
             // Rebuild profiles each time so newly-joined members are resolved
             const profiles = buildProfileMap(conversation.appData ?? "");

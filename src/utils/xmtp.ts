@@ -187,6 +187,30 @@ function normalizeGroupUpdated(
 }
 
 /**
+ * Content type IDs that we know how to display.
+ * Everything else may be a NAPI object that serializes as `[object Object]`.
+ */
+const DISPLAYABLE_TYPE_IDS = new Set([
+  "text",
+  "markdown",
+  "group_updated",
+  "reaction",
+  "reply",
+]);
+
+/**
+ * Returns true if the message has a content type we know how to display.
+ * Use this to filter out unknown/binary content types from streams.
+ */
+export function isDisplayableMessage(message: DecodedMessage): boolean {
+  const ct = message.contentType;
+  if (ct.authorityId !== "xmtp.org") return false;
+  if (DISPLAYABLE_TYPE_IDS.has(ct.typeId)) return true;
+  // Fallback: if content is already a string, it's safe to display
+  return typeof message.content === "string";
+}
+
+/**
  * Normalize message content for serialization. NAPI-backed objects (like
  * GroupUpdated) don't have enumerable properties, so JSON.stringify produces
  * `{}` or they coerce to `[object Object]`. This function converts known
@@ -202,7 +226,7 @@ export function normalizeMessageContent(
   const ct = message.contentType;
   if (
     ct.authorityId === "xmtp.org" &&
-    ct.typeId === "groupUpdated" &&
+    ct.typeId === "group_updated" &&
     message.content != null &&
     typeof message.content === "object"
   ) {
@@ -210,6 +234,44 @@ export function normalizeMessageContent(
       message.content as GroupUpdated,
       profiles ?? new Map(),
     );
+  }
+  if (
+    ct.authorityId === "xmtp.org" &&
+    ct.typeId === "reaction" &&
+    message.content != null &&
+    typeof message.content === "object"
+  ) {
+    const r = message.content as {
+      reference: string;
+      referenceInboxId: string;
+      action: number;
+      content: string;
+      schema: number;
+    };
+    return {
+      reference: r.reference,
+      referenceInboxId: r.referenceInboxId,
+      action: r.action,
+      content: r.content,
+      schema: r.schema,
+    };
+  }
+  if (
+    ct.authorityId === "xmtp.org" &&
+    ct.typeId === "reply" &&
+    message.content != null &&
+    typeof message.content === "object"
+  ) {
+    const r = message.content as {
+      reference: string;
+      referenceInboxId?: string;
+      content: unknown;
+    };
+    return {
+      reference: r.reference,
+      referenceInboxId: r.referenceInboxId,
+      content: r.content,
+    };
   }
   return message.content;
 }
