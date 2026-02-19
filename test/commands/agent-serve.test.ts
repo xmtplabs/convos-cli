@@ -43,6 +43,10 @@ function createTestAgent() {
   agent.heartbeatInterval = undefined;
   agent.lastMessageTimestampNs = 0n;
   agent.lastDmTimestampNs = 0n;
+  agent.recentMessageIds = new Set();
+  agent.isCatchingUpMessages = false;
+  agent.isCatchingUpDms = false;
+  agent.commandQueue = Promise.resolve();
 
   const events: Record<string, unknown>[] = [];
   agent.emit = (event: Record<string, unknown>) => events.push(event);
@@ -447,5 +451,113 @@ describe("catchUpDmJoinRequests", () => {
     await agent.catchUpDmJoinRequests(client, mockIdentity(), 0n);
 
     expect(client.conversations.sync).not.toHaveBeenCalled();
+  });
+
+  it("skips when already catching up (concurrency guard)", async () => {
+    const { agent } = createTestAgent();
+    agent.isCatchingUpDms = true;
+    const client = {
+      inboxId: "self",
+      conversations: { sync: vi.fn(), list: vi.fn() },
+    };
+
+    await agent.catchUpDmJoinRequests(client, mockIdentity(), 1000n);
+
+    expect(client.conversations.sync).not.toHaveBeenCalled();
+  });
+});
+
+// ─── message deduplication ───
+
+describe("message deduplication", () => {
+  it("trackMessageId returns false for duplicates", () => {
+    const { agent } = createTestAgent();
+    expect(agent.trackMessageId("msg-1")).toBe(true);
+    expect(agent.trackMessageId("msg-2")).toBe(true);
+    expect(agent.trackMessageId("msg-1")).toBe(false); // duplicate
+  });
+
+  it("evicts oldest IDs when exceeding MAX_RECENT_IDS", () => {
+    const { agent } = createTestAgent();
+    // Fill to the limit
+    for (let i = 0; i < 1000; i++) {
+      agent.trackMessageId(`msg-${i}`);
+    }
+    expect(agent.recentMessageIds.size).toBe(1000);
+
+    // Adding one more should evict the oldest (msg-0)
+    agent.trackMessageId("msg-new");
+    expect(agent.recentMessageIds.size).toBe(1000);
+    expect(agent.recentMessageIds.has("msg-0")).toBe(false);
+    expect(agent.recentMessageIds.has("msg-1")).toBe(true);
+    expect(agent.recentMessageIds.has("msg-new")).toBe(true);
+  });
+
+  it("catchUpMessages skips messages already emitted by live stream", async () => {
+    const { agent, events } = createTestAgent();
+    const t = new Date("2025-06-01T12:00:00Z");
+
+    // Simulate live stream already emitted this message
+    agent.trackMessageId("already-seen");
+
+    const group = mockGroup({
+      messages: vi.fn().mockResolvedValue([
+        {
+          id: "already-seen",
+          senderInboxId: "other",
+          contentType: { authorityId: "xmtp.org", typeId: "text" },
+          content: "dup",
+          sentAt: t,
+        },
+        {
+          id: "new-msg",
+          senderInboxId: "other",
+          contentType: { authorityId: "xmtp.org", typeId: "text" },
+          content: "fresh",
+          sentAt: t,
+        },
+      ]),
+    });
+
+    await agent.catchUpMessages(group, { inboxId: "self" }, 1n);
+
+    const msgs = events.filter((e) => e.event === "message");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].id).toBe("new-msg");
+  });
+});
+
+// ─── catchup concurrency guard ───
+
+describe("catchUpMessages concurrency guard", () => {
+  it("skips when already catching up", async () => {
+    const { agent, events } = createTestAgent();
+    agent.isCatchingUpMessages = true;
+    const group = mockGroup();
+
+    await agent.catchUpMessages(group, { inboxId: "self" }, 1000n);
+
+    expect(group.sync).not.toHaveBeenCalled();
+    expect(events).toHaveLength(0);
+  });
+
+  it("resets the guard after completion", async () => {
+    const { agent } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.catchUpMessages(group, { inboxId: "self" }, 1000n);
+
+    expect(agent.isCatchingUpMessages).toBe(false);
+  });
+
+  it("resets the guard even after errors", async () => {
+    const { agent } = createTestAgent();
+    const group = mockGroup({
+      sync: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+
+    await agent.catchUpMessages(group, { inboxId: "self" }, 1000n);
+
+    expect(agent.isCatchingUpMessages).toBe(false);
   });
 });

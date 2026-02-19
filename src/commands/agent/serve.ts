@@ -239,6 +239,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   private lastMessageTimestampNs: bigint = 0n;
   /** Timestamp (ns) of the last DM message we processed — used for catchup on reconnect. */
   private lastDmTimestampNs: bigint = 0n;
+  /** IDs of recently emitted messages — used to deduplicate catchup vs live stream. */
+  private recentMessageIds: Set<string> = new Set();
+  /** Guards against concurrent catchup operations during connection flapping. */
+  private isCatchingUpMessages = false;
+  private isCatchingUpDms = false;
+  /** Serializes command execution to prevent concurrent appData read-modify-write. */
+  private commandQueue: Promise<void> = Promise.resolve();
+
+  private static readonly MAX_RECENT_IDS = 1000;
 
   /**
    * Emit a JSON event to stdout (one line).
@@ -252,6 +261,20 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
    */
   private emitError(message: string, details?: Record<string, unknown>): void {
     this.emit({ event: "error", message, ...details });
+  }
+
+  /**
+   * Track a message ID as emitted. Returns false if already seen (duplicate).
+   */
+  private trackMessageId(id: string): boolean {
+    if (this.recentMessageIds.has(id)) return false;
+    this.recentMessageIds.add(id);
+    // Evict oldest entries when the set grows too large
+    if (this.recentMessageIds.size > AgentServe.MAX_RECENT_IDS) {
+      const first = this.recentMessageIds.values().next().value!;
+      this.recentMessageIds.delete(first);
+    }
+    return true;
   }
 
   /**
@@ -373,6 +396,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
   /**
    * Catch up on DM join requests that may have arrived while disconnected.
+   * Guarded against concurrent invocations during connection flapping.
    */
   private async catchUpDmJoinRequests(
     client: Client,
@@ -380,6 +404,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     sinceNs: bigint,
   ): Promise<void> {
     if (sinceNs === 0n) return;
+    if (this.isCatchingUpDms) return;
+    this.isCatchingUpDms = true;
 
     try {
       await client.conversations.sync();
@@ -426,6 +452,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       this.emitError(
         `Failed to catch up DM join requests: ${error instanceof Error ? error.message : "unknown"}`,
       );
+    } finally {
+      this.isCatchingUpDms = false;
     }
   }
 
@@ -484,6 +512,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
   /**
    * Fetch and emit any messages that arrived while the stream was disconnected.
+   * Guarded against concurrent invocations during connection flapping.
    */
   private async catchUpMessages(
     conversation: Group,
@@ -491,6 +520,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     sinceNs: bigint,
   ): Promise<void> {
     if (sinceNs === 0n) return;
+    if (this.isCatchingUpMessages) return;
+    this.isCatchingUpMessages = true;
 
     try {
       await conversation.sync();
@@ -502,6 +533,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       for (const message of missed) {
         if (message.senderInboxId === client.inboxId) continue;
         if (!isDisplayableMessage(message)) continue;
+        if (!this.trackMessageId(message.id)) continue;
 
         const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
         if (sentAtNs > this.lastMessageTimestampNs) {
@@ -524,6 +556,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       this.emitError(
         `Failed to catch up messages: ${error instanceof Error ? error.message : "unknown"}`,
       );
+    } finally {
+      this.isCatchingUpMessages = false;
     }
   }
 
@@ -554,6 +588,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             if (message.senderInboxId === client.inboxId) continue;
             // Skip content types we can't display cleanly
             if (!isDisplayableMessage(message)) continue;
+            // Skip if already emitted by catchup
+            if (!this.trackMessageId(message.id)) continue;
 
             // Track last message timestamp for catchup on reconnect
             const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
@@ -613,7 +649,10 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         return;
       }
 
-      void this.handleCommand(cmd, conversation, client, identity);
+      // Serialize commands to prevent concurrent appData read-modify-write
+      this.commandQueue = this.commandQueue.then(() =>
+        this.handleCommand(cmd, conversation, client, identity),
+      );
     });
 
     rl.on("close", () => {
