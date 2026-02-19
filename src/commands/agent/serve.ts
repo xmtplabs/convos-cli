@@ -107,7 +107,7 @@ interface StopCommand {
   type: "stop";
 }
 
-type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | LockCommand | UnlockCommand | ExplodeCommand | StopCommand;
+export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | LockCommand | UnlockCommand | ExplodeCommand | StopCommand;
 
 /**
  * Encode an ExplodeSettings message matching the iOS content type.
@@ -116,7 +116,7 @@ type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCom
  * Payload: JSON-encoded { expiresAt: ISO8601 string }
  * Fallback: "Conversation expires at {date}"
  */
-function encodeExplodeSettings(expiresAt: Date): EncodedContent {
+export function encodeExplodeSettings(expiresAt: Date): EncodedContent {
   const payload = JSON.stringify({
     expiresAt: expiresAt.toISOString(),
   });
