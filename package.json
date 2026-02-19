@@ -1,5 +1,5 @@
 {
-  "name": "@convos/cli",
+  "name": "@xmtp/convos-cli",
   "version": "0.1.0",
   "description": "A command-line interface for Convos — privacy-focused messaging built on XMTP",
   "keywords": [
