@@ -1,4 +1,4 @@
-# @convos/cli
+# @xmtp/convos-cli
 
 > [!CAUTION]
 > This CLI is in beta status and ready for you to use. Software in this status may contain bugs or change based on feedback.
@@ -34,23 +34,23 @@ Standard XMTP uses a single identity (wallet + inbox) across all conversations. 
 
 ```bash
 # npm
-npm install -g @convos/cli
+npm install -g @xmtp/convos-cli
 
 # pnpm
-pnpm add -g @convos/cli
+pnpm add -g @xmtp/convos-cli
 ```
 
 ## Run Without Installing
 
 ```bash
 # npx
-npx @convos/cli --help
+npx @xmtp/convos-cli --help
 
 # pnpx
-pnpx @convos/cli --help
+pnpx @xmtp/convos-cli --help
 
 # yarn
-yarn dlx @convos/cli --help
+yarn dlx @xmtp/convos-cli --help
 ```
 
 ## Quick Start
@@ -477,7 +477,7 @@ convos identity info <id> --verbose
 
 ```
 ┌──────────────────────────────────────────┐
-│              @convos/cli                 │
+│              @xmtp/convos-cli                 │
 │                                          │
 │  Commands:                               │
 │    agent serve (long-running bot mode)   │
@@ -500,7 +500,7 @@ convos identity info <id> --verbose
 
 ## Library Usage
 
-`@convos/cli` exports its core functionality for use in other applications:
+`@xmtp/convos-cli` exports its core functionality for use in other applications:
 
 ```typescript
 import {
@@ -513,7 +513,7 @@ import {
   serializeAppData,
   upsertProfile,
   ConvosBaseCommand,
-} from "@convos/cli";
+} from "@xmtp/convos-cli";
 ```
 
 See the [exports](./src/index.ts) for the full API.
@@ -528,7 +528,7 @@ Add the skill directory to your project's `.claude/settings.json`:
 
 ```json
 {
-  "skills": ["./node_modules/@convos/cli/skills"]
+  "skills": ["./node_modules/@xmtp/convos-cli/skills"]
 }
 ```
 
@@ -537,10 +537,10 @@ Add the skill directory to your project's `.claude/settings.json`:
 Use [openskills](https://github.com/numman-ali/openskills) to install the skill:
 
 ```bash
-npx openskills install ./node_modules/@convos/cli/skills
+npx openskills install ./node_modules/@xmtp/convos-cli/skills
 ```
 
-Or point your agent to `node_modules/@convos/cli/skills/convos-cli/SKILL.md` directly.
+Or point your agent to `node_modules/@xmtp/convos-cli/skills/convos-cli/SKILL.md` directly.
 
 ## Testing
 
