@@ -406,10 +406,13 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | Event | Description | Key Fields |
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
-| `message` | New message received | `id`, `senderInboxId`, `content`, `contentType`, `sentAt` |
-| `member_joined` | Member joined via invite | `inboxId`, `conversationId` |
-| `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional) |
+| `message` | New message received | `id`, `senderInboxId`, `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
+| `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
+| `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
 | `error` | Error occurred | `message` |
+
+Messages with `catchup: true` were fetched during stream reconnection (missed while disconnected).
 
 #### Commands (stdin)
 
@@ -422,6 +425,11 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 {"type":"attach","file":"./photo.jpg","replyTo":"<message-id>"}
 {"type":"attach","file":"./photo.jpg","mimeType":"image/jpeg"}
 {"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
+{"type":"rename","name":"New Group Name"}
+{"type":"lock"}
+{"type":"unlock"}
+{"type":"explode"}
+{"type":"explode","scheduled":"2025-03-01T00:00:00Z"}
 {"type":"stop"}
 ```
 
@@ -431,9 +439,15 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | `react` | `messageId`, `emoji` | `action` (`add`/`remove`, default: `add`) |
 | `attach` | `file` (local path) | `mimeType`, `replyTo` |
 | `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
+| `rename` | `name` | — |
+| `lock` | — | — |
+| `unlock` | — | — |
+| `explode` | — | `scheduled` (ISO8601 date) |
 | `stop` | — | — |
 
 Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
+
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** permanently destroys the conversation — sends ExplodeSettings notification, removes members, and deletes the local identity. Immediate explode triggers agent shutdown. **Rename** updates the conversation name visible to all members.
 
 ### How It Works
 
@@ -445,9 +459,11 @@ When started, `agent serve`:
 4. **Processes pending join requests** from before the agent started
 5. **Streams messages** — emits `message` events as they arrive in real-time
 6. **Streams DM join requests** — automatically adds new members and emits `member_joined`
-7. **Reads stdin** — accepts `send` and `stop` commands
+7. **Reads stdin** — accepts `send`, `rename`, `lock`, `unlock`, `explode`, and `stop` commands
+8. **Emits heartbeat** (optional) — periodic health check events when `--heartbeat` is set
+9. **Catches up on reconnect** — if a stream disconnects and reconnects, fetches any missed messages since the last seen timestamp
 
-All of these run concurrently. The agent stays alive until `SIGINT`, `SIGTERM`, stdin close, or a `stop` command.
+All of these run concurrently. The agent stays alive until `SIGINT`, `SIGTERM`, stdin close, a `stop` command, or an immediate `explode`.
 
 ### Example: Agent Integration
 
@@ -486,6 +502,7 @@ done
 | `--identity` | Use an existing unlinked identity |
 | `--label` | Local label for the identity |
 | `--no-invite` | Skip generating an invite (attach mode) |
+| `--heartbeat` | Emit heartbeat events every N seconds (0 to disable, default: 0) |
 
 ## Important Concepts
 
