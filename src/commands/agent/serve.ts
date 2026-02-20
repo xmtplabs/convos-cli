@@ -541,12 +541,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         const profiles = buildProfileMap(conversation.appData ?? "");
+        const content = normalizeMessageContent(message, profiles);
+        if (!content) continue; // skip no-op group updates
+
         this.emit({
           event: "message",
           id: message.id,
           senderInboxId: message.senderInboxId,
           contentType: message.contentType,
-          content: normalizeMessageContent(message, profiles),
+          content,
           sentAt: message.sentAt.toISOString(),
           deliveryStatus: message.deliveryStatus,
           catchup: true,
@@ -599,13 +602,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
             // Rebuild profiles each time so newly-joined members are resolved
             const profiles = buildProfileMap(conversation.appData ?? "");
+            const content = normalizeMessageContent(message, profiles);
+            if (!content) continue; // skip no-op group updates
 
             this.emit({
               event: "message",
               id: message.id,
               senderInboxId: message.senderInboxId,
               contentType: message.contentType,
-              content: normalizeMessageContent(message, profiles),
+              content,
               sentAt: message.sentAt.toISOString(),
               deliveryStatus: message.deliveryStatus,
             });

@@ -75,11 +75,13 @@ The stream continues until timeout, count limit, or Ctrl+C.`;
         if (!isDisplayableMessage(message)) continue;
         // Rebuild profiles each time so newly-joined members are resolved
         const profiles = buildProfileMap(group.appData ?? "");
+        const content = normalizeMessageContent(message, profiles);
+        if (!content) continue; // skip no-op group updates
         this.streamOutput({
           id: message.id,
           senderInboxId: message.senderInboxId,
           contentType: message.contentType,
-          content: normalizeMessageContent(message, profiles),
+          content,
           sentAt: message.sentAt.toISOString(),
           deliveryStatus: message.deliveryStatus,
         });

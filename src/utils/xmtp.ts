@@ -275,10 +275,12 @@ function describeGroupUpdated(
         mergedProfiles,
       );
 
+      // Only add descriptions if the diff produced something meaningful.
+      // If the diff is empty it means either nothing actually changed
+      // (iOS sometimes sends no-op app data updates) or the change was
+      // too complex to describe — in both cases we skip silently.
       if (appDataDescriptions.length > 0) {
         descriptions.push(...appDataDescriptions);
-      } else {
-        descriptions.push(`${initiator} updated conversation data`);
       }
     } else {
       const field = change.fieldName.replace(/_/g, " ");
@@ -308,10 +310,6 @@ function describeGroupUpdated(
   for (const inbox of content.removedSuperAdminInboxes) {
     const admin = resolveName(inbox.inboxId, profiles);
     descriptions.push(`${initiator} removed ${admin} as super admin`);
-  }
-
-  if (descriptions.length === 0) {
-    descriptions.push("Group updated");
   }
 
   return descriptions;
