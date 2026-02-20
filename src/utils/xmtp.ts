@@ -377,10 +377,14 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
  *
  * @param profiles - optional ProfileMap for resolving inbox IDs to names.
  *   When omitted, unresolved members appear as "Somebody".
+ * @param depth - recursion depth (used internally to limit reply nesting).
+ *   Callers should not set this; it defaults to 0 and caps at 1 so that
+ *   only the immediate parent of a reply is resolved.
  */
 export function normalizeMessageContent(
   message: DecodedMessage,
   profiles?: ProfileMap,
+  depth = 0,
 ): string {
   const ct = message.contentType;
 
@@ -431,8 +435,8 @@ export function normalizeMessageContent(
       inReplyTo: DecodedMessage | null;
     };
     const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
-    const parentContent = r.inReplyTo
-      ? normalizeMessageContent(r.inReplyTo, profiles)
+    const parentContent = r.inReplyTo && depth < 1
+      ? normalizeMessageContent(r.inReplyTo, profiles, depth + 1)
       : undefined;
     const context = parentContent
       ? `"${parentContent}" (${r.referenceId})`
