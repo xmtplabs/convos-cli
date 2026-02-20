@@ -426,11 +426,18 @@ export function normalizeMessageContent(
     typeof message.content === "object"
   ) {
     const r = message.content as {
-      reference: string;
+      referenceId: string;
       content: unknown;
+      inReplyTo: DecodedMessage | null;
     };
     const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
-    return `reply to ${r.reference}: ${text}`;
+    const parentContent = r.inReplyTo
+      ? normalizeMessageContent(r.inReplyTo, profiles)
+      : undefined;
+    const context = parentContent
+      ? `"${parentContent}" (${r.referenceId})`
+      : r.referenceId;
+    return `reply to ${context}: ${text}`;
   }
 
   // Inline attachment — filename and mime type
