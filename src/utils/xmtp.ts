@@ -210,7 +210,8 @@ export function describeAppDataChange(
   // ─── Expiration changes ───
   if (oldMeta.expiresAtUnix !== newMeta.expiresAtUnix) {
     if (newMeta.expiresAtUnix) {
-      const expiresAt = new Date(newMeta.expiresAtUnix * 1000).toISOString();
+      const date = new Date(newMeta.expiresAtUnix * 1000);
+      const expiresAt = Number.isNaN(date.getTime()) ? String(newMeta.expiresAtUnix) : date.toISOString();
       descriptions.push(`${initiator} set conversation expiration to ${expiresAt}`);
     } else {
       descriptions.push(`${initiator} cleared conversation expiration`);

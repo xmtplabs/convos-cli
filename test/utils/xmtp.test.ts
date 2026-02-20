@@ -278,6 +278,21 @@ describe("describeAppDataChange", () => {
       expect(result[0]).toMatch(/Alice set conversation expiration to/);
     });
 
+    it("handles invalid expiration timestamp gracefully", () => {
+      const oldMeta: ConversationCustomMetadata = { tag: "t", profiles: [] };
+      const newMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [],
+        expiresAtUnix: Number.MAX_SAFE_INTEGER,
+      };
+
+      const result = describeAppDataChange(oldMeta, newMeta, "Alice", emptyProfiles);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatch(/Alice set conversation expiration to/);
+      // Should fall back to raw number, not throw
+      expect(result[0]).toContain(String(Number.MAX_SAFE_INTEGER));
+    });
+
     it("detects expiration being cleared", () => {
       const oldMeta: ConversationCustomMetadata = {
         tag: "t",
