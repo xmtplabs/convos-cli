@@ -149,7 +149,7 @@ describe("describeAppDataChange", () => {
       expect(result).toEqual(["Alice updated their profile photo"]);
     });
 
-    it("returns empty when multiple profiles changed (too complex)", () => {
+    it("drops profile descriptions when multiple profiles changed", () => {
       const oldMeta: ConversationCustomMetadata = {
         tag: "t",
         profiles: [
@@ -167,6 +167,48 @@ describe("describeAppDataChange", () => {
 
       const result = describeAppDataChange(oldMeta, newMeta, "Somebody", emptyProfiles);
       expect(result).toEqual([]);
+    });
+
+    it("drops profile descriptions but keeps tag change when multiple profiles changed", () => {
+      const oldMeta: ConversationCustomMetadata = {
+        tag: "oldTag",
+        profiles: [
+          { inboxId: inboxA, name: "Alice" },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+      const newMeta: ConversationCustomMetadata = {
+        tag: "newTag",
+        profiles: [
+          { inboxId: inboxA, name: "Alice Smith" },
+          { inboxId: inboxB, name: "Bob Jones" },
+        ],
+      };
+
+      const result = describeAppDataChange(oldMeta, newMeta, "Admin", emptyProfiles);
+      expect(result).toEqual(["Admin rotated the invite tag"]);
+    });
+
+    it("drops profile descriptions but keeps expiration change when multiple profiles changed", () => {
+      const oldMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [
+          { inboxId: inboxA, name: "Alice" },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+      const newMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [
+          { inboxId: inboxA, name: "Alice Smith" },
+          { inboxId: inboxB, name: "Bob Jones" },
+        ],
+        expiresAtUnix: 1700000000,
+      };
+
+      const result = describeAppDataChange(oldMeta, newMeta, "Admin", emptyProfiles);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatch(/Admin set conversation expiration to/);
     });
 
     it("returns empty when one profile changed and another was added", () => {

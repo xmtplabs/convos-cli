@@ -128,8 +128,9 @@ function resolveName(inboxId: string, profiles: ProfileMap): string {
  *
  * A single app data update should realistically contain one logical change
  * (e.g. one person updated their profile, or an invite tag was rotated).
- * If the diff is too complex (more than one profile changed), we return an
- * empty array so the caller can fall back to a generic message or skip display.
+ * If the profile diff is too complex (more than one profile changed), the
+ * profile descriptions are dropped, but tag and expiration changes are
+ * still reported.
  *
  * @param oldMeta - previous metadata (may be empty)
  * @param newMeta - current metadata
@@ -213,13 +214,11 @@ export function describeAppDataChange(
     }
   }
 
-  // If more than one profile changed, the diff is too complex — bail out
-  // with an empty array so the caller uses a generic fallback.
-  if (changedProfileCount > 1) {
-    return [];
+  // If more than one profile changed, the profile diff is too complex to
+  // describe — drop the profile descriptions but still process tag/expiration.
+  if (changedProfileCount <= 1) {
+    descriptions.push(...profileDescriptions);
   }
-
-  descriptions.push(...profileDescriptions);
 
   // ─── Invite tag changes ───
   if (oldMeta.tag !== newMeta.tag) {
