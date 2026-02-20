@@ -99,6 +99,11 @@ function resolveName(inboxId: string, profiles: ProfileMap): string {
  * Diff two ConversationCustomMetadata objects and produce human-readable
  * descriptions of what changed (profile updates, invite tag rotation, expiration).
  *
+ * A single app data update should realistically contain one logical change
+ * (e.g. one person updated their profile, or an invite tag was rotated).
+ * If the diff is too complex (more than one profile changed), we return an
+ * empty array so the caller can fall back to a generic message or skip display.
+ *
  * @param oldMeta - previous metadata (may be empty)
  * @param newMeta - current metadata
  * @param initiator - display name of the person who made the change
@@ -120,6 +125,10 @@ export function describeAppDataChange(
     newMeta.profiles.map((p) => [p.inboxId.toLowerCase(), p]),
   );
 
+  // Count how many distinct profiles actually changed
+  let changedProfileCount = 0;
+  const profileDescriptions: string[] = [];
+
   // Check for added or changed profiles
   for (const [inboxId, newProfile] of newProfileMap) {
     const oldProfile = oldProfileMap.get(inboxId);
@@ -128,36 +137,41 @@ export function describeAppDataChange(
 
     if (!oldProfile) {
       // New profile added
+      changedProfileCount++;
       if (newProfile.name) {
-        descriptions.push(`${displayName} set their profile name`);
+        profileDescriptions.push(`${displayName} set their profile name`);
       }
       if (newProfile.image) {
-        descriptions.push(`${displayName} set their profile photo`);
+        profileDescriptions.push(`${displayName} set their profile photo`);
       }
       if (!newProfile.name && !newProfile.image) {
-        descriptions.push(`${displayName} added their profile`);
+        profileDescriptions.push(`${displayName} added their profile`);
       }
     } else {
       // Existing profile — check for changes
       const nameChanged = (oldProfile.name ?? "") !== (newProfile.name ?? "");
       const imageChanged = (oldProfile.image ?? "") !== (newProfile.image ?? "");
 
+      if (nameChanged || imageChanged) {
+        changedProfileCount++;
+      }
+
       if (nameChanged && newProfile.name) {
         if (oldProfile.name) {
-          descriptions.push(
+          profileDescriptions.push(
             `${oldProfile.name} changed their name to ${newProfile.name}`,
           );
         } else {
-          descriptions.push(`${displayName} set their profile name to ${newProfile.name}`);
+          profileDescriptions.push(`${displayName} set their profile name to ${newProfile.name}`);
         }
       } else if (nameChanged && !newProfile.name) {
-        descriptions.push(`${oldProfile.name || displayName} cleared their profile name`);
+        profileDescriptions.push(`${oldProfile.name || displayName} cleared their profile name`);
       }
 
       if (imageChanged && newProfile.image) {
-        descriptions.push(`${newProfile.name || displayName} updated their profile photo`);
+        profileDescriptions.push(`${newProfile.name || displayName} updated their profile photo`);
       } else if (imageChanged && !newProfile.image) {
-        descriptions.push(`${newProfile.name || displayName} removed their profile photo`);
+        profileDescriptions.push(`${newProfile.name || displayName} removed their profile photo`);
       }
     }
   }
@@ -165,11 +179,20 @@ export function describeAppDataChange(
   // Check for removed profiles
   for (const [inboxId, oldProfile] of oldProfileMap) {
     if (!newProfileMap.has(inboxId)) {
+      changedProfileCount++;
       const displayName =
         oldProfile.name || profiles.get(inboxId) || "Somebody";
-      descriptions.push(`${displayName}'s profile was removed`);
+      profileDescriptions.push(`${displayName}'s profile was removed`);
     }
   }
+
+  // If more than one profile changed, the diff is too complex — bail out
+  // with an empty array so the caller uses a generic fallback.
+  if (changedProfileCount > 1) {
+    return [];
+  }
+
+  descriptions.push(...profileDescriptions);
 
   // ─── Invite tag changes ───
   if (oldMeta.tag !== newMeta.tag) {

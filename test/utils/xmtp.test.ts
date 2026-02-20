@@ -145,7 +145,7 @@ describe("describeAppDataChange", () => {
       expect(result).toEqual(["Alice updated their profile photo"]);
     });
 
-    it("handles multiple profile changes", () => {
+    it("returns empty when multiple profiles changed (too complex)", () => {
       const oldMeta: ConversationCustomMetadata = {
         tag: "t",
         profiles: [
@@ -162,9 +162,61 @@ describe("describeAppDataChange", () => {
       };
 
       const result = describeAppDataChange(oldMeta, newMeta, "Somebody", emptyProfiles);
-      expect(result).toHaveLength(2);
-      expect(result).toContain("Alice changed their name to Alice Smith");
-      expect(result).toContain("Bob changed their name to Bob Jones");
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty when one profile changed and another was added", () => {
+      const oldMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+      };
+      const newMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [
+          { inboxId: inboxA, name: "Alice Smith" },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+
+      const result = describeAppDataChange(oldMeta, newMeta, "Somebody", emptyProfiles);
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty when one profile changed and another was removed", () => {
+      const oldMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [
+          { inboxId: inboxA, name: "Alice" },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+      const newMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [{ inboxId: inboxA, name: "Alice Smith" }],
+      };
+
+      const result = describeAppDataChange(oldMeta, newMeta, "Somebody", emptyProfiles);
+      expect(result).toEqual([]);
+    });
+
+    it("allows single profile change when other profiles are unchanged", () => {
+      const oldMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [
+          { inboxId: inboxA, name: "Alice" },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+      const newMeta: ConversationCustomMetadata = {
+        tag: "t",
+        profiles: [
+          { inboxId: inboxA, name: "Alice Smith" },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+
+      const result = describeAppDataChange(oldMeta, newMeta, "Somebody", emptyProfiles);
+      expect(result).toEqual(["Alice changed their name to Alice Smith"]);
     });
 
     it("detects no change when profiles are identical", () => {
