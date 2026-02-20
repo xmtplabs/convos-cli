@@ -44,6 +44,7 @@ import {
 import {
   buildProfileMap,
   getAccountAddress,
+  getSenderProfile,
   isDisplayableMessage,
   jsonStringify,
   normalizeMessageContent,
@@ -540,11 +541,14 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           this.lastMessageTimestampNs = sentAtNs;
         }
 
-        const profiles = buildProfileMap(conversation.appData ?? "");
+        const appData = conversation.appData ?? "";
+        const profiles = buildProfileMap(appData);
+        const senderProfile = getSenderProfile(appData, message.senderInboxId);
         this.emit({
           event: "message",
           id: message.id,
           senderInboxId: message.senderInboxId,
+          ...(senderProfile && { senderProfile }),
           contentType: message.contentType,
           content: normalizeMessageContent(message, profiles),
           sentAt: message.sentAt.toISOString(),
@@ -598,12 +602,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             }
 
             // Rebuild profiles each time so newly-joined members are resolved
-            const profiles = buildProfileMap(conversation.appData ?? "");
+            const appData = conversation.appData ?? "";
+            const profiles = buildProfileMap(appData);
+            const senderProfile = getSenderProfile(appData, message.senderInboxId);
 
             this.emit({
               event: "message",
               id: message.id,
               senderInboxId: message.senderInboxId,
+              ...(senderProfile && { senderProfile }),
               contentType: message.contentType,
               content: normalizeMessageContent(message, profiles),
               sentAt: message.sentAt.toISOString(),

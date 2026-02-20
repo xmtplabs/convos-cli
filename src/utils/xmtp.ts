@@ -88,6 +88,33 @@ export function buildProfileMap(appData: string): ProfileMap {
   return map;
 }
 
+/** Sender profile info included in agent message events. */
+export interface SenderProfile {
+  name?: string;
+  image?: string;
+}
+
+/**
+ * Look up a sender's profile from the group's appData.
+ * Returns a SenderProfile with whatever fields are available, or
+ * undefined if no profile exists for the given inbox ID.
+ */
+export function getSenderProfile(
+  appData: string,
+  senderInboxId: string,
+): SenderProfile | undefined {
+  const metadata = parseAppData(appData);
+  const profile = metadata.profiles.find(
+    (p) => p.inboxId.toLowerCase() === senderInboxId.toLowerCase(),
+  );
+  if (!profile) return undefined;
+  if (!profile.name && !profile.image) return undefined;
+  return {
+    ...(profile.name && { name: profile.name }),
+    ...(profile.image && { image: profile.image }),
+  };
+}
+
 /**
  * Resolve an inbox ID to a display name, falling back to "Somebody".
  */
