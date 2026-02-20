@@ -15,7 +15,7 @@ import {
   type Conversation,
 } from "@xmtp/node-sdk";
 import type { GroupUpdated } from "@xmtp/node-bindings";
-import { parseAppData } from "./metadata.js";
+import { parseAppData, type ConversationCustomMetadata } from "./metadata.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -96,6 +96,108 @@ function resolveName(inboxId: string, profiles: ProfileMap): string {
 }
 
 /**
+ * Diff two ConversationCustomMetadata objects and produce human-readable
+ * descriptions of what changed (profile updates, invite tag rotation, expiration).
+ *
+ * @param oldMeta - previous metadata (may be empty)
+ * @param newMeta - current metadata
+ * @param initiator - display name of the person who made the change
+ * @param profiles - profile map for resolving inbox IDs to names
+ */
+export function describeAppDataChange(
+  oldMeta: ConversationCustomMetadata,
+  newMeta: ConversationCustomMetadata,
+  initiator: string,
+  profiles: ProfileMap,
+): string[] {
+  const descriptions: string[] = [];
+
+  // ─── Profile changes ───
+  const oldProfileMap = new Map(
+    oldMeta.profiles.map((p) => [p.inboxId.toLowerCase(), p]),
+  );
+  const newProfileMap = new Map(
+    newMeta.profiles.map((p) => [p.inboxId.toLowerCase(), p]),
+  );
+
+  // Check for added or changed profiles
+  for (const [inboxId, newProfile] of newProfileMap) {
+    const oldProfile = oldProfileMap.get(inboxId);
+    const displayName =
+      newProfile.name || oldProfile?.name || profiles.get(inboxId) || "Somebody";
+
+    if (!oldProfile) {
+      // New profile added
+      if (newProfile.name) {
+        descriptions.push(`${displayName} set their profile name`);
+      }
+      if (newProfile.image) {
+        descriptions.push(`${displayName} set their profile photo`);
+      }
+      if (!newProfile.name && !newProfile.image) {
+        descriptions.push(`${displayName} added their profile`);
+      }
+    } else {
+      // Existing profile — check for changes
+      const nameChanged = (oldProfile.name ?? "") !== (newProfile.name ?? "");
+      const imageChanged = (oldProfile.image ?? "") !== (newProfile.image ?? "");
+
+      if (nameChanged && newProfile.name) {
+        if (oldProfile.name) {
+          descriptions.push(
+            `${oldProfile.name} changed their name to ${newProfile.name}`,
+          );
+        } else {
+          descriptions.push(`${displayName} set their profile name to ${newProfile.name}`);
+        }
+      } else if (nameChanged && !newProfile.name) {
+        descriptions.push(`${oldProfile.name || displayName} cleared their profile name`);
+      }
+
+      if (imageChanged && newProfile.image) {
+        descriptions.push(`${newProfile.name || displayName} updated their profile photo`);
+      } else if (imageChanged && !newProfile.image) {
+        descriptions.push(`${newProfile.name || displayName} removed their profile photo`);
+      }
+    }
+  }
+
+  // Check for removed profiles
+  for (const [inboxId, oldProfile] of oldProfileMap) {
+    if (!newProfileMap.has(inboxId)) {
+      const displayName =
+        oldProfile.name || profiles.get(inboxId) || "Somebody";
+      descriptions.push(`${displayName}'s profile was removed`);
+    }
+  }
+
+  // ─── Invite tag changes ───
+  if (oldMeta.tag !== newMeta.tag) {
+    // Tag rotation happens on lock/unlock — but those actions also emit
+    // separate permission change events, so we just note the tag rotation
+    if (oldMeta.tag && newMeta.tag) {
+      descriptions.push(`${initiator} rotated the invite tag`);
+    } else if (newMeta.tag && !oldMeta.tag) {
+      descriptions.push(`${initiator} set the invite tag`);
+    } else if (!newMeta.tag && oldMeta.tag) {
+      descriptions.push(`${initiator} cleared the invite tag`);
+    }
+  }
+
+  // ─── Expiration changes ───
+  if (oldMeta.expiresAtUnix !== newMeta.expiresAtUnix) {
+    if (newMeta.expiresAtUnix) {
+      const expiresAt = new Date(newMeta.expiresAtUnix * 1000).toISOString();
+      descriptions.push(`${initiator} set conversation expiration to ${expiresAt}`);
+    } else {
+      descriptions.push(`${initiator} cleared conversation expiration`);
+    }
+  }
+
+  return descriptions;
+}
+
+/**
  * Produce human-readable descriptions for a GroupUpdated event.
  */
 function describeGroupUpdated(
@@ -125,11 +227,43 @@ function describeGroupUpdated(
   }
 
   for (const change of content.metadataFieldChanges) {
-    const field = change.fieldName.replace(/_/g, " ");
-    if (change.newValue) {
-      descriptions.push(`${initiator} changed ${field} to "${change.newValue}"`);
+    if (change.fieldName === "app_data") {
+      // Parse old and new app data and produce a meaningful diff
+      const oldMeta = parseAppData(change.oldValue ?? "");
+      const newMeta = parseAppData(change.newValue ?? "");
+
+      // Use the new metadata's profiles as an additional source for name resolution
+      const mergedProfiles = new Map(profiles);
+      for (const p of newMeta.profiles) {
+        if (p.name && !mergedProfiles.has(p.inboxId.toLowerCase())) {
+          mergedProfiles.set(p.inboxId.toLowerCase(), p.name);
+        }
+      }
+      for (const p of oldMeta.profiles) {
+        if (p.name && !mergedProfiles.has(p.inboxId.toLowerCase())) {
+          mergedProfiles.set(p.inboxId.toLowerCase(), p.name);
+        }
+      }
+
+      const appDataDescriptions = describeAppDataChange(
+        oldMeta,
+        newMeta,
+        initiator,
+        mergedProfiles,
+      );
+
+      if (appDataDescriptions.length > 0) {
+        descriptions.push(...appDataDescriptions);
+      } else {
+        descriptions.push(`${initiator} updated conversation data`);
+      }
     } else {
-      descriptions.push(`${initiator} cleared ${field}`);
+      const field = change.fieldName.replace(/_/g, " ");
+      if (change.newValue) {
+        descriptions.push(`${initiator} changed ${field} to "${change.newValue}"`);
+      } else {
+        descriptions.push(`${initiator} cleared ${field}`);
+      }
     }
   }
 
