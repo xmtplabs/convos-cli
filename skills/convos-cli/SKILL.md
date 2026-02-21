@@ -406,7 +406,7 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | Event | Description | Key Fields |
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
-| `message` | New message received | `id`, `senderInboxId`, `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `message` | New message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
 | `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
 | `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
 | `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
