@@ -465,31 +465,60 @@ When started, `agent serve`:
 
 All of these run concurrently. The agent stays alive until `SIGINT`, `SIGTERM`, stdin close, a `stop` command, or an immediate `explode`.
 
-### Example: Agent Integration
+### Example: AI Auto-Reply Agent
+
+The pattern below shows how to wire `agent serve` to an AI model. The key idea: spawn the process with a **named pipe** for stdin so you can read events and write commands independently.
 
 ```bash
-# Start the agent, pipe commands in, read events out
-convos agent serve --name "Bot" --profile-name "AI Assistant" | while IFS= read -r event; do
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Create a named pipe for writing commands to agent serve's stdin
+FIFO=$(mktemp -u /tmp/convos-agent.XXXXXX)
+mkfifo "$FIFO"
+trap 'rm -f "$FIFO"' EXIT
+
+# Start agent serve: stdin from the FIFO, stdout piped to the while loop
+convos agent serve --name "My Bot" --profile-name "Assistant" < "$FIFO" | while IFS= read -r event; do
   type=$(echo "$event" | jq -r '.event')
   case "$type" in
     ready)
-      echo "Bot ready! Invite URL: $(echo "$event" | jq -r '.inviteUrl')" >&2
+      echo "Bot ready! Invite: $(echo "$event" | jq -r '.inviteUrl')" >&2
       ;;
     message)
       content=$(echo "$event" | jq -r '.content')
-      echo "Received: $content" >&2
-      # Send a reply (write JSON command to agent's stdin)
-      msg_id=$(echo "$event" | jq -r '.id')
-      echo "{\"type\":\"send\",\"text\":\"You said: $content\",\"replyTo\":\"$msg_id\"}"
+      content_type=$(echo "$event" | jq -r '.contentType.typeId')
+      sender=$(echo "$event" | jq -r '.senderProfile.name // .senderInboxId[:12]')
+
+      # Only reply to text and reply content types
+      [ "$content_type" = "text" ] || [ "$content_type" = "reply" ] || continue
+
+      echo "[$sender]: $content" >&2
+
+      # Call your AI model here — replace with your own endpoint
+      response=$(curl -s https://api.example.com/chat \
+        -H "Content-Type: application/json" \
+        -d "{\"message\": $(echo "$content" | jq -Rs .)}" \
+        | jq -r '.reply')
+
+      # Send the response as a flat message (no replyTo — not visible in production app)
+      # Always plain text — strip any markdown the model may have generated
+      echo "{\"type\":\"send\",\"text\":$(echo "$response" | jq -Rs .)}" > "$FIFO"
       ;;
     member_joined)
-      inbox=$(echo "$event" | jq -r '.inboxId')
-      echo "New member: $inbox" >&2
-      echo "{\"type\":\"send\",\"text\":\"Welcome!\"}"
+      echo "{\"type\":\"send\",\"text\":\"Welcome!\"}" > "$FIFO"
       ;;
   esac
 done
 ```
+
+**Key points:**
+- Use a **named pipe** (FIFO) so the event-reading loop can write commands back to `agent serve`'s stdin without deadlocking
+- Only reply to `text` and `reply` content types — ignore reactions, attachments, and group updates
+- Always send **plain text** — the Convos app does not render markdown
+- On **production**, do not use the `replyTo` field — the App Store app does not display threaded replies yet. On **dev** (TestFlight), `replyTo` works
+- Self-echo filtering is handled by `agent serve` — your own messages are never emitted as events
+- Make sure `convos init --env` matches your target: `production` for the App Store app, `dev` for TestFlight
 
 ### Agent Flags
 
