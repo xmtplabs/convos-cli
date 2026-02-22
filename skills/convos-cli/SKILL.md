@@ -487,21 +487,10 @@ convos agent serve --name "Bot" --profile-name "AI Assistant" < "$FIFO" | while 
       ;;
     message)
       content=$(echo "$event" | jq -r '.content')
-      content_type=$(echo "$event" | jq -r '.contentType.typeId')
-      sender=$(echo "$event" | jq -r '.senderProfile.name // .senderInboxId[:12]')
-
-      # Only reply to text and reply content types
-      [ "$content_type" = "text" ] || [ "$content_type" = "reply" ] || continue
-
-      echo "[$sender]: $content" >&2
-
-      # Call your AI model here — replace with your own endpoint
-      response=$(curl -s https://api.example.com/chat \
-        -H "Content-Type: application/json" \
-        -d "{\"message\": $(echo "$content" | jq -Rs .)}" \
-        | jq -r '.reply')
-
-      echo "{\"type\":\"send\",\"text\":$(echo "$response" | jq -Rs .)}" > "$FIFO"
+      echo "Received: $content" >&2
+      # Send a reply (write JSON command to agent's stdin via the FIFO)
+      msg_id=$(echo "$event" | jq -r '.id')
+      echo "{\"type\":\"send\",\"text\":\"You said: $content\",\"replyTo\":\"$msg_id\"}" > "$FIFO"
       ;;
     member_joined)
       inbox=$(echo "$event" | jq -r '.inboxId')
@@ -514,7 +503,6 @@ done
 
 **Key points:**
 - Use a **named pipe** (FIFO) so the event-reading loop can write commands back to `agent serve`'s stdin without deadlocking
-- Only reply to `text` and `reply` content types — ignore reactions, attachments, and group updates
 - Self-echo filtering is handled by `agent serve` — your own messages are never emitted as events
 - Make sure `convos init --env` matches your target: `production` for the App Store app, `dev` for TestFlight
 
