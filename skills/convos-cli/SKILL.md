@@ -479,11 +479,11 @@ mkfifo "$FIFO"
 trap 'rm -f "$FIFO"' EXIT
 
 # Start agent serve: stdin from the FIFO, stdout piped to the while loop
-convos agent serve --name "My Bot" --profile-name "Assistant" < "$FIFO" | while IFS= read -r event; do
+convos agent serve --name "Bot" --profile-name "AI Assistant" < "$FIFO" | while IFS= read -r event; do
   type=$(echo "$event" | jq -r '.event')
   case "$type" in
     ready)
-      echo "Bot ready! Invite: $(echo "$event" | jq -r '.inviteUrl')" >&2
+      echo "Bot ready! Invite URL: $(echo "$event" | jq -r '.inviteUrl')" >&2
       ;;
     message)
       content=$(echo "$event" | jq -r '.content')
@@ -504,6 +504,8 @@ convos agent serve --name "My Bot" --profile-name "Assistant" < "$FIFO" | while 
       echo "{\"type\":\"send\",\"text\":$(echo "$response" | jq -Rs .)}" > "$FIFO"
       ;;
     member_joined)
+      inbox=$(echo "$event" | jq -r '.inboxId')
+      echo "New member: $inbox" >&2
       echo "{\"type\":\"send\",\"text\":\"Welcome!\"}" > "$FIFO"
       ;;
   esac
