@@ -501,8 +501,6 @@ convos agent serve --name "My Bot" --profile-name "Assistant" < "$FIFO" | while 
         -d "{\"message\": $(echo "$content" | jq -Rs .)}" \
         | jq -r '.reply')
 
-      # Send the response as a flat message (no replyTo — not visible in production app)
-      # Always plain text — strip any markdown the model may have generated
       echo "{\"type\":\"send\",\"text\":$(echo "$response" | jq -Rs .)}" > "$FIFO"
       ;;
     member_joined)
@@ -515,8 +513,6 @@ done
 **Key points:**
 - Use a **named pipe** (FIFO) so the event-reading loop can write commands back to `agent serve`'s stdin without deadlocking
 - Only reply to `text` and `reply` content types — ignore reactions, attachments, and group updates
-- Always send **plain text** — the Convos app does not render markdown
-- On **production**, do not use the `replyTo` field — the App Store app does not display threaded replies yet. On **dev** (TestFlight), `replyTo` works
 - Self-echo filtering is handled by `agent serve` — your own messages are never emitted as events
 - Make sure `convos init --env` matches your target: `production` for the App Store app, `dev` for TestFlight
 
