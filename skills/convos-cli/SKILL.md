@@ -501,11 +501,6 @@ convos agent serve --name "Bot" --profile-name "AI Assistant" < "$FIFO" | while 
 done
 ```
 
-**Key points:**
-- Use a **named pipe** (FIFO) so the event-reading loop can write commands back to `agent serve`'s stdin without deadlocking
-- Self-echo filtering is handled by `agent serve` — your own messages are never emitted as events
-- Make sure `convos init --env` matches your target: `production` for the App Store app, `dev` for TestFlight
-
 ### Agent Flags
 
 | Flag | Description |
