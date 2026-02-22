@@ -504,6 +504,60 @@ done
 | `--no-invite` | Skip generating an invite (attach mode) |
 | `--heartbeat` | Emit heartbeat events every N seconds (0 to disable, default: 0) |
 
+### Agent Auto-Reply (AI Agents)
+
+This section describes how an AI agent should run as an auto-reply bot using `convos agent serve`. No additional extensions or frameworks are required — just spawn the process, read events, and write commands.
+
+#### Process Lifecycle
+
+1. Make sure `convos init` has been run with the correct `--env` for your target network. The Convos iOS app on the App Store uses **production** (`convos init --env production`); the TestFlight beta uses **dev** (`convos init --env dev`). Mismatched environments mean users will not see your messages.
+2. Spawn `convos agent serve` as a child process with `--name` and `--profile-name` flags
+3. Read **stdout** line-by-line — each line is an ndjson event (one JSON object per line)
+4. Write **stdin** line-by-line — each line is an ndjson command (one JSON object per line)
+5. stderr contains the QR code and diagnostic logs — do not parse it as protocol data
+6. The process runs until it receives `SIGINT`, `SIGTERM`, stdin close, or a `{"type":"stop"}` command
+
+#### Event Handling
+
+On each event read from stdout, handle by event type:
+
+- **`ready`**: The session has started. Note the `conversationId` for reference. The `qrCodePath` field contains the path to a PNG file of the invite QR code — display it to the user so they can scan it to join. The `inviteUrl` is also available as a text link.
+- **`message`**: A message was received. Read `content` for the message text and `senderProfile.name` (if present) for the sender's display name. Generate a response and send it back by writing to stdin:
+  ```
+  {"type":"send","text":"your reply here"}
+  ```
+  On **production**, do not use the `replyTo` field — the App Store version of Convos does not yet display threaded replies, so users will not see the context. Always send flat messages on production. On **dev** (TestFlight), `replyTo` works and can be used freely.
+- **`member_joined`**: A new member joined via invite. Optionally send a welcome message:
+  ```
+  {"type":"send","text":"Welcome!"}
+  ```
+- **`sent`**, **`heartbeat`**, **`error`**: No reply needed. Log them if debugging.
+
+#### Message Formatting
+
+- Always send **plain text**. Convos does not render markdown. Never use `**bold**`, `*italic*`, `# headings`, `` `code` ``, `[links](url)`, or bullet lists with `- ` or `* `. Write naturally in plain text instead.
+- Self-echo filtering is handled by `agent serve` — your own messages are never emitted as `message` events, so there is no need to filter them yourself.
+- Messages with `catchup: true` were missed during a stream disconnection and fetched on reconnect. Reply to them the same way as live messages, or skip them if the content is stale.
+
+#### Sender Identification
+
+Use `senderProfile.name` when available to address people by name. Fall back to a truncated `senderInboxId` if no profile is set. The `senderProfile` object may also contain an `image` field (avatar URL).
+
+#### Content Types
+
+The `contentType` field on message events is an object with `authorityId` and `typeId`. Common typeIds (all under `authorityId: "xmtp.org"`):
+
+| typeId | Meaning |
+| ------ | ------- |
+| `text` | Plain text message |
+| `reply` | Reply to another message (content is the reply text) |
+| `reaction` | Emoji reaction to a message |
+| `attachment` | Inline file attachment (small files) |
+| `remoteStaticAttachment` | Uploaded file attachment (large files) |
+| `group_updated` | Group metadata change (name, members, etc.) |
+
+Only generate replies for `text` and `reply` content types. Ignore `reaction`, `attachment`, `remoteStaticAttachment`, and `group_updated` events — or acknowledge them if contextually appropriate, but do not treat them as conversational messages.
+
 ## Important Concepts
 
 ### Per-Conversation Identities
@@ -595,7 +649,7 @@ convos conversation stream "$CONV_ID" --timeout 300
 ## Tips
 
 1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user. When running `agent serve`, the QR code is saved as a PNG file (path in the `qrCodePath` field of the `ready` event) — display it to the user using the read tool so they can scan it.
-2. **Never use markdown in messages**: Convos does not render markdown. When sending messages (via `send-text`, `send-reply`, or agent `send` commands), always use plain text. Do not use markdown formatting like `**bold**`, `*italic*`, `# headings`, `` `code` ``, `[links](url)`, or bullet lists with `- ` or `* `. Write naturally in plain text instead.
+2. **Never use markdown in messages**: Always use plain text — see "Message Formatting" under "Agent Auto-Reply" for details
 3. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
 4. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
 5. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
