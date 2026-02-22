@@ -465,7 +465,7 @@ When started, `agent serve`:
 
 All of these run concurrently. The agent stays alive until `SIGINT`, `SIGTERM`, stdin close, a `stop` command, or an immediate `explode`.
 
-### Example: AI Auto-Reply Agent
+### Example: Agent Integration
 
 The pattern below shows how to wire `agent serve` to an AI model. The key idea: spawn the process with a **named pipe** for stdin so you can read events and write commands independently.
 
