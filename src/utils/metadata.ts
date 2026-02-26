@@ -36,16 +36,25 @@ root.add(ConversationCustomMetadataType);
 
 // ─── Types ───
 
+export interface EncryptedImageRef {
+  url: string;
+  salt: Uint8Array;
+  nonce: Uint8Array;
+}
+
 export interface ConversationProfile {
   inboxId: string; // hex string
   name?: string;
   image?: string; // plain URL (legacy/simple)
+  encryptedImage?: EncryptedImageRef; // iOS encrypted avatar
 }
 
 export interface ConversationCustomMetadata {
   tag: string;
   profiles: ConversationProfile[];
   expiresAtUnix?: number;
+  imageEncryptionKey?: Uint8Array; // iOS group image key
+  encryptedGroupImage?: EncryptedImageRef; // iOS group avatar
 }
 
 // ─── Compression (matching iOS: DEFLATE if >100 bytes) ───
@@ -138,8 +147,11 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
         inboxId: Uint8Array;
         name?: string;
         image?: string;
+        encryptedImage?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
       }>;
       expiresAtUnix?: number | { toNumber(): number };
+      imageEncryptionKey?: Uint8Array | null;
+      encryptedGroupImage?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
     };
 
     const toNum = (v: number | { toNumber(): number } | undefined): number | undefined => {
@@ -152,14 +164,27 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
       return n === 0 ? undefined : n;
     };
 
+    const parseEncryptedImageRef = (
+      ref: { url: string; salt: Uint8Array; nonce: Uint8Array } | null | undefined,
+    ): EncryptedImageRef | undefined => {
+      if (!ref || !ref.url) return undefined;
+      return { url: ref.url, salt: ref.salt, nonce: ref.nonce };
+    };
+
     return {
       tag: msg.tag || "",
       profiles: (msg.profiles || []).map((p) => ({
         inboxId: bytesToHex(p.inboxId),
         name: p.name || undefined,
         image: p.image || undefined,
+        encryptedImage: parseEncryptedImageRef(p.encryptedImage),
       })),
       expiresAtUnix: toNum(msg.expiresAtUnix),
+      imageEncryptionKey:
+        msg.imageEncryptionKey && msg.imageEncryptionKey.length > 0
+          ? msg.imageEncryptionKey
+          : undefined,
+      encryptedGroupImage: parseEncryptedImageRef(msg.encryptedGroupImage),
     };
   } catch {
     return { tag: "", profiles: [] };
@@ -177,8 +202,11 @@ export function serializeAppData(metadata: ConversationCustomMetadata): string {
       inboxId: hexToBytes(p.inboxId),
       name: p.name,
       image: p.image,
+      encryptedImage: p.encryptedImage,
     })),
     expiresAtUnix: metadata.expiresAtUnix,
+    imageEncryptionKey: metadata.imageEncryptionKey,
+    encryptedGroupImage: metadata.encryptedGroupImage,
   };
 
   const errMsg = ConversationCustomMetadataType.verify(obj);

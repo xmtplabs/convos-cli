@@ -105,6 +105,86 @@ describe("conversation metadata", () => {
       expect(decoded.profiles).toEqual([]);
     });
 
+    it("roundtrips iOS imageEncryptionKey and encryptedGroupImage", () => {
+      const encKey = Buffer.from("0123456789abcdef0123456789abcdef", "hex");
+      const original = {
+        tag: "iosGroup",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+        imageEncryptionKey: encKey,
+        encryptedGroupImage: {
+          url: "https://example.com/group.enc",
+          salt: Buffer.from("aabbccdd", "hex"),
+          nonce: Buffer.from("11223344", "hex"),
+        },
+      };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+
+      expect(decoded.profiles).toHaveLength(1);
+      expect(decoded.profiles[0].name).toBe("Alice");
+      expect(Buffer.from(decoded.imageEncryptionKey!)).toEqual(encKey);
+      expect(decoded.encryptedGroupImage!.url).toBe("https://example.com/group.enc");
+      expect(Buffer.from(decoded.encryptedGroupImage!.salt)).toEqual(Buffer.from("aabbccdd", "hex"));
+      expect(Buffer.from(decoded.encryptedGroupImage!.nonce)).toEqual(Buffer.from("11223344", "hex"));
+    });
+
+    it("roundtrips profile encryptedImage", () => {
+      const original = {
+        tag: "iosProfile",
+        profiles: [
+          {
+            inboxId: inboxA,
+            name: "Alice",
+            encryptedImage: {
+              url: "https://example.com/alice.enc",
+              salt: Buffer.from("aabb", "hex"),
+              nonce: Buffer.from("ccdd", "hex"),
+            },
+          },
+          { inboxId: inboxB, name: "Bob" },
+        ],
+      };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+
+      expect(decoded.profiles).toHaveLength(2);
+      expect(decoded.profiles[0].encryptedImage!.url).toBe("https://example.com/alice.enc");
+      expect(Buffer.from(decoded.profiles[0].encryptedImage!.salt)).toEqual(Buffer.from("aabb", "hex"));
+      expect(decoded.profiles[1].encryptedImage).toBeUndefined();
+    });
+
+    it("preserves iOS fields through CLI read-modify-write cycle", () => {
+      // Simulates: iOS creates group with encryption → CLI agent joins → profiles survive
+      const iosCreated = {
+        tag: "invite-abc",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+        imageEncryptionKey: Buffer.from("deadbeef".repeat(4), "hex"),
+        encryptedGroupImage: {
+          url: "https://example.com/group.enc",
+          salt: Buffer.from("salt1234", "hex"),
+          nonce: Buffer.from("nonce567", "hex"),
+        },
+      };
+      const encoded = serializeAppData(iosCreated);
+
+      // CLI agent reads, adds its profile, writes back
+      const parsed = parseAppData(encoded);
+      const withAgent = {
+        ...parsed,
+        profiles: [...parsed.profiles, { inboxId: inboxB, name: "Agent" }],
+      };
+      const reEncoded = serializeAppData(withAgent);
+      const final = parseAppData(reEncoded);
+
+      expect(final.profiles).toHaveLength(2);
+      expect(final.profiles[0].name).toBe("Alice");
+      expect(final.profiles[1].name).toBe("Agent");
+      expect(Buffer.from(final.imageEncryptionKey!)).toEqual(
+        Buffer.from("deadbeef".repeat(4), "hex"),
+      );
+      expect(final.encryptedGroupImage!.url).toBe("https://example.com/group.enc");
+    });
+
     it("stays under 8KB for many profiles", () => {
       const profiles = Array.from({ length: 50 }, (_, i) => ({
         inboxId: i.toString(16).padStart(64, "0"),
