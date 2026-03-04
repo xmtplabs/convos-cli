@@ -35,7 +35,7 @@ import {
   verifyInviteSignature,
 } from "../../utils/invite.js";
 import { getMimeType } from "../../utils/mime.js";
-import { parseAppData, serializeAppData, upsertProfile } from "../../utils/metadata.js";
+import { parseAppData, serializeAppData } from "../../utils/metadata.js";
 import {
   sendProfileSnapshot,
   sendProfileUpdate,
@@ -1215,28 +1215,22 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         profileName: flags["profile-name"] ?? identity.profileName,
       });
 
-      // Store invite tag + profile in appData (dual-write for backward compatibility)
-      let metadata = {
+      // Store invite tag in appData (no profiles — profiles go via messages only
+      // to avoid read-modify-write races that corrupt tags and erase profiles)
+      const metadata = {
         tag: inviteTag,
-        profiles: [] as { inboxId: string; name?: string }[],
+        profiles: [] as never[],
       };
-
-      const profileName = flags["profile-name"];
-      if (profileName) {
-        metadata = upsertProfile(metadata, {
-          inboxId: client.inboxId,
-          name: profileName,
-        });
-      }
 
       await group.updateAppData(serializeAppData(metadata));
 
       // Send ProfileUpdate message (primary profile source)
+      const profileName = flags["profile-name"];
       if (profileName) {
         try {
           await sendProfileUpdate(group, { name: profileName });
         } catch {
-          // Non-fatal: appData write above provides fallback
+          // Non-fatal: profile will be visible once a ProfileUpdate is sent
         }
       }
 

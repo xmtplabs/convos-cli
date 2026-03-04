@@ -3,11 +3,6 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
-import {
-  parseAppData,
-  serializeAppData,
-  upsertProfile,
-} from "../../utils/metadata.js";
 import { sendProfileUpdate } from "../../utils/profileMessages.js";
 
 export default class UpdateProfile extends ConvosBaseCommand {
@@ -16,9 +11,9 @@ export default class UpdateProfile extends ConvosBaseCommand {
 Profiles are per-conversation — you can be a different person in
 each conversation (ADR 005).
 
-Updates are sent as ProfileUpdate messages to the group (primary)
-and also written to appData for backward compatibility with older
-clients. Profile messages take precedence over appData.`;
+Updates are sent as ProfileUpdate messages to the group. Both iOS
+and CLI clients read profiles from these messages (with appData as
+a legacy fallback). Profile messages are the primary source of truth.`;
 
   static examples = [
     {
@@ -81,45 +76,16 @@ clients. Profile messages take precedence over appData.`;
 
     const group = requireGroup(conversation);
 
-    // Parse current metadata
-    let appData = "";
-    try {
-      appData = group.appData ?? "";
-    } catch {
-      // No appData yet
-    }
-
-    let metadata = parseAppData(appData);
-
     // Build profile update
-    const profile = {
-      inboxId: client.inboxId,
-      ...(flags.name !== undefined ? { name: flags.name || undefined } : {}),
-      ...(flags.image !== undefined ? { image: flags.image || undefined } : {}),
-    };
+    const profileName = flags.name !== undefined ? (flags.name || undefined) : undefined;
 
-    metadata = upsertProfile(metadata, profile);
-
-    // Serialize and push to appData (dual-write for backward compatibility)
-    try {
-      const newAppData = serializeAppData(metadata);
-      await group.updateAppData(newAppData);
-    } catch (error) {
-      this.warn(
-        `Failed to write profile to appData (best-effort): ${error instanceof Error ? error.message : "unknown"}`,
-      );
-    }
-
-    // Send ProfileUpdate message (primary)
-    try {
-      await sendProfileUpdate(group, {
-        name: profile.name,
-      });
-    } catch (error) {
-      this.warn(
-        `Failed to send ProfileUpdate message: ${error instanceof Error ? error.message : "unknown"}`,
-      );
-    }
+    // Send ProfileUpdate message — this is the primary source of truth.
+    // We intentionally do NOT write profiles to appData to avoid the
+    // read-modify-write race that can corrupt invite tags and erase
+    // other members' profiles (see convos-ios PR #552 for context).
+    await sendProfileUpdate(group, {
+      name: profileName,
+    });
 
     // Also update local identity store
     if (flags.name !== undefined) {
