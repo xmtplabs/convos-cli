@@ -273,6 +273,18 @@ convos conversations process-join-requests --watch
 
 Each conversation has independent profiles — you can have a different name and avatar in each.
 
+Profile updates are sent as **ProfileUpdate messages** to the group (the primary source) and also written to the group's `appData` for backward compatibility with older clients. When reading profiles, message-sourced profiles take precedence over `appData`.
+
+When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately — solving the MLS forward secrecy problem where older messages may be undecryptable.
+
+Profile resolution precedence:
+1. **Latest ProfileUpdate from that member** — highest priority, most recent self-authored update
+2. **Most recent ProfileSnapshot containing that member** — fallback when no ProfileUpdate exists
+3. **appData profiles** — legacy fallback for backward compatibility with older clients
+4. **No profile** — member has no name/avatar set
+
+Both ProfileUpdate and ProfileSnapshot are silent messages (`shouldPush = false`) — they do not appear in chat or trigger notifications.
+
 ```bash
 # set display name
 convos conversation update-profile <conversation-id> --name "Alice"
@@ -525,6 +537,15 @@ Identities are stored in `~/.convos/identities/<id>.json`. Databases are stored 
 4. Person is now a member with their own isolated identity
 
 **Key point:** Step 3 must happen *after* step 2. The creator must either run `process-join-requests` after the invite has been opened, or use `--watch` to stream and process requests as they arrive.
+
+### Profile Messages
+
+Member profiles are stored as XMTP group messages using two custom content types:
+
+- **`ProfileUpdate`** (`convos.org/profile_update:1.0`) — sent by a member when they change their own name or avatar. The sender's inbox ID is implicit from the XMTP message, preventing spoofing.
+- **`ProfileSnapshot`** (`convos.org/profile_snapshot:1.0`) — sent after adding members to a group. Contains all current member profiles so new joiners have data immediately (solves MLS forward secrecy gap).
+
+Both are silent (no push notification, not displayed in chat). Profiles are also written to `appData` for backward compatibility with older clients, but message-sourced profiles take precedence.
 
 ### Consent States
 

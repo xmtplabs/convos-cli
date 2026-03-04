@@ -41,6 +41,29 @@ export {
   type ConversationCustomMetadata,
 } from "./utils/metadata.js";
 
+// Profile messages (primary profile source)
+export {
+  encodeProfileUpdate,
+  decodeProfileUpdate,
+  encodeProfileSnapshot,
+  decodeProfileSnapshot,
+  sendProfileUpdate,
+  sendProfileSnapshot,
+  buildProfileSnapshot,
+  resolveProfilesFromMessages,
+  isProfileMessage,
+  isProfileUpdateMessage,
+  isProfileSnapshotMessage,
+  ContentTypeProfileUpdate,
+  ContentTypeProfileSnapshot,
+  MemberKind,
+  type ProfileUpdateContent,
+  type ProfileSnapshotContent,
+  type MemberProfileEntry,
+  type EncryptedProfileImageRef,
+  type ResolvedProfile,
+} from "./utils/profileMessages.js";
+
 // Random utilities
 export { randomAlphanumeric } from "./utils/random.js";
 
@@ -56,9 +79,13 @@ export {
   formatHuman,
   jsonStringify,
   buildProfileMap,
+  buildProfileMapFromMessages,
+  getSenderProfile,
+  getSenderProfileFromResolved,
   isDisplayableMessage,
   normalizeMessageContent,
   type ProfileMap,
+  type SenderProfile,
   isTTY,
   VALID_ENVS,
   type Section,

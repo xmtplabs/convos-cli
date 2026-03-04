@@ -373,7 +373,11 @@ Supported upload providers: `pinata`
 
 ### Profiles
 
-Each conversation has independent profiles — you can be a different person in each conversation. Profiles are stored in the group's metadata and visible to all members.
+Each conversation has independent profiles — you can be a different person in each conversation.
+
+Profiles are sent as **ProfileUpdate messages** to the group (the primary source) and also written to the group's `appData` for backward compatibility with older clients. When reading profiles, message-sourced profiles take precedence over `appData`.
+
+When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately.
 
 ```bash
 # Set your display name in a conversation
@@ -512,6 +516,14 @@ import {
   parseAppData,
   serializeAppData,
   upsertProfile,
+  // Profile messages (primary profile source)
+  encodeProfileUpdate,
+  decodeProfileUpdate,
+  encodeProfileSnapshot,
+  decodeProfileSnapshot,
+  sendProfileUpdate,
+  sendProfileSnapshot,
+  resolveProfilesFromMessages,
   ConvosBaseCommand,
 } from "@xmtp/convos-cli";
 ```
