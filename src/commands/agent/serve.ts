@@ -36,6 +36,12 @@ import {
 } from "../../utils/invite.js";
 import { getMimeType } from "../../utils/mime.js";
 import { parseAppData, serializeAppData, upsertProfile } from "../../utils/metadata.js";
+import {
+  sendProfileSnapshot,
+  sendProfileUpdate,
+  resolveProfilesFromMessages,
+  type ResolvedProfile,
+} from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 import {
   getUploadProvider,
@@ -45,6 +51,7 @@ import {
   buildProfileMap,
   getAccountAddress,
   getSenderProfile,
+  getSenderProfileFromResolved,
   isDisplayableMessage,
   jsonStringify,
   normalizeMessageContent,
@@ -247,6 +254,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   private isCatchingUpDms = false;
   /** Serializes command execution to prevent concurrent appData read-modify-write. */
   private commandQueue: Promise<void> = Promise.resolve();
+  /** Cached message-sourced profiles, refreshed periodically. */
+  private resolvedProfiles: Map<string, ResolvedProfile> = new Map();
 
   private static readonly MAX_RECENT_IDS = 1000;
 
@@ -345,6 +354,16 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     }
 
     await group.addMembers([message.senderInboxId]);
+
+    // Send ProfileSnapshot so the new joiner has all profiles
+    try {
+      const allMembers = await group.members();
+      const allMemberInboxIds = allMembers.map((m) => m.inboxId);
+      await sendProfileSnapshot(group, allMemberInboxIds);
+    } catch {
+      // Non-fatal: new joiner can still receive profiles via individual updates
+    }
+
     if (dmConversation) dmConversation.updateConsentState(ConsentState.Allowed);
 
     return { conversationId, joinerInboxId: message.senderInboxId };
@@ -531,6 +550,13 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         direction: SortDirection.Ascending,
       });
 
+      // Refresh resolved profiles for catchup
+      try {
+        this.resolvedProfiles = await resolveProfilesFromMessages(conversation);
+      } catch {
+        // Use existing cache
+      }
+
       for (const message of missed) {
         if (message.senderInboxId === client.inboxId) continue;
         if (!isDisplayableMessage(message)) continue;
@@ -542,10 +568,18 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         const appData = conversation.appData ?? "";
+        // Build a merged profile map: message-sourced profiles + appData fallback
         const profiles = buildProfileMap(appData);
+        for (const [inboxId, profile] of this.resolvedProfiles) {
+          if (profile.name) profiles.set(inboxId, profile.name);
+        }
         const content = normalizeMessageContent(message, profiles);
         if (!content) continue; // skip no-op group updates
-        const senderProfile = getSenderProfile(appData, message.senderInboxId);
+        const senderProfile = getSenderProfileFromResolved(
+          this.resolvedProfiles,
+          appData,
+          message.senderInboxId,
+        );
         this.emit({
           event: "message",
           id: message.id,
@@ -603,12 +637,25 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               this.lastMessageTimestampNs = sentAtNs;
             }
 
-            // Rebuild profiles each time so newly-joined members are resolved
+            // Rebuild profiles — use message-sourced profiles with appData fallback
             const appData = conversation.appData ?? "";
             const profiles = buildProfileMap(appData);
+            // Refresh message-sourced profiles periodically
+            try {
+              this.resolvedProfiles = await resolveProfilesFromMessages(conversation);
+            } catch {
+              // Use existing cache
+            }
+            for (const [inboxId, profile] of this.resolvedProfiles) {
+              if (profile.name) profiles.set(inboxId, profile.name);
+            }
             const content = normalizeMessageContent(message, profiles);
             if (!content) continue; // skip no-op group updates
-            const senderProfile = getSenderProfile(appData, message.senderInboxId);
+            const senderProfile = getSenderProfileFromResolved(
+              this.resolvedProfiles,
+              appData,
+              message.senderInboxId,
+            );
 
             this.emit({
               event: "message",
@@ -1168,7 +1215,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         profileName: flags["profile-name"] ?? identity.profileName,
       });
 
-      // Store invite tag + profile in appData
+      // Store invite tag + profile in appData (dual-write for backward compatibility)
       let metadata = {
         tag: inviteTag,
         profiles: [] as { inboxId: string; name?: string }[],
@@ -1183,6 +1230,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       }
 
       await group.updateAppData(serializeAppData(metadata));
+
+      // Send ProfileUpdate message (primary profile source)
+      if (profileName) {
+        try {
+          await sendProfileUpdate(group, { name: profileName });
+        } catch {
+          // Non-fatal: appData write above provides fallback
+        }
+      }
 
       // Generate invite
       inviteSlug = await createInviteSlug(

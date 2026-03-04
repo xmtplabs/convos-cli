@@ -9,6 +9,7 @@ import {
   serializeAppData,
   upsertProfile,
 } from "../../utils/metadata.js";
+import { sendProfileUpdate } from "../../utils/profileMessages.js";
 
 export default class ConversationsJoin extends ConvosBaseCommand {
   static description = `Join a conversation using an invite slug or URL.
@@ -231,7 +232,7 @@ slug as query parameter 'i'.`;
       // Non-fatal: tag verification is a safety check, don't block joining
     }
 
-    // Step 6: Write joiner's profile to shared metadata
+    // Step 6: Write joiner's profile
     const profileName = flags["profile-name"];
     if (profileName) {
       try {
@@ -239,17 +240,30 @@ slug as query parameter 'i'.`;
         const conv = await client.conversations.getConversationById(conversationId);
         if (conv && isGroup(conv)) {
           await conv.sync();
-          const appData = conv.appData ?? "";
-          const metadata = parseAppData(appData);
-          const updated = upsertProfile(metadata, {
-            inboxId: client.inboxId,
-            name: profileName,
-          });
-          await conv.updateAppData(serializeAppData(updated));
+
+          // Send ProfileUpdate message (primary)
+          try {
+            await sendProfileUpdate(conv, { name: profileName });
+          } catch {
+            // Non-fatal: appData write below provides fallback
+          }
+
+          // Write to appData (dual-write for backward compatibility)
+          try {
+            const appData = conv.appData ?? "";
+            const metadata = parseAppData(appData);
+            const updated = upsertProfile(metadata, {
+              inboxId: client.inboxId,
+              name: profileName,
+            });
+            await conv.updateAppData(serializeAppData(updated));
+          } catch {
+            // Non-fatal: ProfileUpdate message is the primary source
+          }
         }
       } catch (error) {
         this.warn(
-          `Could not write profile to group metadata: ${error instanceof Error ? error.message : "unknown"}`,
+          `Could not write profile to group: ${error instanceof Error ? error.message : "unknown"}`,
         );
       }
     }

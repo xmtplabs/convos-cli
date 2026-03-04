@@ -7,6 +7,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { parseAppData, serializeAppData, upsertProfile } from "../../utils/metadata.js";
+import { sendProfileUpdate } from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
@@ -144,6 +145,15 @@ The creator becomes super admin. Others join via invite links.`;
     }
 
     await group.updateAppData(serializeAppData(metadata));
+
+    // Send ProfileUpdate message (primary profile source for new clients)
+    if (profileName) {
+      try {
+        await sendProfileUpdate(group, { name: profileName });
+      } catch {
+        // Non-fatal: appData write above provides fallback
+      }
+    }
 
     // Generate invite slug and URL
     const slug = await createInviteSlug(

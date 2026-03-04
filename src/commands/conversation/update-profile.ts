@@ -8,17 +8,17 @@ import {
   serializeAppData,
   upsertProfile,
 } from "../../utils/metadata.js";
+import { sendProfileUpdate } from "../../utils/profileMessages.js";
 
 export default class UpdateProfile extends ConvosBaseCommand {
   static description = `Set your display name and avatar in a conversation.
 
-Profiles are stored in the group's metadata (appData) and visible
-to all members. Each conversation has independent profiles — you
-can be a different person in each conversation (ADR 005).
+Profiles are per-conversation — you can be a different person in
+each conversation (ADR 005).
 
-Updates are synced to all members via XMTP's group metadata.
-The profile is stored as a compressed protobuf in the group's
-appData field (max 8KB shared across all profiles and metadata).`;
+Updates are sent as ProfileUpdate messages to the group (primary)
+and also written to appData for backward compatibility with older
+clients. Profile messages take precedence over appData.`;
 
   static examples = [
     {
@@ -100,9 +100,26 @@ appData field (max 8KB shared across all profiles and metadata).`;
 
     metadata = upsertProfile(metadata, profile);
 
-    // Serialize and push
-    const newAppData = serializeAppData(metadata);
-    await group.updateAppData(newAppData);
+    // Serialize and push to appData (dual-write for backward compatibility)
+    try {
+      const newAppData = serializeAppData(metadata);
+      await group.updateAppData(newAppData);
+    } catch (error) {
+      this.warn(
+        `Failed to write profile to appData (best-effort): ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
+
+    // Send ProfileUpdate message (primary)
+    try {
+      await sendProfileUpdate(group, {
+        name: profile.name,
+      });
+    } catch (error) {
+      this.warn(
+        `Failed to send ProfileUpdate message: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
 
     // Also update local identity store
     if (flags.name !== undefined) {

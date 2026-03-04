@@ -7,6 +7,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore, type Identity } from "../../utils/identities.js";
 import { parseInvite, decryptConversationToken, verifyInvite, verifyInviteSignature } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
+import { sendProfileSnapshot } from "../../utils/profileMessages.js";
 
 export default class ProcessJoinRequests extends ConvosBaseCommand {
   static description = `Process pending join requests for all conversations.
@@ -145,6 +146,18 @@ join requests as they arrive (recommended for always-on usage).`;
       `Adding ${message.senderInboxId} to conversation ${conversationId}`,
     );
     await group.addMembers([message.senderInboxId]);
+
+    // Step 9: Send ProfileSnapshot so the new joiner has all profiles
+    try {
+      const allMembers = await group.members();
+      const allMemberInboxIds = allMembers.map((m) => m.inboxId);
+      await sendProfileSnapshot(group, allMemberInboxIds);
+      this.log(`Sent ProfileSnapshot after adding member to ${conversationId}`);
+    } catch (error) {
+      this.log(
+        `Warning: Failed to send ProfileSnapshot: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
 
     // Mark DM as allowed so we don't re-process
     if (dmConversation) dmConversation.updateConsentState(ConsentState.Allowed);
