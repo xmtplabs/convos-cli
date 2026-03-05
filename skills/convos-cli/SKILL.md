@@ -273,7 +273,7 @@ convos conversations process-join-requests --watch
 
 Each conversation has independent profiles — you can have a different name and avatar in each.
 
-Profile updates are sent as **ProfileUpdate messages** to the group (the primary source) and also written to the group's `appData` for backward compatibility with older clients. When reading profiles, message-sourced profiles take precedence over `appData`.
+Profile updates are sent as **ProfileUpdate messages** to the group. The CLI no longer writes profiles to `appData` (this was removed to fix a data corruption bug where concurrent read-modify-write cycles could erase invite tags and other members' profiles). When reading profiles, message-sourced profiles take precedence, with `appData` as a read-only fallback for profiles written by older clients (e.g., iOS).
 
 When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately — solving the MLS forward secrecy problem where older messages may be undecryptable.
 
@@ -545,7 +545,7 @@ Member profiles are stored as XMTP group messages using two custom content types
 - **`ProfileUpdate`** (`convos.org/profile_update:1.0`) — sent by a member when they change their own name or avatar. The sender's inbox ID is implicit from the XMTP message, preventing spoofing.
 - **`ProfileSnapshot`** (`convos.org/profile_snapshot:1.0`) — sent after adding members to a group. Contains all current member profiles so new joiners have data immediately (solves MLS forward secrecy gap).
 
-Both are silent (no push notification, not displayed in chat). Profiles are also written to `appData` for backward compatibility with older clients, but message-sourced profiles take precedence.
+Both are silent (no push notification, not displayed in chat). The CLI reads `appData` profiles as a fallback for backward compatibility with older clients, but does not write profiles there. Custom XMTP content codecs (`ProfileUpdateCodec`, `ProfileSnapshotCodec`) are registered with the XMTP client at creation time so the SDK can decode these message types natively.
 
 ### Consent States
 
