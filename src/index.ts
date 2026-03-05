@@ -54,6 +54,8 @@ export {
   isProfileMessage,
   isProfileUpdateMessage,
   isProfileSnapshotMessage,
+  ProfileUpdateCodec,
+  ProfileSnapshotCodec,
   ContentTypeProfileUpdate,
   ContentTypeProfileSnapshot,
   MemberKind,

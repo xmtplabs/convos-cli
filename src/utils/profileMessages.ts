@@ -11,7 +11,8 @@
  */
 
 import protobuf from "protobufjs";
-import type { EncodedContent } from "@xmtp/node-bindings";
+import type { ContentTypeId, EncodedContent } from "@xmtp/node-bindings";
+import type { ContentCodec } from "@xmtp/content-type-primitives";
 import type { Group, DecodedMessage } from "@xmtp/node-sdk";
 import { SortDirection } from "@xmtp/node-sdk";
 
@@ -302,25 +303,119 @@ export function decodeProfileSnapshot(encoded: EncodedContent): ProfileSnapshotC
   };
 }
 
+// ─── XMTP Content Codecs ───
+
+/**
+ * XMTP ContentCodec for ProfileUpdate messages.
+ * Register this with the XMTP client so it can decode profile messages.
+ */
+export class ProfileUpdateCodec implements ContentCodec<ProfileUpdateContent> {
+  get contentType(): ContentTypeId {
+    return ContentTypeProfileUpdate;
+  }
+
+  encode(content: ProfileUpdateContent): EncodedContent {
+    return encodeProfileUpdate(content);
+  }
+
+  decode(content: EncodedContent): ProfileUpdateContent {
+    return decodeProfileUpdate(content);
+  }
+
+  fallback(_content: ProfileUpdateContent): string | undefined {
+    return undefined;
+  }
+
+  shouldPush(_content: ProfileUpdateContent): boolean {
+    return false;
+  }
+}
+
+/**
+ * XMTP ContentCodec for ProfileSnapshot messages.
+ * Register this with the XMTP client so it can decode profile messages.
+ */
+export class ProfileSnapshotCodec implements ContentCodec<ProfileSnapshotContent> {
+  get contentType(): ContentTypeId {
+    return ContentTypeProfileSnapshot;
+  }
+
+  encode(content: ProfileSnapshotContent): EncodedContent {
+    return encodeProfileSnapshot(content);
+  }
+
+  decode(content: EncodedContent): ProfileSnapshotContent {
+    return decodeProfileSnapshot(content);
+  }
+
+  fallback(_content: ProfileSnapshotContent): string | undefined {
+    return undefined;
+  }
+
+  shouldPush(_content: ProfileSnapshotContent): boolean {
+    return false;
+  }
+}
+
 // ─── Profile Resolution from Messages ───
 
 /**
- * Extract the EncodedContent from a DecodedMessage for a custom content type.
+ * Extract a ProfileUpdateContent from a DecodedMessage.
  *
- * In the XMTP node SDK, messages with unregistered custom content types
- * have their `content` set to the raw `EncodedContent` object (from the
- * `custom` getter on the underlying NAPI message).
+ * When the ProfileUpdateCodec is registered with the XMTP client,
+ * `message.content` is the already-decoded ProfileUpdateContent.
+ * When no codec is registered, `message.content` is the raw
+ * EncodedContent and we decode it ourselves.
  */
-function getEncodedContent(message: DecodedMessage): EncodedContent | undefined {
+function getProfileUpdateContent(message: DecodedMessage): ProfileUpdateContent | undefined {
   const content = message.content;
-  if (
-    content &&
-    typeof content === "object" &&
-    "content" in content &&
-    content.content instanceof Uint8Array
-  ) {
-    return content as EncodedContent;
+  if (!content || typeof content !== "object") return undefined;
+
+  // Codec registered: content is already decoded ProfileUpdateContent
+  if ("name" in content || "encryptedImage" in content || "memberKind" in content) {
+    return content as ProfileUpdateContent;
   }
+
+  // No codec: content is raw EncodedContent with protobuf bytes
+  if ("content" in content && (content as any).content instanceof Uint8Array) {
+    try {
+      return decodeProfileUpdate(content as EncodedContent);
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Empty ProfileUpdate (clear profile) — decoded object with no fields set
+  // still matches if it's a plain object from the codec
+  return content as ProfileUpdateContent;
+}
+
+/**
+ * Extract a ProfileSnapshotContent from a DecodedMessage.
+ *
+ * When the ProfileSnapshotCodec is registered with the XMTP client,
+ * `message.content` is the already-decoded ProfileSnapshotContent.
+ * When no codec is registered, `message.content` is the raw
+ * EncodedContent and we decode it ourselves.
+ */
+function getProfileSnapshotContent(message: DecodedMessage): ProfileSnapshotContent | undefined {
+  const content = message.content;
+  if (!content || typeof content !== "object") return undefined;
+
+  // Codec registered: content is already decoded ProfileSnapshotContent
+  if ("profiles" in content && Array.isArray((content as any).profiles)) {
+    return content as ProfileSnapshotContent;
+  }
+
+  // No codec: content is raw EncodedContent with protobuf bytes
+  if ("content" in content && (content as any).content instanceof Uint8Array) {
+    try {
+      return decodeProfileSnapshot(content as EncodedContent);
+    } catch {
+      return undefined;
+    }
+  }
+
   return undefined;
 }
 
@@ -362,9 +457,8 @@ export async function resolveProfilesFromMessages(
         const senderInboxId = message.senderInboxId.toLowerCase();
         if (!profilesByInboxId.has(senderInboxId)) {
           try {
-            const encoded = getEncodedContent(message);
-            if (encoded) {
-              const update = decodeProfileUpdate(encoded);
+            const update = getProfileUpdateContent(message);
+            if (update) {
               profilesByInboxId.set(senderInboxId, {
                 inboxId: message.senderInboxId,
                 name: update.name,
@@ -383,9 +477,8 @@ export async function resolveProfilesFromMessages(
       ) {
         // ProfileSnapshot — only process the most recent one (first found in descending order)
         try {
-          const encoded = getEncodedContent(message);
-          if (encoded) {
-            const snapshot = decodeProfileSnapshot(encoded);
+          const snapshot = getProfileSnapshotContent(message);
+          if (snapshot) {
             latestSnapshotProfiles = new Map();
             for (const p of snapshot.profiles) {
               if (p.inboxId) {
