@@ -682,6 +682,10 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     identity: Identity,
   ): Promise<void> {
     try {
+      // Sync group state before any operation to avoid sending messages
+      // encrypted at a stale MLS epoch. See xmtp/libxmtp#2993.
+      await conversation.sync();
+
       switch (cmd.type) {
         case "send": {
           if (!cmd.text) {
