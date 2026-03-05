@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0 (2025-03-04)
+
+### Features
+
+- **ProfileUpdate messages** — profile changes are now sent as `convos.org/profile_update:1.0` group messages, matching convos-ios PR #552
+- **ProfileSnapshot messages** — after adding members, a `convos.org/profile_snapshot:1.0` message is sent containing all current profiles so new joiners have data immediately
+- **Message-based profile resolution** — `conversation profiles` and agent message events now resolve profiles from messages first (ProfileUpdate > ProfileSnapshot) with appData as fallback
+- **MemberKind enum** — profiles include a `memberKind` field for agent self-identification (`Unspecified`, `Agent`)
+- **New exports** — `encodeProfileUpdate`, `decodeProfileUpdate`, `encodeProfileSnapshot`, `decodeProfileSnapshot`, `sendProfileUpdate`, `sendProfileSnapshot`, `resolveProfilesFromMessages`, `isProfileMessage`, `ContentTypeProfileUpdate`, `ContentTypeProfileSnapshot`, `MemberKind`
+
+### Bug Fixes
+
+- **Fixed appData corruption** — profile updates no longer do a read-modify-write on appData, which could erase invite tags and other members' profiles when `parseAppData` failed or concurrent writes raced
+- **Profile messages filtered from streams** — `isDisplayableMessage` now filters out ProfileUpdate and ProfileSnapshot messages so they don't appear in chat
+
+### Breaking Changes
+
+- `conversation update-profile` no longer writes profiles to appData (sends ProfileUpdate message only)
+- `conversations create` writes only the invite tag to appData (no profiles); creator profile is sent via ProfileUpdate message
+- `conversations join` no longer writes profiles to appData; joiner profile is sent via ProfileUpdate message
+
 ## 0.1.0 (2025-02-09)
 
 Initial release.
