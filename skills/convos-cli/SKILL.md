@@ -80,6 +80,20 @@ All commands support `--json` for machine-readable JSON output:
 convos conversations list --json
 ```
 
+Use `--fields` to limit JSON output to specific fields (implicitly enables `--json`). Supports dot notation for nested paths:
+
+```bash
+# only get message id, content, and sender
+convos conversation messages <id> --fields id,content,senderInboxId
+
+# nested field extraction
+convos conversation messages <id> --fields id,content,contentType.typeId,sentAt
+
+# works on any command
+convos conversation profiles <id> --fields profiles
+convos conversations list --fields conversationId,name
+```
+
 Use `--verbose` to see detailed client initialization logs. When combined with `--json`, verbose output goes to stderr:
 
 ```bash
@@ -619,7 +633,8 @@ convos conversation stream "$CONV_ID" --timeout 300
 2. **Never use markdown in messages**: Convos does not render markdown. When sending messages (via `send-text`, `send-reply`, or agent `send` commands), always use plain text. Do not use markdown formatting like `**bold**`, `*italic*`, `# headings`, `` `code` ``, `[links](url)`, or bullet lists with `- ` or `* `. Write naturally in plain text instead.
 3. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
 4. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
-5. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
+5. **Use `--fields` to limit output**: When fetching messages or other large responses, use `--fields` to include only the fields you need — this saves context window tokens and reduces noise. e.g. `--fields id,content,senderInboxId`
+6. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
 6. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
 7. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
 8. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
