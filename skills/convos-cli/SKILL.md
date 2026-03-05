@@ -639,3 +639,4 @@ convos conversation stream "$CONV_ID" --timeout 300
 7. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
 8. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
 9. **Check command help**: Run `convos <command> --help` for full flag documentation
+10. **Use `convos schema` for runtime introspection**: `convos schema` lists all commands as JSON, `convos schema <command>` shows full args/flags/examples for a specific command. Useful for discovering capabilities without pre-loaded docs

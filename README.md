@@ -473,6 +473,24 @@ convos conversations list --fields conversationId,name
 
 This is especially useful for AI agents to conserve context window tokens by fetching only the fields they need.
 
+### Schema Introspection
+
+Use `convos schema` to discover tool capabilities at runtime as machine-readable JSON — no docs or skill files needed:
+
+```bash
+# List all commands with summaries
+convos schema
+
+# Full schema for a specific command (args, flags, examples)
+convos schema conversation send-text
+
+# Filter by topic
+convos schema --topic conversation
+convos schema --topic agent
+```
+
+Common flags (--json, --fields, --env, etc.) are listed once at the top level rather than repeated on every command.
+
 ### Verbose Output
 
 Use `--verbose` to see detailed client initialization info. When combined with `--json`, verbose logs go to stderr:
