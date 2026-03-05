@@ -57,6 +57,7 @@ Members without a profile appear as anonymous with just their inbox ID.`;
     }
 
     const group = requireGroup(conversation);
+    await group.sync();
 
     // Get all members for completeness
     const members = await group.members();
