@@ -375,7 +375,7 @@ Supported upload providers: `pinata`
 
 Each conversation has independent profiles — you can be a different person in each conversation.
 
-Profiles are sent as **ProfileUpdate messages** to the group (the primary source) and also written to the group's `appData` for backward compatibility with older clients. When reading profiles, message-sourced profiles take precedence over `appData`.
+Profiles are sent as **ProfileUpdate messages** to the group. The CLI no longer writes profiles to `appData` (this was removed to fix a data corruption bug). When reading profiles, message-sourced profiles take precedence, with `appData` as a read-only fallback for profiles written by older clients.
 
 When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately.
 
@@ -454,6 +454,24 @@ convos conversation messages "$CONV_ID" --sync --json
 # Generate invite and capture the URL
 INVITE_URL=$(convos conversation invite "$CONV_ID" --json | jq -r '.url')
 ```
+
+### Field Masks
+
+Use `--fields` to limit JSON output to specific fields (implicitly enables `--json`). Supports dot notation for nested paths:
+
+```bash
+# Only get message id, content, and sender
+convos conversation messages <id> --fields id,content,senderInboxId
+
+# Nested field extraction
+convos conversation messages <id> --fields id,content,contentType.typeId,sentAt
+
+# Works on any command
+convos conversation profiles <id> --fields profiles
+convos conversations list --fields conversationId,name
+```
+
+This is especially useful for AI agents to conserve context window tokens by fetching only the fields they need.
 
 ### Verbose Output
 
