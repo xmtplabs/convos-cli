@@ -176,7 +176,8 @@ slug as query parameter 'i'.`;
         inboxId: client.inboxId,
         creatorInboxId: invite.creatorInboxId,
         tag: invite.tag,
-        name: invite.name ?? null,
+        conversationName: invite.name ?? null,
+        profileName: flags["profile-name"] ?? null,
         message:
           "Join request sent. The creator must accept it. " +
           "Run 'convos conversations list --sync' to check if you've been added.",
@@ -279,7 +280,8 @@ slug as query parameter 'i'.`;
       address: getAccountAddress(identity.walletKey),
       inboxId: client.inboxId,
       tag: invite.tag,
-      name: invite.name ?? null,
+      conversationName: invite.name ?? null,
+      profileName: flags["profile-name"] ?? null,
     });
   }
 }
