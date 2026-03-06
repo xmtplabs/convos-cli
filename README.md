@@ -275,6 +275,8 @@ convos conversation invite <conversation-id> --json
 
 #### Joining via Invite
 
+Join requests are sent as `convos.org/join_request:1.0` messages containing the invite slug, joiner's profile, and `memberKind: "agent"` (so the creator knows a bot is joining). A plain text slug is also sent for backward compatibility with older clients.
+
 ```bash
 # Join using a raw invite slug
 convos conversations join <invite-slug>
@@ -560,6 +562,9 @@ import {
   sendProfileUpdate,
   sendProfileSnapshot,
   resolveProfilesFromMessages,
+  // Join request content type
+  JoinRequestCodec,
+  ContentTypeJoinRequest,
   ConvosBaseCommand,
 } from "@xmtp/convos-cli";
 ```

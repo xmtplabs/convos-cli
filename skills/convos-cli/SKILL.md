@@ -562,6 +562,14 @@ Member profiles are stored as XMTP group messages using two custom content types
 
 Both are silent (no push notification, not displayed in chat). The CLI reads `appData` profiles as a fallback for backward compatibility with older clients, but does not write profiles there. Custom XMTP content codecs (`ProfileUpdateCodec`, `ProfileSnapshotCodec`) are registered with the XMTP client at creation time so the SDK can decode these message types natively.
 
+### Join Request Messages
+
+Join requests use a structured content type instead of plain text:
+
+- **`JoinRequest`** (`convos.org/join_request:1.0`) — sent as a DM to the conversation creator when joining via invite. Contains the invite slug, joiner's profile (name, image, memberKind), and optional metadata.
+
+The CLI sets `memberKind: "agent"` by default on all join requests so the creator knows a bot is joining. For backward compatibility, the CLI sends both the JoinRequestContent message and a plain text slug — older clients that don't understand the new content type will read the text fallback. When processing incoming join requests, the CLI tries JoinRequestContent first, then falls back to plain text.
+
 ### Consent States
 
 | State | Meaning |

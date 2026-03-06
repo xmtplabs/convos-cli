@@ -8,7 +8,10 @@
 - **ProfileSnapshot messages** — after adding members, a `convos.org/profile_snapshot:1.0` message is sent containing all current profiles so new joiners have data immediately
 - **Message-based profile resolution** — `conversation profiles` and agent message events now resolve profiles from messages first (ProfileUpdate > ProfileSnapshot) with appData as fallback
 - **MemberKind enum** — profiles include a `memberKind` field for agent self-identification (`Unspecified`, `Agent`)
-- **New exports** — `encodeProfileUpdate`, `decodeProfileUpdate`, `encodeProfileSnapshot`, `decodeProfileSnapshot`, `sendProfileUpdate`, `sendProfileSnapshot`, `resolveProfilesFromMessages`, `isProfileMessage`, `ContentTypeProfileUpdate`, `ContentTypeProfileSnapshot`, `MemberKind`
+- **JoinRequest content type** — join requests now use `convos.org/join_request:1.0` with structured payload (invite slug, profile, metadata) instead of plain text. CLI sets `memberKind: "agent"` by default. Plain text slug is also sent for backward compatibility with older clients.
+- **`--fields` flag** — all commands support `--fields` to limit JSON output to specific fields (supports dot notation for nested paths). Implicitly enables `--json`.
+- **`convos schema` command** — runtime introspection of all CLI commands as machine-readable JSON for AI agents
+- **New exports** — `encodeProfileUpdate`, `decodeProfileUpdate`, `encodeProfileSnapshot`, `decodeProfileSnapshot`, `sendProfileUpdate`, `sendProfileSnapshot`, `resolveProfilesFromMessages`, `isProfileMessage`, `ContentTypeProfileUpdate`, `ContentTypeProfileSnapshot`, `MemberKind`, `JoinRequestCodec`, `ContentTypeJoinRequest`
 
 ### Bug Fixes
 
