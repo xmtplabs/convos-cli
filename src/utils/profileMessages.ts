@@ -242,7 +242,12 @@ export function decodeProfileUpdate(encoded: EncodedContent): ProfileUpdateConte
     result.name = msg.name;
   }
 
-  if (msg.encrypted_image && msg.encrypted_image.url) {
+  if (
+    msg.encrypted_image &&
+    msg.encrypted_image.url &&
+    msg.encrypted_image.salt?.length === 32 &&
+    msg.encrypted_image.nonce?.length === 12
+  ) {
     result.encryptedImage = {
       url: msg.encrypted_image.url,
       salt: msg.encrypted_image.salt,
@@ -286,7 +291,12 @@ export function decodeProfileSnapshot(encoded: EncodedContent): ProfileSnapshotC
         entry.name = p.name;
       }
 
-      if (p.encrypted_image && p.encrypted_image.url) {
+      if (
+        p.encrypted_image &&
+        p.encrypted_image.url &&
+        p.encrypted_image.salt?.length === 32 &&
+        p.encrypted_image.nonce?.length === 12
+      ) {
         entry.encryptedImage = {
           url: p.encrypted_image.url,
           salt: p.encrypted_image.salt,

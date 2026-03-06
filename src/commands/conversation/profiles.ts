@@ -83,12 +83,16 @@ Members without a profile appear as anonymous with just their inbox ID.`;
         (p) => p.inboxId.toLowerCase() === inboxId.toLowerCase(),
       );
 
-      // Message profile takes precedence
-      const name = msgProfile?.name ?? appDataProfile?.name ?? null;
-      const image = msgProfile?.encryptedImage?.url ?? appDataProfile?.image ?? null;
+      // Message profile takes full precedence when it exists (even if fields are cleared)
+      const name = msgProfile
+        ? (msgProfile.name ?? null)          // message is authoritative, undefined = cleared
+        : (appDataProfile?.name ?? null);    // fallback to appData only if no message profile
+      const image = msgProfile
+        ? (msgProfile.encryptedImage?.url ?? null)
+        : (appDataProfile?.image ?? null);
       const hasProfile = !!(msgProfile || appDataProfile);
       const isMe = inboxId === client.inboxId;
-      const source = msgProfile?.name ? "message" : appDataProfile?.name ? "appData" : null;
+      const source = msgProfile ? "message" : appDataProfile ? "appData" : null;
 
       if (hasProfile) profileCount++;
 

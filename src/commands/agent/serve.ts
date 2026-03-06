@@ -256,6 +256,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   private commandQueue: Promise<void> = Promise.resolve();
   /** Cached message-sourced profiles, refreshed periodically. */
   private resolvedProfiles: Map<string, ResolvedProfile> = new Map();
+  private lastProfileRefreshMs = 0;
 
   private static readonly MAX_RECENT_IDS = 1000;
 
@@ -640,11 +641,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             // Rebuild profiles — use message-sourced profiles with appData fallback
             const appData = conversation.appData ?? "";
             const profiles = buildProfileMap(appData);
-            // Refresh message-sourced profiles periodically
-            try {
-              this.resolvedProfiles = await resolveProfilesFromMessages(conversation);
-            } catch {
-              // Use existing cache
+            // Refresh message-sourced profiles with time-based caching (max once per 30s)
+            const now = Date.now();
+            if (now - this.lastProfileRefreshMs > 30_000) {
+              try {
+                this.resolvedProfiles = await resolveProfilesFromMessages(conversation);
+                this.lastProfileRefreshMs = now;
+              } catch {
+                // Use existing cache
+              }
             }
             for (const [inboxId, profile] of this.resolvedProfiles) {
               if (profile.name) profiles.set(inboxId, profile.name);

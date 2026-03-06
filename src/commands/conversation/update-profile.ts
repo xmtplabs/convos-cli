@@ -76,8 +76,18 @@ a legacy fallback). Profile messages are the primary source of truth.`;
 
     const group = requireGroup(conversation);
 
-    // Build profile update
-    const profileName = flags.name !== undefined ? (flags.name || undefined) : undefined;
+    // Merge with existing profile so partial updates don't clear fields.
+    // e.g. `--name "Alice"` should keep existing image, not erase it.
+    const { resolveProfilesFromMessages } = await import("../../utils/profileMessages.js");
+    const existingProfiles = await resolveProfilesFromMessages(group);
+    const existing = existingProfiles.get(client.inboxId.toLowerCase());
+
+    const profileName = flags.name !== undefined
+      ? (flags.name || undefined)  // empty string → clear
+      : existing?.name;            // preserve existing
+    const profileImage = flags.image !== undefined
+      ? (flags.image || undefined) // empty string → clear
+      : existing?.encryptedImage;  // preserve existing
 
     // Send ProfileUpdate message — this is the primary source of truth.
     // We intentionally do NOT write profiles to appData to avoid the
@@ -85,6 +95,10 @@ a legacy fallback). Profile messages are the primary source of truth.`;
     // other members' profiles (see convos-ios PR #552 for context).
     await sendProfileUpdate(group, {
       name: profileName,
+      // If image is a URL string (from --image flag), we can't construct
+      // an EncryptedProfileImageRef without salt/nonce, so we skip it.
+      // If preserving an existing encrypted image ref, pass it through.
+      ...(profileImage && typeof profileImage === "object" && { encryptedImage: profileImage }),
     });
 
     // Also update local identity store

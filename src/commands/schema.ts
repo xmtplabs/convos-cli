@@ -259,12 +259,21 @@ With a command name, shows the full schema for that command.`;
       args[name] = cleanArg(arg);
     }
 
+    // Include common flags that this command actually has
+    const hasCommonFlags = Object.keys(cmd.flags ?? {}).some((f) =>
+      COMMON_FLAG_NAMES.has(f),
+    );
+
     const schema: Record<string, unknown> = {
       id: cmd.id,
       usage: commandUsage(cmd),
       description: cmd.description ?? "",
       args: Object.keys(args).length > 0 ? args : undefined,
       flags: Object.keys(commandFlags).length > 0 ? commandFlags : undefined,
+      ...(hasCommonFlags && {
+        commonFlags:
+          "All commands also accept: --json, --fields, --env, --env-file, --gateway-host, --verbose, --log-level, --structured-logging, --app-version",
+      }),
       examples: cmd.examples ? cleanExamples(cmd, cmd.examples) : undefined,
     };
 
