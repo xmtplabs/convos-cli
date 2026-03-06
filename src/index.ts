@@ -64,6 +64,8 @@ export {
   type MemberProfileEntry,
   type EncryptedProfileImageRef,
   type ResolvedProfile,
+  type ProfileMetadataValue,
+  type ProfileMetadata,
 } from "./utils/profileMessages.js";
 
 // Join request content type

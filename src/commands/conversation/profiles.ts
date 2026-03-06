@@ -96,6 +96,9 @@ Members without a profile appear as anonymous with just their inbox ID.`;
 
       if (hasProfile) profileCount++;
 
+      const memberKind = msgProfile?.memberKind ?? null;
+      const profileMetadata = msgProfile?.metadata ?? null;
+
       return {
         inboxId,
         name,
@@ -103,6 +106,8 @@ Members without a profile appear as anonymous with just their inbox ID.`;
         hasProfile,
         isMe,
         ...(source && { source }),
+        ...(memberKind && { memberKind }),
+        ...(profileMetadata && { metadata: profileMetadata }),
       };
     });
 

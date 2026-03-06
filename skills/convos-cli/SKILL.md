@@ -562,6 +562,8 @@ Member profiles are stored as XMTP group messages using two custom content types
 
 Both are silent (no push notification, not displayed in chat). The CLI reads `appData` profiles as a fallback for backward compatibility with older clients, but does not write profiles there. Custom XMTP content codecs (`ProfileUpdateCodec`, `ProfileSnapshotCodec`) are registered with the XMTP client at creation time so the SDK can decode these message types natively.
 
+Profiles support typed **metadata** — arbitrary key-value pairs where values can be string, number (double), or boolean. Metadata is carried in both `ProfileUpdate` and `ProfileSnapshot` messages via a `map<string, MetadataValue>` protobuf field. Use `--metadata key=value` on `update-profile` (repeatable, auto-typed: "true"/"false" → bool, numeric → number, else string). Metadata merges with existing values (new keys overwrite, unmentioned keys preserved).
+
 ### Join Request Messages
 
 Join requests use a structured content type instead of plain text:

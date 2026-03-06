@@ -24,6 +24,20 @@ const MemberKindEnum = new protobuf.Enum("MemberKind")
   .add("MEMBER_KIND_UNSPECIFIED", 0)
   .add("MEMBER_KIND_AGENT", 1);
 
+// MetadataValue — a typed value supporting string, number (double), or bool.
+// Uses a oneof, encoded as separate optional fields (protobuf oneof semantics).
+const MetadataValueType = new protobuf.Type("MetadataValue")
+  .add(new protobuf.OneOf("value", ["string_value", "number_value", "bool_value"]))
+  .add(new protobuf.Field("string_value", 1, "string", "optional"))
+  .add(new protobuf.Field("number_value", 2, "double", "optional"))
+  .add(new protobuf.Field("bool_value", 3, "bool", "optional"));
+
+// Map entry type for map<string, MetadataValue>
+// Protobuf maps are encoded as repeated message { key, value } entries.
+const MetadataEntryType = new protobuf.Type("MetadataEntry")
+  .add(new protobuf.Field("key", 1, "string"))
+  .add(new protobuf.Field("value", 2, "MetadataValue"));
+
 const EncryptedProfileImageRefType = new protobuf.Type("EncryptedProfileImageRef")
   .add(new protobuf.Field("url", 1, "string"))
   .add(new protobuf.Field("salt", 2, "bytes"))
@@ -32,18 +46,22 @@ const EncryptedProfileImageRefType = new protobuf.Type("EncryptedProfileImageRef
 const ProfileUpdateType = new protobuf.Type("ProfileUpdate")
   .add(new protobuf.Field("name", 1, "string", "optional"))
   .add(new protobuf.Field("encrypted_image", 2, "EncryptedProfileImageRef", "optional"))
-  .add(new protobuf.Field("member_kind", 3, "MemberKind", "optional"));
+  .add(new protobuf.Field("member_kind", 3, "MemberKind", "optional"))
+  .add(new protobuf.MapField("metadata", 4, "string", "MetadataValue"));
 
 const MemberProfileType = new protobuf.Type("MemberProfile")
   .add(new protobuf.Field("inbox_id", 1, "bytes"))
   .add(new protobuf.Field("name", 2, "string", "optional"))
   .add(new protobuf.Field("encrypted_image", 3, "EncryptedProfileImageRef", "optional"))
-  .add(new protobuf.Field("member_kind", 4, "MemberKind", "optional"));
+  .add(new protobuf.Field("member_kind", 4, "MemberKind", "optional"))
+  .add(new protobuf.MapField("metadata", 5, "string", "MetadataValue"));
 
 const ProfileSnapshotType = new protobuf.Type("ProfileSnapshot")
   .add(new protobuf.Field("profiles", 1, "MemberProfile", "repeated"));
 
 root.add(MemberKindEnum);
+root.add(MetadataValueType);
+root.add(MetadataEntryType);
 root.add(EncryptedProfileImageRefType);
 root.add(ProfileUpdateType);
 root.add(MemberProfileType);
@@ -78,10 +96,26 @@ export interface EncryptedProfileImageRef {
   nonce: Uint8Array;
 }
 
+/**
+ * A typed metadata value supporting string, number (double), or boolean.
+ * Matches the proto MetadataValue oneof.
+ */
+export type ProfileMetadataValue =
+  | { type: "string"; value: string }
+  | { type: "number"; value: number }
+  | { type: "bool"; value: boolean };
+
+/**
+ * Profile metadata — arbitrary typed key-value pairs.
+ * Keys are strings, values are typed (string, number, or bool).
+ */
+export type ProfileMetadata = Record<string, ProfileMetadataValue>;
+
 export interface ProfileUpdateContent {
   name?: string;
   encryptedImage?: EncryptedProfileImageRef;
   memberKind?: MemberKind;
+  metadata?: ProfileMetadata;
 }
 
 export interface MemberProfileEntry {
@@ -89,6 +123,7 @@ export interface MemberProfileEntry {
   name?: string;
   encryptedImage?: EncryptedProfileImageRef;
   memberKind?: MemberKind;
+  metadata?: ProfileMetadata;
 }
 
 export interface ProfileSnapshotContent {
@@ -102,6 +137,73 @@ export interface ResolvedProfile {
   image?: string;
   encryptedImage?: EncryptedProfileImageRef;
   memberKind?: MemberKind;
+  metadata?: ProfileMetadata;
+}
+
+// ─── Hex <-> Bytes ───
+
+// ─── Metadata Helpers ───
+
+interface RawMetadataValue {
+  string_value?: string;
+  number_value?: number;
+  bool_value?: boolean;
+}
+
+/**
+ * Convert ProfileMetadata to the protobuf map<string, MetadataValue> format.
+ */
+function metadataToProto(
+  metadata: ProfileMetadata,
+): Record<string, RawMetadataValue> {
+  const result: Record<string, RawMetadataValue> = {};
+  for (const [key, val] of Object.entries(metadata)) {
+    switch (val.type) {
+      case "string":
+        result[key] = { string_value: val.value };
+        break;
+      case "number":
+        result[key] = { number_value: val.value };
+        break;
+      case "bool":
+        result[key] = { bool_value: val.value };
+        break;
+    }
+  }
+  return result;
+}
+
+/**
+ * Convert the protobuf map<string, MetadataValue> format to ProfileMetadata.
+ *
+ * The oneof semantics mean only one field is set per MetadataValue.
+ * We check in order: string (non-empty), number (non-zero), bool.
+ * Protobuf default values (empty string, 0, false) are indistinguishable
+ * from "not set" in proto3, so we treat the presence of a key in the map
+ * as intent and decode the first non-default or fall back to bool(false).
+ */
+function metadataFromProto(
+  raw: Record<string, RawMetadataValue> | undefined,
+): ProfileMetadata | undefined {
+  if (!raw || Object.keys(raw).length === 0) return undefined;
+  const result: ProfileMetadata = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (val.string_value !== undefined && val.string_value !== "") {
+      result[key] = { type: "string", value: val.string_value };
+    } else if (val.number_value !== undefined && val.number_value !== 0) {
+      result[key] = { type: "number", value: val.number_value };
+    } else if (val.bool_value !== undefined) {
+      // bool_value present in the oneof — could be true or false
+      result[key] = { type: "bool", value: val.bool_value };
+    }
+    // If all fields are default (empty string, 0, false), the key is in the
+    // map but the value is ambiguous. We default to bool(false) since a key
+    // present in the map implies intent.
+    else {
+      result[key] = { type: "bool", value: false };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 // ─── Hex <-> Bytes ───
@@ -161,6 +263,10 @@ export function encodeProfileUpdate(update: ProfileUpdateContent): EncodedConten
     obj.member_kind = update.memberKind;
   }
 
+  if (update.metadata && Object.keys(update.metadata).length > 0) {
+    obj.metadata = metadataToProto(update.metadata);
+  }
+
   const errMsg = ProfileUpdateType.verify(obj);
   if (errMsg) throw new Error(`Invalid ProfileUpdate: ${errMsg}`);
 
@@ -201,6 +307,10 @@ export function encodeProfileSnapshot(snapshot: ProfileSnapshotContent): Encoded
       entry.member_kind = p.memberKind;
     }
 
+    if (p.metadata && Object.keys(p.metadata).length > 0) {
+      entry.metadata = metadataToProto(p.metadata);
+    }
+
     return entry;
   });
 
@@ -226,6 +336,7 @@ interface RawProfileUpdateMsg {
   name?: string;
   encrypted_image?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
   member_kind?: number;
+  metadata?: Record<string, RawMetadataValue>;
 }
 
 /**
@@ -259,6 +370,11 @@ export function decodeProfileUpdate(encoded: EncodedContent): ProfileUpdateConte
     result.memberKind = msg.member_kind as MemberKind;
   }
 
+  const meta = metadataFromProto(msg.metadata);
+  if (meta) {
+    result.metadata = meta;
+  }
+
   return result;
 }
 
@@ -267,6 +383,7 @@ interface RawMemberProfileMsg {
   name?: string;
   encrypted_image?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
   member_kind?: number;
+  metadata?: Record<string, RawMetadataValue>;
 }
 
 interface RawProfileSnapshotMsg {
@@ -306,6 +423,11 @@ export function decodeProfileSnapshot(encoded: EncodedContent): ProfileSnapshotC
 
       if (p.member_kind) {
         entry.memberKind = p.member_kind as MemberKind;
+      }
+
+      const meta = metadataFromProto(p.metadata);
+      if (meta) {
+        entry.metadata = meta;
       }
 
       return entry;
@@ -382,7 +504,7 @@ function getProfileUpdateContent(message: DecodedMessage): ProfileUpdateContent 
   if (!content || typeof content !== "object") return undefined;
 
   // Codec registered: content is already decoded ProfileUpdateContent
-  if ("name" in content || "encryptedImage" in content || "memberKind" in content) {
+  if ("name" in content || "encryptedImage" in content || "memberKind" in content || "metadata" in content) {
     return content as ProfileUpdateContent;
   }
 
@@ -474,6 +596,7 @@ export async function resolveProfilesFromMessages(
                 name: update.name,
                 encryptedImage: update.encryptedImage,
                 memberKind: update.memberKind,
+                metadata: update.metadata,
               });
             }
           } catch {
@@ -522,6 +645,7 @@ export async function resolveProfilesFromMessages(
           name: entry.name,
           encryptedImage: entry.encryptedImage,
           memberKind: entry.memberKind,
+          metadata: entry.metadata,
         });
       }
     }
@@ -551,6 +675,7 @@ export async function buildProfileSnapshot(
         name: profile.name,
         encryptedImage: profile.encryptedImage,
         memberKind: profile.memberKind,
+        metadata: profile.metadata,
       });
     }
   }

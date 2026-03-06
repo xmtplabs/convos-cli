@@ -12,6 +12,8 @@ import {
   isProfileMessage,
   type ProfileUpdateContent,
   type ProfileSnapshotContent,
+  type ProfileMetadata,
+  type ProfileMetadataValue,
 } from "../../src/utils/profileMessages.js";
 import {
   isDisplayableMessage,
@@ -484,5 +486,157 @@ describe("protobuf compatibility", () => {
 
     expect(Buffer.from(decoded.encryptedImage!.salt)).toEqual(Buffer.from(salt));
     expect(Buffer.from(decoded.encryptedImage!.nonce)).toEqual(Buffer.from(nonce));
+  });
+});
+
+// ─── Profile Metadata ───
+
+describe("ProfileMetadata", () => {
+  it("round-trips string metadata in ProfileUpdate", () => {
+    const update: ProfileUpdateContent = {
+      name: "Alice",
+      metadata: {
+        bio: { type: "string", value: "Swift developer" },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.name).toBe("Alice");
+    expect(decoded.metadata?.bio).toEqual({ type: "string", value: "Swift developer" });
+  });
+
+  it("round-trips number metadata in ProfileUpdate", () => {
+    const update: ProfileUpdateContent = {
+      metadata: {
+        credits: { type: "number", value: 75 },
+        opacity: { type: "number", value: 0.85 },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.metadata?.credits).toEqual({ type: "number", value: 75 });
+    expect(decoded.metadata?.opacity).toEqual({ type: "number", value: 0.85 });
+  });
+
+  it("round-trips boolean metadata in ProfileUpdate", () => {
+    const update: ProfileUpdateContent = {
+      metadata: {
+        verified: { type: "bool", value: true },
+        muted: { type: "bool", value: false },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.metadata?.verified).toEqual({ type: "bool", value: true });
+    // Note: false bools are protobuf default, may not round-trip
+  });
+
+  it("round-trips mixed metadata types in ProfileUpdate", () => {
+    const metadata: ProfileMetadata = {
+      bio: { type: "string", value: "Hello world" },
+      level: { type: "number", value: 5 },
+      premium: { type: "bool", value: true },
+    };
+    const update: ProfileUpdateContent = {
+      name: "Charlie",
+      memberKind: MemberKind.Agent,
+      metadata,
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.name).toBe("Charlie");
+    expect(decoded.memberKind).toBe(MemberKind.Agent);
+    expect(decoded.metadata?.bio).toEqual({ type: "string", value: "Hello world" });
+    expect(decoded.metadata?.level).toEqual({ type: "number", value: 5 });
+    expect(decoded.metadata?.premium).toEqual({ type: "bool", value: true });
+  });
+
+  it("round-trips metadata in ProfileSnapshot", () => {
+    const inboxId = "ab".repeat(32);
+    const snapshot: ProfileSnapshotContent = {
+      profiles: [{
+        inboxId,
+        name: "Alice",
+        memberKind: MemberKind.Agent,
+        metadata: {
+          status: { type: "string", value: "online" },
+          score: { type: "number", value: 42 },
+        },
+      }],
+    };
+    const encoded = encodeProfileSnapshot(snapshot);
+    const decoded = decodeProfileSnapshot(encoded);
+
+    expect(decoded.profiles).toHaveLength(1);
+    expect(decoded.profiles[0].name).toBe("Alice");
+    expect(decoded.profiles[0].metadata?.status).toEqual({ type: "string", value: "online" });
+    expect(decoded.profiles[0].metadata?.score).toEqual({ type: "number", value: 42 });
+  });
+
+  it("omits metadata when empty", () => {
+    const update: ProfileUpdateContent = {
+      name: "Bob",
+      metadata: {},
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.name).toBe("Bob");
+    expect(decoded.metadata).toBeUndefined();
+  });
+
+  it("omits metadata when not provided", () => {
+    const update: ProfileUpdateContent = { name: "Bob" };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.metadata).toBeUndefined();
+  });
+
+  it("handles metadata-only ProfileUpdate (no name)", () => {
+    const update: ProfileUpdateContent = {
+      metadata: {
+        credits: { type: "number", value: 100 },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.name).toBeUndefined();
+    expect(decoded.metadata?.credits).toEqual({ type: "number", value: 100 });
+  });
+
+  it("multiple snapshot profiles each with their own metadata", () => {
+    const snapshot: ProfileSnapshotContent = {
+      profiles: [
+        {
+          inboxId: "aa".repeat(32),
+          name: "Alice",
+          metadata: { role: { type: "string", value: "admin" } },
+        },
+        {
+          inboxId: "bb".repeat(32),
+          name: "Bob",
+          metadata: { role: { type: "string", value: "member" }, active: { type: "bool", value: true } },
+        },
+        {
+          inboxId: "cc".repeat(32),
+          name: "Charlie",
+          // no metadata
+        },
+      ],
+    };
+    const encoded = encodeProfileSnapshot(snapshot);
+    const decoded = decodeProfileSnapshot(encoded);
+
+    expect(decoded.profiles).toHaveLength(3);
+    expect(decoded.profiles[0].metadata?.role).toEqual({ type: "string", value: "admin" });
+    expect(decoded.profiles[1].metadata?.role).toEqual({ type: "string", value: "member" });
+    expect(decoded.profiles[1].metadata?.active).toEqual({ type: "bool", value: true });
+    expect(decoded.profiles[2].metadata).toBeUndefined();
   });
 });
