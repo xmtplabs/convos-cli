@@ -3,7 +3,7 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
-import { sendProfileUpdate, type ProfileMetadataValue, type ProfileMetadata } from "../../utils/profileMessages.js";
+import { sendProfileUpdate, MemberKind, type ProfileMetadataValue, type ProfileMetadata } from "../../utils/profileMessages.js";
 
 export default class UpdateProfile extends ConvosBaseCommand {
   static description = `Set your display name and avatar in a conversation.
@@ -135,8 +135,12 @@ a legacy fallback). Profile messages are the primary source of truth.`;
     // We intentionally do NOT write profiles to appData to avoid the
     // read-modify-write race that can corrupt invite tags and erase
     // other members' profiles (see convos-ios PR #552 for context).
+    // Preserve memberKind from existing profile, defaulting to Agent for CLI
+    const memberKind = existing?.memberKind ?? MemberKind.Agent;
+
     await sendProfileUpdate(group, {
       name: profileName,
+      memberKind,
       // If image is a URL string (from --image flag), we can't construct
       // an EncryptedProfileImageRef without salt/nonce, so we skip it.
       // If preserving an existing encrypted image ref, pass it through.
