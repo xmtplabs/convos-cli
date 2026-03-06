@@ -148,6 +148,8 @@ interface RawMetadataValue {
   string_value?: string;
   number_value?: number;
   bool_value?: boolean;
+  /** protobufjs oneof discriminator — which field is set */
+  value?: "string_value" | "number_value" | "bool_value";
 }
 
 /**
@@ -176,11 +178,9 @@ function metadataToProto(
 /**
  * Convert the protobuf map<string, MetadataValue> format to ProfileMetadata.
  *
- * The oneof semantics mean only one field is set per MetadataValue.
- * We check in order: string (non-empty), number (non-zero), bool.
- * Protobuf default values (empty string, 0, false) are indistinguishable
- * from "not set" in proto3, so we treat the presence of a key in the map
- * as intent and decode the first non-default or fall back to bool(false).
+ * Uses the protobufjs oneof discriminator (`val.value`) to determine which
+ * field is set, correctly handling default values like empty string "", 0,
+ * and false (which are valid oneof selections in proto3).
  */
 function metadataFromProto(
   raw: Record<string, RawMetadataValue> | undefined,
@@ -188,19 +188,27 @@ function metadataFromProto(
   if (!raw || Object.keys(raw).length === 0) return undefined;
   const result: ProfileMetadata = {};
   for (const [key, val] of Object.entries(raw)) {
-    if (val.string_value !== undefined && val.string_value !== "") {
-      result[key] = { type: "string", value: val.string_value };
-    } else if (val.number_value !== undefined && val.number_value !== 0) {
-      result[key] = { type: "number", value: val.number_value };
-    } else if (val.bool_value !== undefined) {
-      // bool_value present in the oneof — could be true or false
-      result[key] = { type: "bool", value: val.bool_value };
-    }
-    // If all fields are default (empty string, 0, false), the key is in the
-    // map but the value is ambiguous. We default to bool(false) since a key
-    // present in the map implies intent.
-    else {
-      result[key] = { type: "bool", value: false };
+    // Use the oneof discriminator to determine which field is set
+    switch (val.value) {
+      case "string_value":
+        result[key] = { type: "string", value: val.string_value ?? "" };
+        break;
+      case "number_value":
+        result[key] = { type: "number", value: val.number_value ?? 0 };
+        break;
+      case "bool_value":
+        result[key] = { type: "bool", value: val.bool_value ?? false };
+        break;
+      default:
+        // No oneof discriminator — fall back to value inspection
+        if (val.string_value !== undefined && val.string_value !== "") {
+          result[key] = { type: "string", value: val.string_value };
+        } else if (val.number_value !== undefined && val.number_value !== 0) {
+          result[key] = { type: "number", value: val.number_value };
+        } else if (val.bool_value !== undefined) {
+          result[key] = { type: "bool", value: val.bool_value };
+        }
+        break;
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;

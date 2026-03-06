@@ -610,6 +610,42 @@ describe("ProfileMetadata", () => {
     expect(decoded.metadata?.credits).toEqual({ type: "number", value: 100 });
   });
 
+  it("round-trips empty string metadata value", () => {
+    const update: ProfileUpdateContent = {
+      metadata: {
+        emptyField: { type: "string", value: "" },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.metadata?.emptyField).toEqual({ type: "string", value: "" });
+  });
+
+  it("round-trips zero number metadata value", () => {
+    const update: ProfileUpdateContent = {
+      metadata: {
+        zeroCredits: { type: "number", value: 0 },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.metadata?.zeroCredits).toEqual({ type: "number", value: 0 });
+  });
+
+  it("round-trips false boolean metadata value", () => {
+    const update: ProfileUpdateContent = {
+      metadata: {
+        disabled: { type: "bool", value: false },
+      },
+    };
+    const encoded = encodeProfileUpdate(update);
+    const decoded = decodeProfileUpdate(encoded);
+
+    expect(decoded.metadata?.disabled).toEqual({ type: "bool", value: false });
+  });
+
   it("multiple snapshot profiles each with their own metadata", () => {
     const snapshot: ProfileSnapshotContent = {
       profiles: [
