@@ -6,6 +6,10 @@ import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
 import { sendProfileUpdate } from "../../utils/profileMessages.js";
+import {
+  JoinRequestCodec,
+  type JoinRequestContent,
+} from "../../utils/joinRequest.js";
 
 export default class ConversationsJoin extends ConvosBaseCommand {
   static description = `Join a conversation using an invite slug or URL.
@@ -147,8 +151,19 @@ slug as query parameter 'i'.`;
     // Create DM with creator using their XMTP inbox ID
     const dm = await client.conversations.createDm(invite.creatorInboxId);
 
-    // Send the invite slug as the join request
+    // Send JoinRequest content type (new format) + plain text slug (backward compat)
     const slug = inviteToSlug(invite);
+    const joinRequest: JoinRequestContent = {
+      inviteSlug: slug,
+      profile: {
+        ...(flags["profile-name"] && { name: flags["profile-name"] }),
+        memberKind: "agent",
+      },
+    };
+    const codec = new JoinRequestCodec();
+    const encoded = codec.encode(joinRequest);
+    await dm.send(encoded);
+    // Also send plain text slug for older iOS clients that don't understand JoinRequestContent
     await dm.sendText(slug);
 
     this.log("Join request sent.");

@@ -66,6 +66,16 @@ export {
   type ResolvedProfile,
 } from "./utils/profileMessages.js";
 
+// Join request content type
+export {
+  JoinRequestCodec,
+  ContentTypeJoinRequest,
+  isJoinRequestMessage,
+  getJoinRequestContent,
+  type JoinRequestContent,
+  type JoinRequestProfile,
+} from "./utils/joinRequest.js";
+
 // Random utilities
 export { randomAlphanumeric } from "./utils/random.js";
 

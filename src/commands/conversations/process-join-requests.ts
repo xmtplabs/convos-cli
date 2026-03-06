@@ -8,6 +8,12 @@ import { createIdentityStore, type Identity } from "../../utils/identities.js";
 import { parseInvite, decryptConversationToken, verifyInvite, verifyInviteSignature } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
 import { sendProfileSnapshot } from "../../utils/profileMessages.js";
+import {
+  isJoinRequestMessage,
+  getJoinRequestContent,
+  type JoinRequestContent,
+  type JoinRequestProfile,
+} from "../../utils/joinRequest.js";
 
 export default class ProcessJoinRequests extends ConvosBaseCommand {
   static description = `Process pending join requests for all conversations.
@@ -61,17 +67,40 @@ join requests as they arrive (recommended for always-on usage).`;
     message: DecodedMessage,
     client: Client,
     identity: Identity,
-  ): Promise<{ conversationId: string; joinerInboxId: string; identityId: string; tag: string } | undefined> {
+  ): Promise<{
+    conversationId: string;
+    joinerInboxId: string;
+    identityId: string;
+    tag: string;
+    profile?: JoinRequestProfile;
+    metadata?: Record<string, string>;
+  } | undefined> {
     // Skip our own messages
     if (message.senderInboxId === client.inboxId) return;
 
-    // Try to parse as invite
-    const text = typeof message.content === "string" ? message.content : null;
-    if (!text) return;
+    // Try JoinRequestContent first (new format), then fall back to plain text
+    let slug: string | undefined;
+    let joinProfile: JoinRequestProfile | undefined;
+    let joinMetadata: Record<string, string> | undefined;
+
+    if (isJoinRequestMessage(message)) {
+      const joinRequest = getJoinRequestContent(message);
+      if (joinRequest) {
+        slug = joinRequest.inviteSlug;
+        joinProfile = joinRequest.profile;
+        joinMetadata = joinRequest.metadata;
+      }
+    }
+
+    if (!slug) {
+      const text = typeof message.content === "string" ? message.content : null;
+      if (!text) return;
+      slug = text;
+    }
 
     let invite;
     try {
-      invite = parseInvite(text);
+      invite = parseInvite(slug);
     } catch {
       return; // Not an invite, skip
     }
@@ -167,6 +196,8 @@ join requests as they arrive (recommended for always-on usage).`;
       joinerInboxId: message.senderInboxId,
       identityId: identity.id,
       tag: invite.tag,
+      ...(joinProfile && { profile: joinProfile }),
+      ...(joinMetadata && { metadata: joinMetadata }),
     };
   }
 

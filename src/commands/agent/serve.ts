@@ -48,6 +48,10 @@ import {
   INLINE_ATTACHMENT_MAX_BYTES,
 } from "../../utils/upload.js";
 import {
+  isJoinRequestMessage,
+  getJoinRequestContent,
+} from "../../utils/joinRequest.js";
+import {
   buildProfileMap,
   getAccountAddress,
   getSenderProfile,
@@ -298,12 +302,25 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   ): Promise<{ conversationId: string; joinerInboxId: string } | undefined> {
     if (message.senderInboxId === client.inboxId) return;
 
-    const text = typeof message.content === "string" ? message.content : null;
-    if (!text) return;
+    // Try JoinRequestContent first (new format), then fall back to plain text
+    let slug: string | undefined;
+
+    if (isJoinRequestMessage(message)) {
+      const joinRequest = getJoinRequestContent(message);
+      if (joinRequest) {
+        slug = joinRequest.inviteSlug;
+      }
+    }
+
+    if (!slug) {
+      const text = typeof message.content === "string" ? message.content : null;
+      if (!text) return;
+      slug = text;
+    }
 
     let invite;
     try {
-      invite = parseInvite(text);
+      invite = parseInvite(slug);
     } catch {
       return;
     }
