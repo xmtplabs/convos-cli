@@ -71,6 +71,7 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 | ------- | ------- |
 | `init` | Initialize configuration and directory structure |
 | `reset` | Delete all identities and conversation data (preserves .env) |
+| `schema` | Introspect CLI commands as machine-readable JSON (args, flags, examples) |
 
 ## Output Modes
 

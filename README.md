@@ -110,7 +110,7 @@ Configuration is loaded in priority order:
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
 
-Run `convos --help` for all commands, or `convos <command> --help` for details on a specific command.
+Run `convos --help` for all commands, or `convos <command> --help` for details on a specific command. For machine-readable introspection, use `convos schema`.
 
 ## Agent Mode
 
