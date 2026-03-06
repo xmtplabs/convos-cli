@@ -7,6 +7,8 @@ import {
   RemoteAttachmentCodec,
 } from "@xmtp/content-type-remote-attachment";
 import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
+import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
+import { JoinRequestCodec } from "./joinRequest.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -35,7 +37,7 @@ const LOG_LEVELS: Record<string, LogLevel> = {
 export async function createClientForIdentity(
   identity: Identity,
   config: ConvosConfig,
-): Promise<Client> {
+): Promise<Client<any>> {
   const store = createIdentityStore();
   const env = config.env ?? "dev";
   const dbPath = store.getDbPath(identity.id, env);
@@ -58,7 +60,13 @@ export async function createClientForIdentity(
 
   const client = await Client.create(signer, {
     env,
-    codecs: [new AttachmentCodec(), new RemoteAttachmentCodec()],
+    codecs: [
+      new AttachmentCodec(),
+      new RemoteAttachmentCodec(),
+      new ProfileUpdateCodec() as any,
+      new ProfileSnapshotCodec() as any,
+      new JoinRequestCodec() as any,
+    ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,
     gatewayHost: config.gatewayHost,

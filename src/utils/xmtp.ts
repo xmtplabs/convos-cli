@@ -16,6 +16,11 @@ import {
 } from "@xmtp/node-sdk";
 import type { GroupUpdated } from "@xmtp/node-bindings";
 import { parseAppData, type ConversationCustomMetadata } from "./metadata.js";
+import {
+  isProfileMessage,
+  resolveProfilesFromMessages,
+  type ResolvedProfile,
+} from "./profileMessages.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -75,7 +80,7 @@ export const VALID_ENVS = ["local", "dev", "production"] as const;
 export type ProfileMap = Map<string, string>;
 
 /**
- * Build a ProfileMap from a Group's appData.
+ * Build a ProfileMap from a Group's appData (legacy fallback).
  */
 export function buildProfileMap(appData: string): ProfileMap {
   const metadata = parseAppData(appData);
@@ -88,6 +93,32 @@ export function buildProfileMap(appData: string): ProfileMap {
   return map;
 }
 
+/**
+ * Build a ProfileMap from both profile messages (primary) and appData (fallback).
+ * Profile messages take precedence over appData.
+ */
+export async function buildProfileMapFromMessages(
+  group: Group,
+  appData: string,
+): Promise<ProfileMap> {
+  // Start with appData profiles as fallback
+  const map = buildProfileMap(appData);
+
+  // Overlay message-sourced profiles (higher priority)
+  try {
+    const messageProfiles = await resolveProfilesFromMessages(group);
+    for (const [inboxId, profile] of messageProfiles) {
+      if (profile.name) {
+        map.set(inboxId, profile.name);
+      }
+    }
+  } catch {
+    // If message scanning fails, appData profiles are still available
+  }
+
+  return map;
+}
+
 /** Sender profile info included in agent message events. */
 export interface SenderProfile {
   name?: string;
@@ -95,7 +126,7 @@ export interface SenderProfile {
 }
 
 /**
- * Look up a sender's profile from the group's appData.
+ * Look up a sender's profile from the group's appData (legacy fallback).
  * Returns a SenderProfile with whatever fields are available, or
  * undefined if no profile exists for the given inbox ID.
  */
@@ -113,6 +144,28 @@ export function getSenderProfile(
     ...(profile.name && { name: profile.name }),
     ...(profile.image && { image: profile.image }),
   };
+}
+
+/**
+ * Look up a sender's profile from message-sourced profiles first,
+ * falling back to appData.
+ */
+export function getSenderProfileFromResolved(
+  resolvedProfiles: Map<string, ResolvedProfile>,
+  appData: string,
+  senderInboxId: string,
+): SenderProfile | undefined {
+  // Try message-sourced profile first
+  const resolved = resolvedProfiles.get(senderInboxId.toLowerCase());
+  if (resolved && (resolved.name || resolved.encryptedImage)) {
+    return {
+      ...(resolved.name && { name: resolved.name }),
+      ...(resolved.encryptedImage && { image: resolved.encryptedImage.url }),
+    };
+  }
+
+  // Fall back to appData
+  return getSenderProfile(appData, senderInboxId);
 }
 
 /**
@@ -360,8 +413,13 @@ const DISPLAYABLE_TYPE_IDS = new Set([
 /**
  * Returns true if the message has a content type we know how to display.
  * Use this to filter out unknown/binary content types from streams.
+ * Profile messages (ProfileUpdate, ProfileSnapshot) are filtered out —
+ * they are silent metadata messages, not user-visible content.
  */
 export function isDisplayableMessage(message: DecodedMessage): boolean {
+  // Filter out profile messages (silent metadata)
+  if (isProfileMessage(message)) return false;
+
   const ct = message.contentType;
   if (ct.authorityId !== "xmtp.org") return false;
   if (DISPLAYABLE_TYPE_IDS.has(ct.typeId)) return true;

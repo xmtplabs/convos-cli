@@ -71,6 +71,7 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 | ------- | ------- |
 | `init` | Initialize configuration and directory structure |
 | `reset` | Delete all identities and conversation data (preserves .env) |
+| `schema` | Introspect CLI commands as machine-readable JSON (args, flags, examples) |
 
 ## Output Modes
 
@@ -78,6 +79,20 @@ All commands support `--json` for machine-readable JSON output:
 
 ```bash
 convos conversations list --json
+```
+
+Use `--fields` to limit JSON output to specific fields (implicitly enables `--json`). Supports dot notation for nested paths:
+
+```bash
+# only get message id, content, and sender
+convos conversation messages <id> --fields id,content,senderInboxId
+
+# nested field extraction
+convos conversation messages <id> --fields id,content,contentType.typeId,sentAt
+
+# works on any command
+convos conversation profiles <id> --fields profiles
+convos conversations list --fields conversationId,name
 ```
 
 Use `--verbose` to see detailed client initialization logs. When combined with `--json`, verbose output goes to stderr:
@@ -272,6 +287,18 @@ convos conversations process-join-requests --watch
 ### Per-Conversation Profiles
 
 Each conversation has independent profiles — you can have a different name and avatar in each.
+
+Profile updates are sent as **ProfileUpdate messages** to the group. The CLI no longer writes profiles to `appData` (this was removed to fix a data corruption bug where concurrent read-modify-write cycles could erase invite tags and other members' profiles). When reading profiles, message-sourced profiles take precedence, with `appData` as a read-only fallback for profiles written by older clients (e.g., iOS).
+
+When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately — solving the MLS forward secrecy problem where older messages may be undecryptable.
+
+Profile resolution precedence:
+1. **Latest ProfileUpdate from that member** — highest priority, most recent self-authored update
+2. **Most recent ProfileSnapshot containing that member** — fallback when no ProfileUpdate exists
+3. **appData profiles** — legacy fallback for backward compatibility with older clients
+4. **No profile** — member has no name/avatar set
+
+Both ProfileUpdate and ProfileSnapshot are silent messages (`shouldPush = false`) — they do not appear in chat or trigger notifications.
 
 ```bash
 # set display name
@@ -526,6 +553,25 @@ Identities are stored in `~/.convos/identities/<id>.json`. Databases are stored 
 
 **Key point:** Step 3 must happen *after* step 2. The creator must either run `process-join-requests` after the invite has been opened, or use `--watch` to stream and process requests as they arrive.
 
+### Profile Messages
+
+Member profiles are stored as XMTP group messages using two custom content types:
+
+- **`ProfileUpdate`** (`convos.org/profile_update:1.0`) — sent by a member when they change their own name or avatar. The sender's inbox ID is implicit from the XMTP message, preventing spoofing.
+- **`ProfileSnapshot`** (`convos.org/profile_snapshot:1.0`) — sent after adding members to a group. Contains all current member profiles so new joiners have data immediately (solves MLS forward secrecy gap).
+
+Both are silent (no push notification, not displayed in chat). The CLI reads `appData` profiles as a fallback for backward compatibility with older clients, but does not write profiles there. Custom XMTP content codecs (`ProfileUpdateCodec`, `ProfileSnapshotCodec`) are registered with the XMTP client at creation time so the SDK can decode these message types natively.
+
+Profiles support typed **metadata** — arbitrary key-value pairs where values can be string, number (double), or boolean. Metadata is carried in both `ProfileUpdate` and `ProfileSnapshot` messages via a `map<string, MetadataValue>` protobuf field. Use `--metadata key=value` on `update-profile` (repeatable, auto-typed: "true"/"false" → bool, numeric → number, else string). Metadata merges with existing values (new keys overwrite, unmentioned keys preserved).
+
+### Join Request Messages
+
+Join requests use a structured content type instead of plain text:
+
+- **`JoinRequest`** (`convos.org/join_request:1.0`) — sent as a DM to the conversation creator when joining via invite. Contains the invite slug, joiner's profile (name, image, memberKind), and optional metadata.
+
+The CLI sets `memberKind: "agent"` by default on all join requests so the creator knows a bot is joining. For backward compatibility, the CLI sends both the JoinRequestContent message and a plain text slug — older clients that don't understand the new content type will read the text fallback. When processing incoming join requests, the CLI tries JoinRequestContent first, then falls back to plain text.
+
 ### Consent States
 
 | State | Meaning |
@@ -598,8 +644,10 @@ convos conversation stream "$CONV_ID" --timeout 300
 2. **Never use markdown in messages**: Convos does not render markdown. When sending messages (via `send-text`, `send-reply`, or agent `send` commands), always use plain text. Do not use markdown formatting like `**bold**`, `*italic*`, `# headings`, `` `code` ``, `[links](url)`, or bullet lists with `- ` or `* `. Write naturally in plain text instead.
 3. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
 4. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
-5. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
+5. **Use `--fields` to limit output**: When fetching messages or other large responses, use `--fields` to include only the fields you need — this saves context window tokens and reduces noise. e.g. `--fields id,content,senderInboxId`
+6. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
 6. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
 7. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
 8. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
 9. **Check command help**: Run `convos <command> --help` for full flag documentation
+10. **Use `convos schema` for runtime introspection**: `convos schema` lists all commands as JSON, `convos schema <command>` shows full args/flags/examples for a specific command. Useful for discovering capabilities without pre-loaded docs

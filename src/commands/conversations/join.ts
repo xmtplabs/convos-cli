@@ -4,11 +4,12 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
+import { parseAppData } from "../../utils/metadata.js";
+import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
 import {
-  parseAppData,
-  serializeAppData,
-  upsertProfile,
-} from "../../utils/metadata.js";
+  JoinRequestCodec,
+  type JoinRequestContent,
+} from "../../utils/joinRequest.js";
 
 export default class ConversationsJoin extends ConvosBaseCommand {
   static description = `Join a conversation using an invite slug or URL.
@@ -150,8 +151,19 @@ slug as query parameter 'i'.`;
     // Create DM with creator using their XMTP inbox ID
     const dm = await client.conversations.createDm(invite.creatorInboxId);
 
-    // Send the invite slug as the join request
+    // Send JoinRequest content type (new format) + plain text slug (backward compat)
     const slug = inviteToSlug(invite);
+    const joinRequest: JoinRequestContent = {
+      inviteSlug: slug,
+      profile: {
+        ...(flags["profile-name"] && { name: flags["profile-name"] }),
+        memberKind: "agent",
+      },
+    };
+    const codec = new JoinRequestCodec();
+    const encoded = codec.encode(joinRequest);
+    await dm.send(encoded);
+    // Also send plain text slug for older iOS clients that don't understand JoinRequestContent
     await dm.sendText(slug);
 
     this.log("Join request sent.");
@@ -164,7 +176,8 @@ slug as query parameter 'i'.`;
         inboxId: client.inboxId,
         creatorInboxId: invite.creatorInboxId,
         tag: invite.tag,
-        name: invite.name ?? null,
+        conversationName: invite.name ?? null,
+        profileName: flags["profile-name"] ?? null,
         message:
           "Join request sent. The creator must accept it. " +
           "Run 'convos conversations list --sync' to check if you've been added.",
@@ -231,27 +244,26 @@ slug as query parameter 'i'.`;
       // Non-fatal: tag verification is a safety check, don't block joining
     }
 
-    // Step 6: Write joiner's profile to shared metadata
-    const profileName = flags["profile-name"];
-    if (profileName) {
-      try {
-        await client.conversations.sync();
-        const conv = await client.conversations.getConversationById(conversationId);
-        if (conv && isGroup(conv)) {
-          await conv.sync();
-          const appData = conv.appData ?? "";
-          const metadata = parseAppData(appData);
-          const updated = upsertProfile(metadata, {
-            inboxId: client.inboxId,
-            name: profileName,
-          });
-          await conv.updateAppData(serializeAppData(updated));
-        }
-      } catch (error) {
-        this.warn(
-          `Could not write profile to group metadata: ${error instanceof Error ? error.message : "unknown"}`,
-        );
+    // Step 6: Write joiner's profile via ProfileUpdate message.
+    // We intentionally do NOT write profiles to appData to avoid the
+    // read-modify-write race that can corrupt invite tags and erase
+    // other members' profiles.
+    // Always send a ProfileUpdate to set memberKind: Agent (and name if provided).
+    try {
+      await client.conversations.sync();
+      const conv = await client.conversations.getConversationById(conversationId);
+      if (conv && isGroup(conv)) {
+        await conv.sync();
+        const profileName = flags["profile-name"];
+        await sendProfileUpdate(conv, {
+          ...(profileName && { name: profileName }),
+          memberKind: MemberKind.Agent,
+        });
       }
+    } catch (error) {
+      this.warn(
+        `Could not send ProfileUpdate message: ${error instanceof Error ? error.message : "unknown"}`,
+      );
     }
 
     // Step 7: Link identity to conversation
@@ -270,7 +282,8 @@ slug as query parameter 'i'.`;
       address: getAccountAddress(identity.walletKey),
       inboxId: client.inboxId,
       tag: invite.tag,
-      name: invite.name ?? null,
+      conversationName: invite.name ?? null,
+      profileName: flags["profile-name"] ?? null,
     });
   }
 }

@@ -4,13 +4,15 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseAppData } from "../../utils/metadata.js";
+import { resolveProfilesFromMessages } from "../../utils/profileMessages.js";
 
 export default class Profiles extends ConvosBaseCommand {
   static description = `List member profiles in a conversation.
 
 Shows display names and avatar URLs for all members who have set
-a profile in this conversation. Profiles are stored in the group's
-metadata and are visible to all members (ADR 005).
+a profile in this conversation. Profiles are resolved from
+ProfileUpdate/ProfileSnapshot messages (primary) with appData as
+fallback for backward compatibility.
 
 Members without a profile appear as anonymous with just their inbox ID.`;
 
@@ -55,40 +57,64 @@ Members without a profile appear as anonymous with just their inbox ID.`;
     }
 
     const group = requireGroup(conversation);
+    await group.sync();
 
-    // Parse metadata
+    // Get all members for completeness
+    const members = await group.members();
+    const memberInboxIds = members.map((m) => m.inboxId);
+
+    // Resolve profiles from messages (primary source)
+    const messageProfiles = await resolveProfilesFromMessages(group, memberInboxIds);
+
+    // Parse appData profiles (fallback)
     let appData = "";
     try {
       appData = group.appData ?? "";
     } catch {
       // No appData yet
     }
-
     const metadata = parseAppData(appData);
 
-    // Get all members for completeness
-    const members = await group.members();
-    const memberInboxIds = members.map((m) => m.inboxId);
-
-    // Build profile list — include all members, mark which have profiles
+    // Build profile list — message-sourced profiles take precedence over appData
+    let profileCount = 0;
     const profileList = memberInboxIds.map((inboxId) => {
-      const profile = metadata.profiles.find(
+      const msgProfile = messageProfiles.get(inboxId.toLowerCase());
+      const appDataProfile = metadata.profiles.find(
         (p) => p.inboxId.toLowerCase() === inboxId.toLowerCase(),
       );
+
+      // Message profile takes full precedence when it exists (even if fields are cleared)
+      const name = msgProfile
+        ? (msgProfile.name ?? null)          // message is authoritative, undefined = cleared
+        : (appDataProfile?.name ?? null);    // fallback to appData only if no message profile
+      const image = msgProfile
+        ? (msgProfile.encryptedImage?.url ?? null)
+        : (appDataProfile?.image ?? null);
+      const hasProfile = !!(msgProfile || appDataProfile);
       const isMe = inboxId === client.inboxId;
+      const source = msgProfile ? "message" : appDataProfile ? "appData" : null;
+
+      if (hasProfile) profileCount++;
+
+      const memberKind = msgProfile?.memberKind ?? null;
+      const profileMetadata = msgProfile?.metadata ?? null;
+
       return {
         inboxId,
-        name: profile?.name ?? null,
-        image: profile?.image ?? null,
-        hasProfile: !!profile,
+        name,
+        image,
+        hasProfile,
         isMe,
+        ...(source && { source }),
+        ...(memberKind && { memberKind }),
+        ...(profileMetadata && { metadata: profileMetadata }),
       };
     });
 
     this.output({
       conversationId: args.id,
       memberCount: memberInboxIds.length,
-      profileCount: metadata.profiles.length,
+      profileCount,
       profiles: profileList,
     });
   }

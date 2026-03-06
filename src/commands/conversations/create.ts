@@ -6,7 +6,8 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
-import { parseAppData, serializeAppData, upsertProfile } from "../../utils/metadata.js";
+import { serializeAppData } from "../../utils/metadata.js";
+import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
@@ -131,19 +132,22 @@ The creator becomes super admin. Others join via invite links.`;
       profileName: flags["profile-name"] ?? identity.profileName,
     });
 
-    // Store invite tag in appData
-    let metadata = { tag: inviteTag, profiles: [] as { inboxId: string; name?: string }[] };
-
-    // Write creator's profile to shared metadata so other members can see it
-    const profileName = flags["profile-name"];
-    if (profileName) {
-      metadata = upsertProfile(metadata, {
-        inboxId: client.inboxId,
-        name: profileName,
-      });
-    }
-
+    // Store invite tag in appData (no profiles — profiles go via messages only
+    // to avoid read-modify-write races that corrupt tags and erase profiles)
+    const metadata = { tag: inviteTag, profiles: [] as never[] };
     await group.updateAppData(serializeAppData(metadata));
+
+    // Send ProfileUpdate message (primary profile source)
+    // Always send to set memberKind: Agent (and name if provided)
+    try {
+      const profileName = flags["profile-name"];
+      await sendProfileUpdate(group, {
+        ...(profileName && { name: profileName }),
+        memberKind: MemberKind.Agent,
+      });
+    } catch {
+      // Non-fatal: profile will be visible once a ProfileUpdate is sent
+    }
 
     // Generate invite slug and URL
     const slug = await createInviteSlug(

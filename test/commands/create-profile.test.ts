@@ -1,92 +1,71 @@
 /**
- * Tests that `conversations create --profile-name` writes the creator's
- * profile to the group's shared appData metadata (not just the local
- * identity store).
+ * Tests for the create/join profile flow.
  *
- * Bug: Before the fix, the create command wrote `{ tag, profiles: [] }`
- * to appData — the creator's profile name was only saved locally and
- * never visible to other members.
+ * After the profile messages migration (convos-ios PR #552), profiles
+ * are no longer written to appData. The create command writes only the
+ * invite tag to appData, and the profile is sent via a ProfileUpdate
+ * message instead.
  */
 import { describe, expect, it } from "vitest";
 import {
   parseAppData,
   serializeAppData,
-  upsertProfile,
   type ConversationCustomMetadata,
 } from "../../src/utils/metadata.js";
 import { randomAlphanumeric } from "../../src/utils/random.js";
+import {
+  encodeProfileUpdate,
+  decodeProfileUpdate,
+  encodeProfileSnapshot,
+  decodeProfileSnapshot,
+} from "../../src/utils/profileMessages.js";
 
-describe("create command profile metadata", () => {
+describe("create command metadata (post-migration)", () => {
   const fakeInboxId = "ab".repeat(32);
 
-  it("BUG: create builds metadata with empty profiles (no creator profile)", () => {
-    // This replicates what `conversations create` did before the fix:
+  it("create writes appData with tag only, no profiles", () => {
+    // After the migration, create only stores the invite tag in appData.
+    // Profiles go via ProfileUpdate messages to avoid appData corruption.
     const inviteTag = randomAlphanumeric(10);
-    const metadata = { tag: inviteTag, profiles: [] };
+    const metadata = { tag: inviteTag, profiles: [] as never[] };
     const encoded = serializeAppData(metadata);
     const decoded = parseAppData(encoded);
 
-    // The creator's profile is missing from appData!
+    expect(decoded.tag).toBe(inviteTag);
     expect(decoded.profiles).toHaveLength(0);
   });
 
-  it("FIX: create should include creator profile in metadata when --profile-name is set", () => {
-    // This is what the fixed code should do:
-    const inviteTag = randomAlphanumeric(10);
+  it("create sends profile via ProfileUpdate message instead of appData", () => {
+    // The creator's profile is communicated via a ProfileUpdate message
     const profileName = "Sora";
+    const encoded = encodeProfileUpdate({ name: profileName });
+    const decoded = decodeProfileUpdate(encoded);
 
-    let metadata: ConversationCustomMetadata = { tag: inviteTag, profiles: [] };
-    // After creating the group, if a profile name was provided, upsert it
-    metadata = upsertProfile(metadata, {
-      inboxId: fakeInboxId,
-      name: profileName,
-    });
-
-    const encoded = serializeAppData(metadata);
-    const decoded = parseAppData(encoded);
-
-    expect(decoded.profiles).toHaveLength(1);
-    expect(decoded.profiles[0].inboxId).toBe(fakeInboxId);
-    expect(decoded.profiles[0].name).toBe("Sora");
+    expect(decoded.name).toBe("Sora");
   });
 
-  it("FIX: create should not add a profile when --profile-name is omitted", () => {
-    const inviteTag = randomAlphanumeric(10);
-    const profileName = undefined; // no --profile-name flag
+  it("join sends profile via ProfileUpdate message instead of appData", () => {
+    // After joining, the joiner sends a ProfileUpdate message
+    const profileName = "Joiner";
+    const encoded = encodeProfileUpdate({ name: profileName });
+    const decoded = decodeProfileUpdate(encoded);
 
-    let metadata: ConversationCustomMetadata = { tag: inviteTag, profiles: [] };
-    // Only upsert if profileName was provided
-    if (profileName) {
-      metadata = upsertProfile(metadata, {
-        inboxId: fakeInboxId,
-        name: profileName,
-      });
-    }
-
-    const encoded = serializeAppData(metadata);
-    const decoded = parseAppData(encoded);
-
-    expect(decoded.profiles).toHaveLength(0);
+    expect(decoded.name).toBe("Joiner");
   });
 
-  it("FIX: join should write profile to appData after acceptance", () => {
-    // Simulate: group already has metadata with tag + creator profile
+  it("process-join-requests sends ProfileSnapshot after adding member", () => {
+    // After adding a new member, the creator sends a ProfileSnapshot
+    // so the new joiner has all existing profiles immediately.
     const creatorInbox = "cc".repeat(32);
     const joinerInbox = "dd".repeat(32);
 
-    let metadata: ConversationCustomMetadata = {
-      tag: "abcdef1234",
-      profiles: [{ inboxId: creatorInbox, name: "Creator" }],
-    };
-
-    // After join acceptance, the joiner should upsert their profile
-    metadata = upsertProfile(metadata, {
-      inboxId: joinerInbox,
-      name: "Joiner",
+    const snapshot = encodeProfileSnapshot({
+      profiles: [
+        { inboxId: creatorInbox, name: "Creator" },
+        { inboxId: joinerInbox, name: "Joiner" },
+      ],
     });
-
-    const encoded = serializeAppData(metadata);
-    const decoded = parseAppData(encoded);
+    const decoded = decodeProfileSnapshot(snapshot);
 
     expect(decoded.profiles).toHaveLength(2);
     expect(decoded.profiles[0].name).toBe("Creator");

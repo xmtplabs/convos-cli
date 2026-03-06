@@ -110,7 +110,7 @@ Configuration is loaded in priority order:
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
 
-Run `convos --help` for all commands, or `convos <command> --help` for details on a specific command.
+Run `convos --help` for all commands, or `convos <command> --help` for details on a specific command. For machine-readable introspection, use `convos schema`.
 
 ## Agent Mode
 
@@ -275,6 +275,8 @@ convos conversation invite <conversation-id> --json
 
 #### Joining via Invite
 
+Join requests are sent as `convos.org/join_request:1.0` messages containing the invite slug, joiner's profile, and `memberKind: "agent"` (so the creator knows a bot is joining). A plain text slug is also sent for backward compatibility with older clients.
+
 ```bash
 # Join using a raw invite slug
 convos conversations join <invite-slug>
@@ -373,7 +375,11 @@ Supported upload providers: `pinata`
 
 ### Profiles
 
-Each conversation has independent profiles — you can be a different person in each conversation. Profiles are stored in the group's metadata and visible to all members.
+Each conversation has independent profiles — you can be a different person in each conversation.
+
+Profiles are sent as **ProfileUpdate messages** to the group. The CLI no longer writes profiles to `appData` (this was removed to fix a data corruption bug). When reading profiles, message-sourced profiles take precedence, with `appData` as a read-only fallback for profiles written by older clients.
+
+When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately.
 
 ```bash
 # Set your display name in a conversation
@@ -451,6 +457,42 @@ convos conversation messages "$CONV_ID" --sync --json
 INVITE_URL=$(convos conversation invite "$CONV_ID" --json | jq -r '.url')
 ```
 
+### Field Masks
+
+Use `--fields` to limit JSON output to specific fields (implicitly enables `--json`). Supports dot notation for nested paths:
+
+```bash
+# Only get message id, content, and sender
+convos conversation messages <id> --fields id,content,senderInboxId
+
+# Nested field extraction
+convos conversation messages <id> --fields id,content,contentType.typeId,sentAt
+
+# Works on any command
+convos conversation profiles <id> --fields profiles
+convos conversations list --fields conversationId,name
+```
+
+This is especially useful for AI agents to conserve context window tokens by fetching only the fields they need.
+
+### Schema Introspection
+
+Use `convos schema` to discover tool capabilities at runtime as machine-readable JSON — no docs or skill files needed:
+
+```bash
+# List all commands with summaries
+convos schema
+
+# Full schema for a specific command (args, flags, examples)
+convos schema conversation send-text
+
+# Filter by topic
+convos schema --topic conversation
+convos schema --topic agent
+```
+
+Common flags (--json, --fields, --env, etc.) are listed once at the top level rather than repeated on every command.
+
 ### Verbose Output
 
 Use `--verbose` to see detailed client initialization info. When combined with `--json`, verbose logs go to stderr:
@@ -512,6 +554,17 @@ import {
   parseAppData,
   serializeAppData,
   upsertProfile,
+  // Profile messages (primary profile source)
+  encodeProfileUpdate,
+  decodeProfileUpdate,
+  encodeProfileSnapshot,
+  decodeProfileSnapshot,
+  sendProfileUpdate,
+  sendProfileSnapshot,
+  resolveProfilesFromMessages,
+  // Join request content type
+  JoinRequestCodec,
+  ContentTypeJoinRequest,
   ConvosBaseCommand,
 } from "@xmtp/convos-cli";
 ```
