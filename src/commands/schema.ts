@@ -197,7 +197,12 @@ With a command name, shows the full schema for that command.`;
     }
 
     // Resolve command name — support both "conversation:send-text" and "conversation send-text"
-    const rawCommand = argv.length > 0
+    // With strict:false, args.command gets the first positional and argv gets ALL positionals.
+    // So for `convos schema conversation send-text`:
+    //   args.command = "conversation", argv = ["conversation", "send-text"]
+    // For `convos schema conversation:send-text`:
+    //   args.command = "conversation:send-text", argv = ["conversation:send-text"]
+    const rawCommand = (argv as string[]).length > 0
       ? (argv as string[]).join(":")
       : args.command;
     const commandName = rawCommand?.replace(/\s+/g, ":");
