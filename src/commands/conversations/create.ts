@@ -7,7 +7,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { serializeAppData } from "../../utils/metadata.js";
-import { sendProfileUpdate } from "../../utils/profileMessages.js";
+import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
@@ -138,13 +138,15 @@ The creator becomes super admin. Others join via invite links.`;
     await group.updateAppData(serializeAppData(metadata));
 
     // Send ProfileUpdate message (primary profile source)
-    const profileName = flags["profile-name"];
-    if (profileName) {
-      try {
-        await sendProfileUpdate(group, { name: profileName });
-      } catch {
-        // Non-fatal: profile will be visible once a ProfileUpdate is sent
-      }
+    // Always send to set memberKind: Agent (and name if provided)
+    try {
+      const profileName = flags["profile-name"];
+      await sendProfileUpdate(group, {
+        ...(profileName && { name: profileName }),
+        memberKind: MemberKind.Agent,
+      });
+    } catch {
+      // Non-fatal: profile will be visible once a ProfileUpdate is sent
     }
 
     // Generate invite slug and URL

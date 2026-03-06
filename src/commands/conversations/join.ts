@@ -5,7 +5,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
-import { sendProfileUpdate } from "../../utils/profileMessages.js";
+import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
 import {
   JoinRequestCodec,
   type JoinRequestContent,
@@ -248,20 +248,22 @@ slug as query parameter 'i'.`;
     // We intentionally do NOT write profiles to appData to avoid the
     // read-modify-write race that can corrupt invite tags and erase
     // other members' profiles.
-    const profileName = flags["profile-name"];
-    if (profileName) {
-      try {
-        await client.conversations.sync();
-        const conv = await client.conversations.getConversationById(conversationId);
-        if (conv && isGroup(conv)) {
-          await conv.sync();
-          await sendProfileUpdate(conv, { name: profileName });
-        }
-      } catch (error) {
-        this.warn(
-          `Could not send ProfileUpdate message: ${error instanceof Error ? error.message : "unknown"}`,
-        );
+    // Always send a ProfileUpdate to set memberKind: Agent (and name if provided).
+    try {
+      await client.conversations.sync();
+      const conv = await client.conversations.getConversationById(conversationId);
+      if (conv && isGroup(conv)) {
+        await conv.sync();
+        const profileName = flags["profile-name"];
+        await sendProfileUpdate(conv, {
+          ...(profileName && { name: profileName }),
+          memberKind: MemberKind.Agent,
+        });
       }
+    } catch (error) {
+      this.warn(
+        `Could not send ProfileUpdate message: ${error instanceof Error ? error.message : "unknown"}`,
+      );
     }
 
     // Step 7: Link identity to conversation

@@ -40,6 +40,7 @@ import {
   sendProfileSnapshot,
   sendProfileUpdate,
   resolveProfilesFromMessages,
+  MemberKind,
   type ResolvedProfile,
 } from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
@@ -1247,13 +1248,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       await group.updateAppData(serializeAppData(metadata));
 
       // Send ProfileUpdate message (primary profile source)
-      const profileName = flags["profile-name"];
-      if (profileName) {
-        try {
-          await sendProfileUpdate(group, { name: profileName });
-        } catch {
-          // Non-fatal: profile will be visible once a ProfileUpdate is sent
-        }
+      // Always send to set memberKind: Agent (and name if provided)
+      try {
+        const profileName = flags["profile-name"];
+        await sendProfileUpdate(group, {
+          ...(profileName && { name: profileName }),
+          memberKind: MemberKind.Agent,
+        });
+      } catch {
+        // Non-fatal: profile will be visible once a ProfileUpdate is sent
       }
 
       // Generate invite
