@@ -116,11 +116,17 @@ interface ExplodeCommand {
   scheduled?: string;
 }
 
+interface UpdateProfileCommand {
+  type: "update-profile";
+  name?: string;
+  image?: string;
+}
+
 interface StopCommand {
   type: "stop";
 }
 
-export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | LockCommand | UnlockCommand | ExplodeCommand | StopCommand;
+export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | UpdateProfileCommand | LockCommand | UnlockCommand | ExplodeCommand | StopCommand;
 
 /**
  * Encode an ExplodeSettings message matching the iOS content type.
@@ -168,6 +174,9 @@ STDIN commands (one JSON object per line):
   {"type":"attach","file":"./img.jpg","replyTo":"<id>"} Reply with attachment
   {"type":"remote-attach","url":"https://...","contentDigest":"...","secret":"...","salt":"...","nonce":"...","contentLength":123}
   {"type":"rename","name":"New Name"}                   Rename the conversation
+  {"type":"update-profile","name":"New Name"}           Update your profile name
+  {"type":"update-profile","image":"https://..."}       Update your profile image
+  {"type":"update-profile","name":"X","image":"https://..."} Update both
   {"type":"lock"}                                       Lock (prevent new joins)
   {"type":"unlock"}                                     Unlock (allow new joins)
   {"type":"explode"}                                    Explode immediately
@@ -949,6 +958,49 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             event: "sent",
             type: "rename",
             name: cmd.name,
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "update-profile": {
+          if (cmd.name === undefined && cmd.image === undefined) {
+            this.emitError("update-profile requires 'name' and/or 'image'");
+            return;
+          }
+
+          // Merge with existing profile so partial updates don't clear fields
+          const profiles = this.resolvedProfiles.size > 0
+            ? this.resolvedProfiles
+            : await resolveProfilesFromMessages(conversation);
+          const existing = profiles.get(client.inboxId.toLowerCase());
+
+          const profileName = cmd.name !== undefined
+            ? (cmd.name || undefined)
+            : existing?.name;
+          const profileImage = cmd.image !== undefined
+            ? undefined               // can't construct EncryptedProfileImageRef from URL
+            : existing?.encryptedImage;
+          const memberKind = existing?.memberKind ?? MemberKind.Agent;
+
+          await sendProfileUpdate(conversation, {
+            name: profileName,
+            memberKind,
+            ...(profileImage && typeof profileImage === "object" && { encryptedImage: profileImage }),
+          });
+
+          // Update local identity store
+          if (cmd.name !== undefined) {
+            const profileStore = createIdentityStore();
+            profileStore.update(identity.id, { profileName: cmd.name || undefined });
+          }
+
+          this.emit({
+            event: "sent",
+            type: "update-profile",
+            ...(cmd.name !== undefined && { name: cmd.name }),
+            ...(cmd.image !== undefined && { image: cmd.image }),
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });
