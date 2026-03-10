@@ -13,4 +13,10 @@ export interface ConvosConfig {
   uploadProvider?: string;
   uploadProviderToken?: string;
   uploadProviderGateway?: string;
+  /** S3 bucket name (for s3 upload provider) */
+  s3Bucket?: string;
+  /** S3 region (for s3 upload provider, default: us-east-1) */
+  s3Region?: string;
+  /** S3-compatible endpoint URL (for MinIO, R2, etc.) */
+  s3Endpoint?: string;
 }

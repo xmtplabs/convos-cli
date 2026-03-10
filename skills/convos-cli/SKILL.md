@@ -564,7 +564,11 @@ Both are silent (no push notification, not displayed in chat). The CLI reads `ap
 
 Profiles support typed **metadata** — arbitrary key-value pairs where values can be string, number (double), or boolean. Metadata is carried in both `ProfileUpdate` and `ProfileSnapshot` messages via a `map<string, MetadataValue>` protobuf field. Use `--metadata key=value` on `update-profile` (repeatable, auto-typed: "true"/"false" → bool, numeric → number, else string). Metadata merges with existing values (new keys overwrite, unmentioned keys preserved).
 
-Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider (e.g. Pinata) and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. Requires `CONVOS_UPLOAD_PROVIDER=pinata` and `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>` to be set. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
+Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
+
+Supported upload providers:
+- **Pinata (IPFS):** `CONVOS_UPLOAD_PROVIDER=pinata`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>`, optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<url>`
+- **S3 (AWS / MinIO / R2):** `CONVOS_UPLOAD_PROVIDER=s3`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>`, `CONVOS_S3_BUCKET=<bucket>`, optional `CONVOS_S3_REGION=<region>` (default: us-east-1), optional `CONVOS_S3_ENDPOINT=<url>` (for S3-compatible services), optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<public-url-prefix>`
 
 ### Join Request Messages
 
