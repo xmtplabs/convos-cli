@@ -564,6 +564,8 @@ Both are silent (no push notification, not displayed in chat). The CLI reads `ap
 
 Profiles support typed **metadata** — arbitrary key-value pairs where values can be string, number (double), or boolean. Metadata is carried in both `ProfileUpdate` and `ProfileSnapshot` messages via a `map<string, MetadataValue>` protobuf field. Use `--metadata key=value` on `update-profile` (repeatable, auto-typed: "true"/"false" → bool, numeric → number, else string). Metadata merges with existing values (new keys overwrite, unmentioned keys preserved).
 
+Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider (e.g. Pinata) and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. Requires `CONVOS_UPLOAD_PROVIDER=pinata` and `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>` to be set. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
+
 ### Join Request Messages
 
 Join requests use a structured content type instead of plain text:

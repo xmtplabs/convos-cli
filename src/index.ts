@@ -78,6 +78,15 @@ export {
   type JoinRequestProfile,
 } from "./utils/joinRequest.js";
 
+// Image encryption
+export {
+  encryptImage,
+  decryptImage,
+  fetchImageData,
+  generateGroupKey,
+  type EncryptedPayload,
+} from "./utils/imageEncryption.js";
+
 // Random utilities
 export { randomAlphanumeric } from "./utils/random.js";
 
