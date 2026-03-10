@@ -83,6 +83,164 @@ describe("getUploadProvider", () => {
     expect(provider).not.toBeNull();
     expect(provider!.name).toBe("s3");
   });
+
+  // ─── convos-api provider ───
+
+  it("creates convos-api provider with API key", () => {
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      convosApiKey: "test-key",
+    });
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("convos-api");
+  });
+
+  it("creates convos-api provider with upload provider token fallback", () => {
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      uploadProviderToken: "fallback-key",
+    });
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("convos-api");
+  });
+
+  it("throws when convos-api has no key", () => {
+    expect(() =>
+      getUploadProvider({ uploadProvider: "convos-api" }),
+    ).toThrow("Convos API requires an API key");
+  });
+});
+
+describe("ConvosApiProvider upload", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("authenticates then uploads via presigned URL", async () => {
+    const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
+
+    globalThis.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const urlStr = url.toString();
+      const method = init?.method ?? "GET";
+      const headers = Object.fromEntries(
+        Object.entries(init?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v as string]),
+      );
+      calls.push({ url: urlStr, method, headers });
+
+      if (urlStr.includes("/v2/auth/token")) {
+        return new Response(JSON.stringify({ token: "jwt-123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (urlStr.includes("/v2/attachments/presigned")) {
+        return new Response(
+          JSON.stringify({
+            objectKey: "uploads/file.enc",
+            uploadUrl: "https://s3.amazonaws.com/bucket/uploads/file.enc?presigned=yes",
+            assetUrl: "https://cdn.convos.xyz/uploads/file.enc",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (method === "PUT") {
+        return new Response("", { status: 200 });
+      }
+
+      return new Response("Not Found", { status: 404 });
+    }) as any;
+
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      convosApiKey: "test-api-key",
+      convosApiBaseUrl: "https://api.test.convos.xyz/api",
+    });
+
+    const data = new TextEncoder().encode("encrypted-image-data");
+    const assetUrl = await provider!.upload(data, "avatar.enc", "application/octet-stream");
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0].url).toBe("https://api.test.convos.xyz/api/v2/auth/token");
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].headers["x-api-key"]).toBe("test-api-key");
+    expect(calls[1].url).toContain("/v2/attachments/presigned");
+    expect(calls[1].headers.authorization).toBe("Bearer jwt-123");
+    expect(calls[2].method).toBe("PUT");
+    expect(assetUrl).toBe("https://cdn.convos.xyz/uploads/file.enc");
+  });
+
+  it("re-authenticates on 401", async () => {
+    let authCallCount = 0;
+    let presignedCallCount = 0;
+
+    globalThis.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const urlStr = url.toString();
+
+      if (urlStr.includes("/v2/auth/token")) {
+        authCallCount++;
+        return new Response(JSON.stringify({ token: `jwt-${authCallCount}` }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (urlStr.includes("/v2/attachments/presigned")) {
+        presignedCallCount++;
+        if (presignedCallCount === 1) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        return new Response(
+          JSON.stringify({
+            objectKey: "file.enc",
+            uploadUrl: "https://s3.example.com/file.enc",
+            assetUrl: "https://cdn.example.com/file.enc",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (init?.method === "PUT") {
+        return new Response("", { status: 200 });
+      }
+
+      return new Response("Not Found", { status: 404 });
+    }) as any;
+
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      convosApiKey: "key",
+      convosApiBaseUrl: "https://api.test.convos.xyz/api",
+    });
+
+    const url = await provider!.upload(new Uint8Array(0), "f.enc", "application/octet-stream");
+    expect(authCallCount).toBe(2);
+    expect(presignedCallCount).toBe(2);
+    expect(url).toBe("https://cdn.example.com/file.enc");
+  });
+
+  it("throws on auth failure", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response("Forbidden", { status: 403 }),
+    ) as any;
+
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      convosApiKey: "bad-key",
+      convosApiBaseUrl: "https://api.test.convos.xyz/api",
+    });
+
+    await expect(
+      provider!.upload(new Uint8Array(0), "f.enc", "application/octet-stream"),
+    ).rejects.toThrow("Convos API auth failed (403)");
+  });
 });
 
 describe("S3Provider upload", () => {
@@ -181,3 +339,5 @@ describe("S3Provider upload", () => {
     ).rejects.toThrow("S3 upload failed (403)");
   });
 });
+
+

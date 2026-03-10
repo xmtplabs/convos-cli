@@ -19,4 +19,8 @@ export interface ConvosConfig {
   s3Region?: string;
   /** S3-compatible endpoint URL (for MinIO, R2, etc.) */
   s3Endpoint?: string;
+  /** Convos API key (for convos-api upload provider) */
+  convosApiKey?: string;
+  /** Convos API base URL (default: derived from env) */
+  convosApiBaseUrl?: string;
 }

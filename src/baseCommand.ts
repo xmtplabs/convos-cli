@@ -184,6 +184,8 @@ export class ConvosBaseCommand extends Command {
       s3Bucket: env.CONVOS_S3_BUCKET,
       s3Region: env.CONVOS_S3_REGION,
       s3Endpoint: env.CONVOS_S3_ENDPOINT,
+      convosApiKey: env.CONVOS_API_KEY,
+      convosApiBaseUrl: env.CONVOS_API_BASE_URL,
     };
 
     this.jsonOutput = flags.json || env.CONVOS_JSON_OUTPUT === "true";

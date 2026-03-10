@@ -209,7 +209,139 @@ function getSignatureKey(
   return hmac(kService, "aws4_request");
 }
 
+// ─── Convos API Provider ───
+
+/**
+ * Upload provider that uses the Convos backend's presigned URL endpoint.
+ * Same flow as iOS — authenticates with an API key to get a JWT, then
+ * uses the JWT to get a presigned S3 upload URL.
+ *
+ * Config:
+ *   CONVOS_UPLOAD_PROVIDER=convos-api
+ *   CONVOS_API_KEY=<api-key>
+ *   CONVOS_API_BASE_URL=https://api.dev.convos.xyz/api (optional, derived from XMTP env)
+ */
+class ConvosApiProvider implements UploadProvider {
+  name = "convos-api";
+  #apiKey: string;
+  #baseUrl: string;
+  #jwt: string | undefined;
+
+  constructor(apiKey: string, baseUrl: string) {
+    this.#apiKey = apiKey;
+    this.#baseUrl = baseUrl.replace(/\/$/, "");
+  }
+
+  private async authenticate(): Promise<string> {
+    if (this.#jwt) return this.#jwt;
+
+    const response = await fetch(`${this.#baseUrl}/v2/auth/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": this.#apiKey,
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Convos API auth failed (${response.status}): ${text}`);
+    }
+
+    const result = (await response.json()) as { token: string };
+    this.#jwt = result.token;
+    return result.token;
+  }
+
+  async upload(
+    data: Uint8Array,
+    filename: string,
+    mimeType: string,
+  ): Promise<string> {
+    const jwt = await this.authenticate();
+
+    // Step 1: Get presigned URL
+    const params = new URLSearchParams({
+      contentType: mimeType,
+      filename,
+    });
+
+    const presignedResponse = await fetch(
+      `${this.#baseUrl}/v2/attachments/presigned?${params}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+        },
+      },
+    );
+
+    if (presignedResponse.status === 401) {
+      // JWT expired — re-authenticate and retry once
+      this.#jwt = undefined;
+      const newJwt = await this.authenticate();
+      const retryResponse = await fetch(
+        `${this.#baseUrl}/v2/attachments/presigned?${params}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${newJwt}`,
+          },
+        },
+      );
+      if (!retryResponse.ok) {
+        const text = await retryResponse.text();
+        throw new Error(`Convos API presigned URL failed (${retryResponse.status}): ${text}`);
+      }
+      return this.uploadToPresigned(await retryResponse.json() as PresignedUrlResponse, data, mimeType);
+    }
+
+    if (!presignedResponse.ok) {
+      const text = await presignedResponse.text();
+      throw new Error(`Convos API presigned URL failed (${presignedResponse.status}): ${text}`);
+    }
+
+    return this.uploadToPresigned(await presignedResponse.json() as PresignedUrlResponse, data, mimeType);
+  }
+
+  private async uploadToPresigned(
+    presigned: PresignedUrlResponse,
+    data: Uint8Array,
+    mimeType: string,
+  ): Promise<string> {
+    // Step 2: Upload to S3 via presigned URL
+    const s3Response = await fetch(presigned.uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": mimeType,
+      },
+      body: data,
+    });
+
+    if (!s3Response.ok) {
+      const text = await s3Response.text();
+      throw new Error(`S3 upload via presigned URL failed (${s3Response.status}): ${text}`);
+    }
+
+    return presigned.assetUrl;
+  }
+}
+
+interface PresignedUrlResponse {
+  objectKey: string;
+  uploadUrl: string;
+  assetUrl: string;
+}
+
 // ─── Provider Factory ───
+
+/** Default Convos API base URLs per XMTP environment */
+const CONVOS_API_BASE_URLS: Record<string, string> = {
+  dev: "https://api.dev.convos.xyz/api",
+  production: "https://api.convos.xyz/api",
+  local: "http://localhost:4000/api",
+};
 
 interface UploadConfig {
   uploadProvider?: string;
@@ -218,6 +350,9 @@ interface UploadConfig {
   s3Bucket?: string;
   s3Region?: string;
   s3Endpoint?: string;
+  convosApiKey?: string;
+  convosApiBaseUrl?: string;
+  env?: string;
 }
 
 const PROVIDER_FACTORIES = {
@@ -231,6 +366,18 @@ const PROVIDER_FACTORIES = {
       config.uploadProviderToken,
       config.uploadProviderGateway,
     );
+  },
+  "convos-api": (config: UploadConfig) => {
+    const apiKey = config.convosApiKey ?? config.uploadProviderToken;
+    if (!apiKey) {
+      throw new Error(
+        "Convos API requires an API key. Set CONVOS_API_KEY or CONVOS_UPLOAD_PROVIDER_TOKEN.",
+      );
+    }
+    const baseUrl = config.convosApiBaseUrl
+      ?? (config.env ? CONVOS_API_BASE_URLS[config.env] : undefined)
+      ?? CONVOS_API_BASE_URLS.dev;
+    return new ConvosApiProvider(apiKey, baseUrl);
   },
   s3: (config: UploadConfig) => {
     if (!config.uploadProviderToken) {

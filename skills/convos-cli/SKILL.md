@@ -567,8 +567,9 @@ Profiles support typed **metadata** — arbitrary key-value pairs where values c
 Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
 
 Supported upload providers:
+- **Convos API:** `CONVOS_UPLOAD_PROVIDER=convos-api`, `CONVOS_API_KEY=<key>`, optional `CONVOS_API_BASE_URL=<url>` (auto-derived from XMTP env: dev → `https://api.dev.convos.xyz/api`, production → `https://api.convos.xyz/api`). Uses the same presigned S3 URL flow as iOS. Requires the backend to accept API key auth on `POST /v2/auth/token` via `X-API-Key` header.
 - **Pinata (IPFS):** `CONVOS_UPLOAD_PROVIDER=pinata`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>`, optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<url>`
-- **S3 (AWS / MinIO / R2):** `CONVOS_UPLOAD_PROVIDER=s3`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>`, `CONVOS_S3_BUCKET=<bucket>`, optional `CONVOS_S3_REGION=<region>` (default: us-east-1), optional `CONVOS_S3_ENDPOINT=<url>` (for S3-compatible services), optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<public-url-prefix>`
+- **S3 (direct):** `CONVOS_UPLOAD_PROVIDER=s3`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>`, `CONVOS_S3_BUCKET=<bucket>`, optional `CONVOS_S3_REGION=<region>` (default: us-east-1), optional `CONVOS_S3_ENDPOINT=<url>` (for S3-compatible services like MinIO, R2), optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<public-url-prefix>`
 
 ### Join Request Messages
 
