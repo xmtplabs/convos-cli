@@ -1042,6 +1042,14 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             ...(encryptedImage && { encryptedImage }),
           });
 
+          // Update cached profiles so sequential commands don't revert prior changes
+          this.resolvedProfiles.set(client.inboxId.toLowerCase(), {
+            inboxId: client.inboxId,
+            name: profileName,
+            memberKind,
+            ...(encryptedImage && { encryptedImage }),
+          });
+
           // Update local identity store
           if (cmd.name !== undefined) {
             const profileStore = createIdentityStore();
