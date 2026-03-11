@@ -21,11 +21,12 @@ attachment.
 
 To configure an upload provider for large files, add to your .env:
 
-  CONVOS_UPLOAD_PROVIDER=pinata
-  CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
-  CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+  CONVOS_API_KEY=<your-agent-api-key>
 
-Or pass --upload-provider and --upload-provider-token flags.
+Or explicitly:
+
+  CONVOS_UPLOAD_PROVIDER=convos-api
+  CONVOS_API_KEY=<your-agent-api-key>
 
 The MIME type is auto-detected from the file extension, or can be
 specified manually with --mime-type.
@@ -173,10 +174,7 @@ without sending (for manual upload workflows).`;
           `File is ${content.length} bytes (>${INLINE_ATTACHMENT_MAX_BYTES}). ` +
             `Configure an upload provider to send large files.\n\n` +
             `Set in your .env:\n` +
-            `  CONVOS_UPLOAD_PROVIDER=pinata\n` +
-            `  CONVOS_UPLOAD_PROVIDER_TOKEN=<your-jwt>\n\n` +
-            `Or use flags:\n` +
-            `  --upload-provider pinata --upload-provider-token <jwt>\n\n` +
+            `  CONVOS_API_KEY=<your-agent-api-key>\n\n` +
             `Or use --encrypt to manually encrypt and upload.`,
         );
       }

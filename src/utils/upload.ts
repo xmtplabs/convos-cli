@@ -363,6 +363,11 @@ function isProviderName(name: string): name is ProviderName {
 }
 
 export function getUploadProvider(config: UploadConfig): UploadProvider | null {
+  // Auto-select convos-api when API key is set but no provider is specified
+  if (!config.uploadProvider && config.convosApiKey) {
+    return PROVIDER_FACTORIES["convos-api"](config);
+  }
+
   if (!config.uploadProvider) {
     return null;
   }

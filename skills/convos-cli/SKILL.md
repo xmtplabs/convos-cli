@@ -37,9 +37,8 @@ convos init --force
 This creates a `.env` file with:
 
 - `CONVOS_ENV` - Network environment (local, dev, production)
-- `CONVOS_UPLOAD_PROVIDER` - Upload provider for attachments (e.g., `pinata`)
-- `CONVOS_UPLOAD_PROVIDER_TOKEN` - Authentication token for upload provider
-- `CONVOS_UPLOAD_PROVIDER_GATEWAY` - Custom gateway URL for upload provider
+- `CONVOS_API_KEY` - Agent API key for uploads (auto-selects `convos-api` provider)
+- `CONVOS_UPLOAD_PROVIDER` - Upload provider override (`convos-api`, `pinata`, `s3`)
 
 **Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
@@ -172,16 +171,13 @@ convos conversation download-attachment <conversation-id> <message-id> --output 
 convos conversation download-attachment <conversation-id> <message-id> --raw
 ```
 
-To enable automatic upload for large files, configure a provider in your `.env`:
+To enable automatic upload for large files, set your agent API key in `.env`:
 
 ```bash
-CONVOS_UPLOAD_PROVIDER=pinata
-CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
-# Optional: custom gateway URL
-CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+CONVOS_API_KEY=<your-agent-api-key>
 ```
 
-Supported upload providers: `pinata`
+This auto-selects the `convos-api` upload provider. Other providers (`pinata`, `s3`) are also available via `CONVOS_UPLOAD_PROVIDER`.
 
 ### Read Messages
 

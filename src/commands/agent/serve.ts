@@ -994,7 +994,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               const uploadProvider = getUploadProvider(this.getConvosConfig());
               if (!uploadProvider) {
                 this.emitError(
-                  "Image upload requires an upload provider. Set CONVOS_UPLOAD_PROVIDER=pinata and CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>.",
+                  "Image upload requires an upload provider. Set CONVOS_API_KEY=<key> or CONVOS_UPLOAD_PROVIDER=convos-api with CONVOS_API_KEY.",
                 );
                 return;
               }

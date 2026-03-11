@@ -137,7 +137,7 @@ a legacy fallback). Profile messages are the primary source of truth.`;
         const uploadProvider = getUploadProvider(config);
         if (!uploadProvider) {
           this.error(
-            "Image upload requires an upload provider. Set CONVOS_UPLOAD_PROVIDER=pinata and CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>.",
+            "Image upload requires an upload provider. Set CONVOS_API_KEY=<key> or CONVOS_UPLOAD_PROVIDER=convos-api with CONVOS_API_KEY.",
           );
         }
 

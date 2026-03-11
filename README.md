@@ -82,14 +82,8 @@ Running `convos init` creates `~/.convos/.env` with:
 | Variable                       | Description                                      |
 | ------------------------------ | ------------------------------------------------ |
 | `CONVOS_ENV`                   | Network: `local`, `dev`, or `production`         |
-| `CONVOS_UPLOAD_PROVIDER`       | Upload provider for attachments (`convos-api`, `pinata`, `s3`) |
-| `CONVOS_UPLOAD_PROVIDER_TOKEN` | Authentication token for upload provider         |
-| `CONVOS_UPLOAD_PROVIDER_GATEWAY` | Custom gateway URL for upload provider         |
-| `CONVOS_API_KEY`               | Agent API key (for `convos-api` provider)        |
-| `CONVOS_API_BASE_URL`          | Convos API base URL (optional, derived from env) |
-| `CONVOS_S3_BUCKET`             | S3 bucket name (for `s3` provider)               |
-| `CONVOS_S3_REGION`             | S3 region (for `s3` provider, default: us-east-1)|
-| `CONVOS_S3_ENDPOINT`           | S3-compatible endpoint URL (for MinIO, R2, etc.) |
+| `CONVOS_API_KEY`               | Agent API key for uploads (auto-selects `convos-api` provider) |
+| `CONVOS_UPLOAD_PROVIDER`       | Upload provider override (`convos-api`, `pinata`, `s3`) |
 
 Unlike standard XMTP, there is **no global wallet key**. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
@@ -367,32 +361,13 @@ convos conversation download-attachment <id> <message-id> --output ./photo.jpg
 convos conversation send-reply <id> <message-id> --file ./photo.jpg
 ```
 
-To configure an upload provider for large files, add to your `~/.convos/.env`:
+To enable uploads for large files, set your agent API key in `~/.convos/.env`:
 
 ```bash
-# Convos API (recommended for agents — uses agent asset upload endpoint)
-CONVOS_UPLOAD_PROVIDER=convos-api
-CONVOS_API_KEY=<agent-assets-api-key>
-# Optional: override base URL (auto-derived from CONVOS_ENV)
-# CONVOS_API_BASE_URL=https://api.dev.convos.xyz/api
-
-# Pinata (IPFS)
-CONVOS_UPLOAD_PROVIDER=pinata
-CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
-# Optional: custom gateway URL
-# CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
-
-# S3 (direct — works with AWS S3, MinIO, Cloudflare R2)
-CONVOS_UPLOAD_PROVIDER=s3
-CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>
-CONVOS_S3_BUCKET=<bucket-name>
-# Optional:
-# CONVOS_S3_REGION=us-east-1
-# CONVOS_S3_ENDPOINT=https://minio.local:9000
-# CONVOS_UPLOAD_PROVIDER_GATEWAY=https://cdn.example.com
+CONVOS_API_KEY=<your-agent-api-key>
 ```
 
-Supported upload providers: `convos-api`, `pinata`, `s3`
+This auto-selects the `convos-api` provider. Other providers (`pinata`, `s3`) are also available via `CONVOS_UPLOAD_PROVIDER`.
 
 ### Profiles
 

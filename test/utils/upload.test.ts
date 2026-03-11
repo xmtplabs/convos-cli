@@ -104,6 +104,14 @@ describe("getUploadProvider", () => {
     expect(provider!.name).toBe("convos-api");
   });
 
+  it("auto-selects convos-api when CONVOS_API_KEY is set without explicit provider", () => {
+    const provider = getUploadProvider({
+      convosApiKey: "auto-key",
+    });
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("convos-api");
+  });
+
   it("throws when convos-api has no key", () => {
     expect(() =>
       getUploadProvider({ uploadProvider: "convos-api" }),
