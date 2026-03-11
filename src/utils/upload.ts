@@ -212,109 +212,57 @@ function getSignatureKey(
 // ─── Convos API Provider ───
 
 /**
- * Upload provider that uses the Convos backend's presigned URL endpoint.
- * Same flow as iOS — authenticates with an API key to get a JWT, then
- * uses the JWT to get a presigned S3 upload URL.
+ * Upload provider that uses the Convos backend's agent asset upload endpoint.
+ * Authenticates directly with an agent API key — no JWT step needed.
+ *
+ * Endpoint: GET /v2/agents/assets/presigned
+ * Auth: X-Agent-API-Key header
+ * Response: { objectKey, uploadUrl, assetUrl }
+ * Upload Content-Type: application/octet-stream
  *
  * Config:
  *   CONVOS_UPLOAD_PROVIDER=convos-api
- *   CONVOS_API_KEY=<api-key>
+ *   CONVOS_API_KEY=<agent-assets-api-key>
  *   CONVOS_API_BASE_URL=https://api.dev.convos.xyz/api (optional, derived from XMTP env)
  */
 class ConvosApiProvider implements UploadProvider {
   name = "convos-api";
   #apiKey: string;
   #baseUrl: string;
-  #jwt: string | undefined;
 
   constructor(apiKey: string, baseUrl: string) {
     this.#apiKey = apiKey;
     this.#baseUrl = baseUrl.replace(/\/$/, "");
   }
 
-  private async authenticate(): Promise<string> {
-    if (this.#jwt) return this.#jwt;
-
-    const response = await fetch(`${this.#baseUrl}/v2/auth/token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": this.#apiKey,
-      },
-      body: JSON.stringify({}),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Convos API auth failed (${response.status}): ${text}`);
-    }
-
-    const result = (await response.json()) as { token: string };
-    this.#jwt = result.token;
-    return result.token;
-  }
-
   async upload(
     data: Uint8Array,
-    filename: string,
-    mimeType: string,
+    _filename: string,
+    _mimeType: string,
   ): Promise<string> {
-    const jwt = await this.authenticate();
-
-    // Step 1: Get presigned URL
-    const params = new URLSearchParams({
-      contentType: mimeType,
-      filename,
-    });
-
+    // Step 1: Get presigned URL via agent API key auth
     const presignedResponse = await fetch(
-      `${this.#baseUrl}/v2/attachments/presigned?${params}`,
+      `${this.#baseUrl}/v2/agents/assets/presigned`,
       {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${jwt}`,
+          "X-Agent-API-Key": this.#apiKey,
         },
       },
     );
-
-    if (presignedResponse.status === 401) {
-      // JWT expired — re-authenticate and retry once
-      this.#jwt = undefined;
-      const newJwt = await this.authenticate();
-      const retryResponse = await fetch(
-        `${this.#baseUrl}/v2/attachments/presigned?${params}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${newJwt}`,
-          },
-        },
-      );
-      if (!retryResponse.ok) {
-        const text = await retryResponse.text();
-        throw new Error(`Convos API presigned URL failed (${retryResponse.status}): ${text}`);
-      }
-      return this.uploadToPresigned(await retryResponse.json() as PresignedUrlResponse, data, mimeType);
-    }
 
     if (!presignedResponse.ok) {
       const text = await presignedResponse.text();
       throw new Error(`Convos API presigned URL failed (${presignedResponse.status}): ${text}`);
     }
 
-    return this.uploadToPresigned(await presignedResponse.json() as PresignedUrlResponse, data, mimeType);
-  }
+    const presigned = (await presignedResponse.json()) as PresignedUrlResponse;
 
-  private async uploadToPresigned(
-    presigned: PresignedUrlResponse,
-    data: Uint8Array,
-    mimeType: string,
-  ): Promise<string> {
-    // Step 2: Upload to S3 via presigned URL
+    // Step 2: Upload to S3 via presigned URL (always application/octet-stream)
     const s3Response = await fetch(presigned.uploadUrl, {
       method: "PUT",
       headers: {
-        "Content-Type": mimeType,
+        "Content-Type": "application/octet-stream",
       },
       body: data,
     });

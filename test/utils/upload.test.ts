@@ -122,7 +122,7 @@ describe("ConvosApiProvider upload", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("authenticates then uploads via presigned URL", async () => {
+  it("gets presigned URL with agent API key and uploads", async () => {
     const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
 
     globalThis.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -133,19 +133,12 @@ describe("ConvosApiProvider upload", () => {
       );
       calls.push({ url: urlStr, method, headers });
 
-      if (urlStr.includes("/v2/auth/token")) {
-        return new Response(JSON.stringify({ token: "jwt-123" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (urlStr.includes("/v2/attachments/presigned")) {
+      if (urlStr.includes("/v2/agents/assets/presigned")) {
         return new Response(
           JSON.stringify({
-            objectKey: "uploads/file.enc",
-            uploadUrl: "https://s3.amazonaws.com/bucket/uploads/file.enc?presigned=yes",
-            assetUrl: "https://cdn.convos.xyz/uploads/file.enc",
+            objectKey: "a/some-uuid",
+            uploadUrl: "https://s3.amazonaws.com/bucket/a/some-uuid?presigned=yes",
+            assetUrl: "https://cdn.convos.xyz/a/some-uuid",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -167,68 +160,20 @@ describe("ConvosApiProvider upload", () => {
     const data = new TextEncoder().encode("encrypted-image-data");
     const assetUrl = await provider!.upload(data, "avatar.enc", "application/octet-stream");
 
-    expect(calls).toHaveLength(3);
-    expect(calls[0].url).toBe("https://api.test.convos.xyz/api/v2/auth/token");
-    expect(calls[0].method).toBe("POST");
-    expect(calls[0].headers["x-api-key"]).toBe("test-api-key");
-    expect(calls[1].url).toContain("/v2/attachments/presigned");
-    expect(calls[1].headers.authorization).toBe("Bearer jwt-123");
-    expect(calls[2].method).toBe("PUT");
-    expect(assetUrl).toBe("https://cdn.convos.xyz/uploads/file.enc");
+    expect(calls).toHaveLength(2);
+    // First call: get presigned URL with agent API key
+    expect(calls[0].url).toBe("https://api.test.convos.xyz/api/v2/agents/assets/presigned");
+    expect(calls[0].method).toBe("GET");
+    expect(calls[0].headers["x-agent-api-key"]).toBe("test-api-key");
+    // Second call: PUT to S3
+    expect(calls[1].method).toBe("PUT");
+    expect(calls[1].headers["content-type"]).toBe("application/octet-stream");
+    expect(assetUrl).toBe("https://cdn.convos.xyz/a/some-uuid");
   });
 
-  it("re-authenticates on 401", async () => {
-    let authCallCount = 0;
-    let presignedCallCount = 0;
-
-    globalThis.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
-      const urlStr = url.toString();
-
-      if (urlStr.includes("/v2/auth/token")) {
-        authCallCount++;
-        return new Response(JSON.stringify({ token: `jwt-${authCallCount}` }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (urlStr.includes("/v2/attachments/presigned")) {
-        presignedCallCount++;
-        if (presignedCallCount === 1) {
-          return new Response("Unauthorized", { status: 401 });
-        }
-        return new Response(
-          JSON.stringify({
-            objectKey: "file.enc",
-            uploadUrl: "https://s3.example.com/file.enc",
-            assetUrl: "https://cdn.example.com/file.enc",
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      if (init?.method === "PUT") {
-        return new Response("", { status: 200 });
-      }
-
-      return new Response("Not Found", { status: 404 });
-    }) as any;
-
-    const provider = getUploadProvider({
-      uploadProvider: "convos-api",
-      convosApiKey: "key",
-      convosApiBaseUrl: "https://api.test.convos.xyz/api",
-    });
-
-    const url = await provider!.upload(new Uint8Array(0), "f.enc", "application/octet-stream");
-    expect(authCallCount).toBe(2);
-    expect(presignedCallCount).toBe(2);
-    expect(url).toBe("https://cdn.example.com/file.enc");
-  });
-
-  it("throws on auth failure", async () => {
+  it("throws on presigned URL failure", async () => {
     globalThis.fetch = vi.fn(async () =>
-      new Response("Forbidden", { status: 403 }),
+      new Response(JSON.stringify({ error: "Invalid or missing agent API key" }), { status: 401 }),
     ) as any;
 
     const provider = getUploadProvider({
@@ -239,7 +184,51 @@ describe("ConvosApiProvider upload", () => {
 
     await expect(
       provider!.upload(new Uint8Array(0), "f.enc", "application/octet-stream"),
-    ).rejects.toThrow("Convos API auth failed (403)");
+    ).rejects.toThrow("Convos API presigned URL failed (401)");
+  });
+
+  it("throws on S3 upload failure", async () => {
+    globalThis.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/v2/agents/assets/presigned")) {
+        return new Response(
+          JSON.stringify({
+            objectKey: "a/uuid",
+            uploadUrl: "https://s3.example.com/a/uuid",
+            assetUrl: "https://cdn.example.com/a/uuid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      // S3 PUT fails
+      return new Response("<Error>Access Denied</Error>", { status: 403 });
+    }) as any;
+
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      convosApiKey: "key",
+      convosApiBaseUrl: "https://api.test.convos.xyz/api",
+    });
+
+    await expect(
+      provider!.upload(new Uint8Array(0), "f.enc", "application/octet-stream"),
+    ).rejects.toThrow("S3 upload via presigned URL failed (403)");
+  });
+
+  it("throws when agent API key not configured (503)", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ error: "Agent assets API key not configured" }), { status: 503 }),
+    ) as any;
+
+    const provider = getUploadProvider({
+      uploadProvider: "convos-api",
+      convosApiKey: "key",
+      convosApiBaseUrl: "https://api.test.convos.xyz/api",
+    });
+
+    await expect(
+      provider!.upload(new Uint8Array(0), "f.enc", "application/octet-stream"),
+    ).rejects.toThrow("Convos API presigned URL failed (503)");
   });
 });
 
