@@ -42,7 +42,9 @@ import {
   resolveProfilesFromMessages,
   MemberKind,
   type ResolvedProfile,
+  type EncryptedProfileImageRef,
 } from "../../utils/profileMessages.js";
+import { encryptImage, fetchImageData, generateGroupKey } from "../../utils/imageEncryption.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 import {
   getUploadProvider,
@@ -979,15 +981,73 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           const profileName = cmd.name !== undefined
             ? (cmd.name || undefined)
             : existing?.name;
-          const profileImage = cmd.image !== undefined
-            ? undefined               // can't construct EncryptedProfileImageRef from URL
-            : existing?.encryptedImage;
           const memberKind = existing?.memberKind ?? MemberKind.Agent;
+
+          // Handle image: encrypt + upload if URL provided, preserve existing, or clear
+          let encryptedImage: EncryptedProfileImageRef | undefined;
+          if (cmd.image !== undefined) {
+            if (cmd.image === "") {
+              // Empty string → clear the image
+              encryptedImage = undefined;
+            } else {
+              // New image URL — download, encrypt, upload
+              const uploadProvider = getUploadProvider(this.getConvosConfig());
+              if (!uploadProvider) {
+                this.emitError(
+                  "Image upload requires an upload provider. Set CONVOS_API_KEY=<key> or CONVOS_UPLOAD_PROVIDER=convos-api with CONVOS_API_KEY.",
+                );
+                return;
+              }
+
+              // Get or generate the group's image encryption key from appData
+              await conversation.sync();
+              const appDataStr = conversation.appData ?? "";
+              const appDataMeta = parseAppData(appDataStr);
+              let groupKey = appDataMeta.imageEncryptionKey;
+
+              if (!groupKey || groupKey.length === 0) {
+                groupKey = generateGroupKey();
+                appDataMeta.imageEncryptionKey = groupKey;
+                await conversation.updateAppData(serializeAppData(appDataMeta));
+              }
+
+              // Download the image
+              const imageData = await fetchImageData(cmd.image);
+
+              // Encrypt
+              const payload = await encryptImage(imageData, groupKey);
+
+              // Upload the encrypted blob
+              const filename = `ep-${Date.now()}.enc`;
+              const assetUrl = await uploadProvider.upload(
+                payload.ciphertext,
+                filename,
+                "application/octet-stream",
+              );
+
+              encryptedImage = {
+                url: assetUrl,
+                salt: payload.salt,
+                nonce: payload.nonce,
+              };
+            }
+          } else {
+            // Preserve existing encrypted image
+            encryptedImage = existing?.encryptedImage;
+          }
 
           await sendProfileUpdate(conversation, {
             name: profileName,
             memberKind,
-            ...(profileImage && typeof profileImage === "object" && { encryptedImage: profileImage }),
+            ...(encryptedImage && { encryptedImage }),
+          });
+
+          // Update cached profiles so sequential commands don't revert prior changes
+          this.resolvedProfiles.set(client.inboxId.toLowerCase(), {
+            inboxId: client.inboxId,
+            name: profileName,
+            memberKind,
+            ...(encryptedImage && { encryptedImage }),
           });
 
           // Update local identity store

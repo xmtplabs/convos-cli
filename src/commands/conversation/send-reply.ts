@@ -179,10 +179,7 @@ provider, then sent as a remote attachment.`;
           `File is ${content.length} bytes (>${INLINE_ATTACHMENT_MAX_BYTES}). ` +
             `Configure an upload provider to send large files.\n\n` +
             `Set in your .env:\n` +
-            `  CONVOS_UPLOAD_PROVIDER=pinata\n` +
-            `  CONVOS_UPLOAD_PROVIDER_TOKEN=<your-jwt>\n\n` +
-            `Or use flags:\n` +
-            `  --upload-provider pinata --upload-provider-token <jwt>`,
+            `  CONVOS_API_KEY=<your-agent-api-key>`,
         );
       }
 

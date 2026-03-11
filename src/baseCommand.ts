@@ -181,6 +181,11 @@ export class ConvosBaseCommand extends Command {
       uploadProvider: env.CONVOS_UPLOAD_PROVIDER,
       uploadProviderToken: env.CONVOS_UPLOAD_PROVIDER_TOKEN,
       uploadProviderGateway: env.CONVOS_UPLOAD_PROVIDER_GATEWAY,
+      s3Bucket: env.CONVOS_S3_BUCKET,
+      s3Region: env.CONVOS_S3_REGION,
+      s3Endpoint: env.CONVOS_S3_ENDPOINT,
+      convosApiKey: env.CONVOS_API_KEY,
+      convosApiBaseUrl: env.CONVOS_API_BASE_URL,
     };
 
     this.jsonOutput = flags.json || env.CONVOS_JSON_OUTPUT === "true";

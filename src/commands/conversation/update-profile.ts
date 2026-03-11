@@ -3,7 +3,10 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
-import { sendProfileUpdate, MemberKind, type ProfileMetadataValue, type ProfileMetadata } from "../../utils/profileMessages.js";
+import { sendProfileUpdate, MemberKind, type ProfileMetadataValue, type ProfileMetadata, type EncryptedProfileImageRef } from "../../utils/profileMessages.js";
+import { encryptImage, fetchImageData, generateGroupKey } from "../../utils/imageEncryption.js";
+import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { getUploadProvider } from "../../utils/upload.js";
 
 export default class UpdateProfile extends ConvosBaseCommand {
   static description = `Set your display name and avatar in a conversation.
@@ -122,9 +125,63 @@ a legacy fallback). Profile messages are the primary source of truth.`;
     const profileName = flags.name !== undefined
       ? (flags.name || undefined)  // empty string → clear
       : existing?.name;            // preserve existing
-    const profileImage = flags.image !== undefined
-      ? (flags.image || undefined) // empty string → clear
-      : existing?.encryptedImage;  // preserve existing
+
+    // Handle image: encrypt + upload if a URL is provided, preserve existing, or clear
+    let encryptedImage: EncryptedProfileImageRef | undefined;
+    if (flags.image !== undefined) {
+      if (flags.image === "") {
+        // Empty string → clear the image
+        encryptedImage = undefined;
+      } else {
+        // New image URL — download, encrypt, upload
+        const uploadProvider = getUploadProvider(config);
+        if (!uploadProvider) {
+          this.error(
+            "Image upload requires an upload provider. Set CONVOS_API_KEY=<key> or CONVOS_UPLOAD_PROVIDER=convos-api with CONVOS_API_KEY.",
+          );
+        }
+
+        // Get or generate the group's image encryption key from appData
+        await group.sync();
+        const appData = group.appData ?? "";
+        const metadata = parseAppData(appData);
+        let groupKey = metadata.imageEncryptionKey;
+
+        if (!groupKey || groupKey.length === 0) {
+          // Generate a new key and persist it in appData
+          groupKey = generateGroupKey();
+          metadata.imageEncryptionKey = groupKey;
+          await group.updateAppData(serializeAppData(metadata));
+          this.log("Generated new image encryption key for this conversation");
+        }
+
+        // Download the image
+        this.log(`Downloading image from ${flags.image}...`);
+        const imageData = await fetchImageData(flags.image);
+
+        // Encrypt
+        const payload = await encryptImage(imageData, groupKey);
+
+        // Upload the encrypted blob
+        const filename = `ep-${Date.now()}.enc`;
+        this.log(`Uploading encrypted image (${payload.ciphertext.length} bytes)...`);
+        const assetUrl = await uploadProvider.upload(
+          payload.ciphertext,
+          filename,
+          "application/octet-stream",
+        );
+
+        encryptedImage = {
+          url: assetUrl,
+          salt: payload.salt,
+          nonce: payload.nonce,
+        };
+        this.log(`Encrypted image uploaded: ${assetUrl}`);
+      }
+    } else {
+      // Preserve existing encrypted image
+      encryptedImage = existing?.encryptedImage;
+    }
 
     // Merge metadata: existing + new (new keys overwrite existing)
     const mergedMetadata: ProfileMetadata | undefined = parsedMetadata
@@ -141,10 +198,7 @@ a legacy fallback). Profile messages are the primary source of truth.`;
     await sendProfileUpdate(group, {
       name: profileName,
       memberKind,
-      // If image is a URL string (from --image flag), we can't construct
-      // an EncryptedProfileImageRef without salt/nonce, so we skip it.
-      // If preserving an existing encrypted image ref, pass it through.
-      ...(profileImage && typeof profileImage === "object" && { encryptedImage: profileImage }),
+      ...(encryptedImage && { encryptedImage }),
       ...(mergedMetadata && Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
     });
 

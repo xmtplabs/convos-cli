@@ -37,9 +37,8 @@ convos init --force
 This creates a `.env` file with:
 
 - `CONVOS_ENV` - Network environment (local, dev, production)
-- `CONVOS_UPLOAD_PROVIDER` - Upload provider for attachments (e.g., `pinata`)
-- `CONVOS_UPLOAD_PROVIDER_TOKEN` - Authentication token for upload provider
-- `CONVOS_UPLOAD_PROVIDER_GATEWAY` - Custom gateway URL for upload provider
+- `CONVOS_API_KEY` - Agent API key for uploads (auto-selects `convos-api` provider)
+- `CONVOS_UPLOAD_PROVIDER` - Upload provider override (`convos-api`, `pinata`, `s3`)
 
 **Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
@@ -172,16 +171,13 @@ convos conversation download-attachment <conversation-id> <message-id> --output 
 convos conversation download-attachment <conversation-id> <message-id> --raw
 ```
 
-To enable automatic upload for large files, configure a provider in your `.env`:
+To enable automatic upload for large files, set your agent API key in `.env`:
 
 ```bash
-CONVOS_UPLOAD_PROVIDER=pinata
-CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
-# Optional: custom gateway URL
-CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+CONVOS_API_KEY=<your-agent-api-key>
 ```
 
-Supported upload providers: `pinata`
+This auto-selects the `convos-api` upload provider. Other providers (`pinata`, `s3`) are also available via `CONVOS_UPLOAD_PROVIDER`.
 
 ### Read Messages
 
@@ -563,6 +559,13 @@ Member profiles are stored as XMTP group messages using two custom content types
 Both are silent (no push notification, not displayed in chat). The CLI reads `appData` profiles as a fallback for backward compatibility with older clients, but does not write profiles there. Custom XMTP content codecs (`ProfileUpdateCodec`, `ProfileSnapshotCodec`) are registered with the XMTP client at creation time so the SDK can decode these message types natively.
 
 Profiles support typed **metadata** — arbitrary key-value pairs where values can be string, number (double), or boolean. Metadata is carried in both `ProfileUpdate` and `ProfileSnapshot` messages via a `map<string, MetadataValue>` protobuf field. Use `--metadata key=value` on `update-profile` (repeatable, auto-typed: "true"/"false" → bool, numeric → number, else string). Metadata merges with existing values (new keys overwrite, unmentioned keys preserved).
+
+Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
+
+Supported upload providers:
+- **Convos API:** `CONVOS_UPLOAD_PROVIDER=convos-api`, `CONVOS_API_KEY=<agent-assets-api-key>`, optional `CONVOS_API_BASE_URL=<url>` (auto-derived from XMTP env: dev → `https://api.dev.convos.xyz/api`, production → `https://api.convos.xyz/api`). Uses the agent asset upload endpoint (`GET /v2/agents/assets/presigned`) with `X-Agent-API-Key` header auth — no JWT step needed.
+- **Pinata (IPFS):** `CONVOS_UPLOAD_PROVIDER=pinata`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>`, optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<url>`
+- **S3 (direct):** `CONVOS_UPLOAD_PROVIDER=s3`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>`, `CONVOS_S3_BUCKET=<bucket>`, optional `CONVOS_S3_REGION=<region>` (default: us-east-1), optional `CONVOS_S3_ENDPOINT=<url>` (for S3-compatible services like MinIO, R2), optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<public-url-prefix>`
 
 ### Join Request Messages
 
