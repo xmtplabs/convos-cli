@@ -32,6 +32,12 @@ convos init --env production
 
 # overwrite existing config
 convos init --force
+
+# initialize with a custom data directory (useful for multiple agents)
+convos init --home /path/to/agent1-data
+
+# or use the CONVOS_HOME environment variable
+CONVOS_HOME=/path/to/agent1-data convos init
 ```
 
 This creates a `.env` file with:
@@ -42,12 +48,27 @@ This creates a `.env` file with:
 
 **Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
+### Custom Data Directory
+
+By default, all data is stored in `~/.convos/`. To use a different directory (e.g., when running multiple agents on one machine), use the `--home` flag or the `CONVOS_HOME` environment variable:
+
+```bash
+# via flag (works on any command)
+convos conversations list --home /path/to/agent-data
+
+# via environment variable
+export CONVOS_HOME=/path/to/agent-data
+convos conversations list
+```
+
+Priority: `--home` flag > `CONVOS_HOME` env var > `~/.convos`
+
 ### Configuration Loading Priority
 
 1. CLI flags (highest priority)
 2. Explicit `--env-file <path>`
 3. `.env` in the current working directory
-4. `~/.convos/.env` (global default)
+4. `<convos-home>/.env` (default: `~/.convos/.env`)
 
 ## Command Structure
 
@@ -538,7 +559,7 @@ Every conversation has its own:
 - **XMTP inbox** (unique inbox ID)
 - **Local database** (SQLite)
 
-Identities are stored in `~/.convos/identities/<id>.json`. Databases are stored in `~/.convos/db/<env>/<id>.db3`.
+Identities are stored in `<convos-home>/identities/<id>.json`. Databases are stored in `<convos-home>/db/<env>/<id>.db3`. The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`.
 
 ### Invite Flow
 
@@ -593,8 +614,10 @@ The CLI sets `memberKind: "agent"` by default on all join requests so the creato
 
 ### Data Directory
 
+The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`:
+
 ```
-~/.convos/
+<convos-home>/              # default: ~/.convos/
 ├── .env                    # Global config (env only)
 ├── identities/
 │   ├── <id-1>.json         # Identity: wallet key, db key, conversation link

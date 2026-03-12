@@ -953,7 +953,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           await conversation.updateName(cmd.name);
 
           // Also update the identity store label
-          const store = createIdentityStore();
+          const store = createIdentityStore(this.getConvosHome());
           store.update(identity.id, { label: cmd.name });
 
           this.emit({
@@ -1052,7 +1052,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
           // Update local identity store
           if (cmd.name !== undefined) {
-            const profileStore = createIdentityStore();
+            const profileStore = createIdentityStore(this.getConvosHome());
             profileStore.update(identity.id, { profileName: cmd.name || undefined });
           }
 
@@ -1167,7 +1167,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             }
 
             // Step 4: Delete local identity
-            const store = createIdentityStore();
+            const store = createIdentityStore(this.getConvosHome());
             store.remove(identity.id);
 
             this.emit({
@@ -1245,7 +1245,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(AgentServe);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     let identity: Identity;
     let client: Client;
@@ -1262,7 +1262,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         this.error(`No identity found for conversation: ${args.id}`);
       }
       identity = existing;
-      client = await createClientForIdentity(identity, config);
+      client = await createClientForIdentity(identity, config, this.getConvosHome());
 
       const conv = await client.conversations.getConversationById(args.id);
       if (!conv) {
@@ -1324,7 +1324,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         });
       }
 
-      client = await createClientForIdentity(identity, config);
+      client = await createClientForIdentity(identity, config, this.getConvosHome());
 
       const permissionsMap: Record<string, GroupPermissionsOptions> = {
         "all-members": GroupPermissionsOptions.Default,

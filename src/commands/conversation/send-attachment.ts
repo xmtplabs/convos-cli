@@ -146,7 +146,7 @@ without sending (for manual upload workflows).`;
       return;
     }
 
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
     const identity = store.getByConversationId(args.id);
     if (!identity) {
       this.error(
@@ -154,7 +154,7 @@ without sending (for manual upload workflows).`;
       );
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );

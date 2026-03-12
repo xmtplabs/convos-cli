@@ -33,12 +33,17 @@ const LOG_LEVELS: Record<string, LogLevel> = {
 /**
  * Create an XMTP client for a specific Convos identity.
  * Each conversation gets its own identity and client (ADR 002).
+ *
+ * @param identity - The identity to create a client for
+ * @param config - Convos configuration
+ * @param homeDir - Optional Convos home directory (default: $CONVOS_HOME or ~/.convos)
  */
 export async function createClientForIdentity(
   identity: Identity,
   config: ConvosConfig,
+  homeDir?: string,
 ): Promise<Client<any>> {
-  const store = createIdentityStore();
+  const store = createIdentityStore(homeDir);
   const env = config.env ?? "dev";
   const dbPath = store.getDbPath(identity.id, env);
 

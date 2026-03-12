@@ -88,7 +88,7 @@ slug as query parameter 'i'.`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationsJoin);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     // Step 1: Parse invite
     const invite = parseInvite(args.invite);
@@ -143,7 +143,7 @@ slug as query parameter 'i'.`;
     store.update(identity.id, { inviteTag: invite.tag });
 
     // Step 3: Create XMTP client and send DM to creator
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
 
     this.log(`Created identity ${identity.id.slice(0, 12)}... (${getAccountAddress(identity.walletKey)})`);
     this.log(`Sending join request to creator inbox ${invite.creatorInboxId.slice(0, 12)}...`);

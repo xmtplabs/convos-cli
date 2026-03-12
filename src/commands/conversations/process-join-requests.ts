@@ -204,7 +204,7 @@ join requests as they arrive (recommended for always-on usage).`;
   async run(): Promise<void> {
     const { flags } = await this.parse(ProcessJoinRequests);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     const identities = flags.conversation
       ? [store.getByConversationId(flags.conversation)].filter(Boolean)
@@ -225,7 +225,7 @@ join requests as they arrive (recommended for always-on usage).`;
     for (const identity of identities) {
       if (!identity) continue;
       try {
-        const client = await createClientForIdentity(identity, config);
+        const client = await createClientForIdentity(identity, config, this.getConvosHome());
         clientMap.set(identity.id, { client, identity });
       } catch (error) {
         this.log(

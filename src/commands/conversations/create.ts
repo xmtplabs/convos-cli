@@ -83,7 +83,7 @@ The creator becomes super admin. Others join via invite links.`;
   async run(): Promise<void> {
     const { flags } = await this.parse(ConversationsCreate);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     // Get or create identity
     let identity;
@@ -104,7 +104,7 @@ The creator becomes super admin. Others join via invite links.`;
       });
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
 
     const permissionsMap: Record<string, GroupPermissionsOptions> = {
       "all-members": GroupPermissionsOptions.Default,

@@ -28,7 +28,7 @@ use with new conversations.`;
   };
 
   async run(): Promise<void> {
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
     const identities = store.list();
 
     if (identities.length === 0) {

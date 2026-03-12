@@ -46,7 +46,7 @@ Use --text to avoid shell quoting issues (e.g. smart quotes on macOS).`;
   async run(): Promise<void> {
     const { args, argv, flags } = await this.parse(ConversationSendText);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     // Text can come from --text flag or remaining positional args
     const text = flags.text ?? (argv as string[]).slice(1).join(" ");
@@ -64,7 +64,7 @@ Use --text to avoid shell quoting issues (e.g. smart quotes on macOS).`;
       );
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(args.id);
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);

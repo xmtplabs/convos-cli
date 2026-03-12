@@ -32,14 +32,14 @@ client if not yet registered.`;
   async run(): Promise<void> {
     const { args } = await this.parse(IdentityInfo);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     const identity = store.get(args.id);
     if (!identity) {
       this.error(`Identity not found: ${args.id}`);
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
 
     const properties = {
       id: identity.id,

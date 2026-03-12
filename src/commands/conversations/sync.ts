@@ -21,13 +21,13 @@ Fetches new messages and membership changes for all conversations.`;
 
   async run(): Promise<void> {
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
     const identities = store.list().filter((i) => i.conversationId);
 
     const results = [];
     for (const identity of identities) {
       try {
-        const client = await createClientForIdentity(identity, config);
+        const client = await createClientForIdentity(identity, config, this.getConvosHome());
         await client.conversations.sync();
         results.push({
           identityId: identity.id,
