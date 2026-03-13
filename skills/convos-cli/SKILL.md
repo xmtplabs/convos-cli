@@ -275,6 +275,12 @@ convos conversations join "https://dev.convos.org/v2?i=<slug>"
 # join with a display name
 convos conversations join <slug> --profile-name "Bob"
 
+# join with a display name and avatar image
+convos conversations join <slug> --profile-name "Bot" --profile-image "https://example.com/avatar.jpg"
+
+# join with custom metadata
+convos conversations join <slug> --metadata role=assistant --metadata version=2
+
 # send join request without waiting for acceptance
 convos conversations join <slug> --no-wait
 
