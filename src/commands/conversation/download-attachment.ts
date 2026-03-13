@@ -83,7 +83,7 @@ attachments only).`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationDownloadAttachment);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     const identity = store.getByConversationId(args.id);
     if (!identity) {
@@ -92,7 +92,7 @@ attachments only).`;
       );
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );

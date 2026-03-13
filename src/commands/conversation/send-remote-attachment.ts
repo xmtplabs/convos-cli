@@ -73,7 +73,7 @@ command to send the message.`;
       ConversationSendRemoteAttachment,
     );
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     const identity = store.getByConversationId(args.id);
     if (!identity) {
@@ -82,7 +82,7 @@ command to send the message.`;
       );
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );

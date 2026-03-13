@@ -43,7 +43,7 @@ with conversation members per ADR 005).`;
 
   async run(): Promise<void> {
     const { flags } = await this.parse(IdentityCreate);
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
     const identity = store.create({
       label: flags.label,
       profileName: flags["profile-name"],

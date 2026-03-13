@@ -53,6 +53,7 @@ function createTestAgent() {
   agent.emitError = (message: string, details?: Record<string, unknown>) =>
     events.push({ event: "error", message, ...details });
   agent.getConvosConfig = () => ({ env: "dev" });
+  agent.getConvosHome = () => "/tmp/convos-test";
 
   return { agent, events };
 }

@@ -36,7 +36,7 @@ cryptographic material needed to participate in its conversation.`;
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(IdentityRemove);
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     const identity = store.get(args.id);
     if (!identity) {

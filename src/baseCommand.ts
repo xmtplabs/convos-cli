@@ -83,6 +83,12 @@ function applyFieldMask(data: unknown, fields: string[]): unknown {
 export class ConvosBaseCommand extends Command {
   /** Flags shared by all commands. */
   static commonFlags = {
+    home: Flags.string({
+      description:
+        "Path to Convos data directory (default: $CONVOS_HOME or ~/.convos)",
+      helpValue: "<path>",
+      env: "CONVOS_HOME",
+    }),
     "env-file": Flags.string({
       description: "Path to .env file",
       helpValue: "<path>",
@@ -126,6 +132,7 @@ export class ConvosBaseCommand extends Command {
   };
 
   #config: ConvosConfig = {};
+  #home: string | undefined;
   jsonOutput = false;
   verbose = false;
   #fields: string[] | undefined;
@@ -136,8 +143,14 @@ export class ConvosBaseCommand extends Command {
       this.constructor as typeof ConvosBaseCommand,
     );
 
+    // Resolve Convos home directory
+    // Priority: --home flag > CONVOS_HOME env var > ~/.convos
+    const { join: pathJoin } = await import("node:path");
+    const { homedir } = await import("node:os");
+    this.#home = flags.home ?? pathJoin(homedir(), ".convos");
+
     // Load config from .env file
-    // Priority: explicit --env-file > .env in cwd > ~/.convos/.env
+    // Priority: explicit --env-file > .env in cwd > <convos-home>/.env
     const envFile = flags["env-file"];
     if (envFile) {
       try {
@@ -151,13 +164,12 @@ export class ConvosBaseCommand extends Command {
       }
     } else {
       const { loadEnvFile } = await import("node:process");
-      const { resolve, join } = await import("node:path");
-      const { homedir } = await import("node:os");
+      const { resolve } = await import("node:path");
       try {
         loadEnvFile(resolve(process.cwd(), ".env"));
       } catch {
         try {
-          loadEnvFile(join(homedir(), ".convos", ".env"));
+          loadEnvFile(pathJoin(this.#home, ".env"));
         } catch {
           // Silently ignore if neither file exists
         }
@@ -246,6 +258,14 @@ export class ConvosBaseCommand extends Command {
 
   getConvosConfig(): ConvosConfig {
     return this.#config;
+  }
+
+  /**
+   * Get the resolved Convos home directory path.
+   * Priority: --home flag > CONVOS_HOME env var > ~/.convos
+   */
+  getConvosHome(): string {
+    return this.#home!;
   }
 
   async run(): Promise<void> {

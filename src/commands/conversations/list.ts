@@ -39,7 +39,7 @@ Use --sync to fetch the latest state from the network.`;
   async run(): Promise<void> {
     const { flags } = await this.parse(ConversationsList);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
     const allLinked = store.list().filter((i) => i.conversationId);
 
     // Deduplicate: only use the oldest identity per conversation ID
@@ -83,7 +83,7 @@ Use --sync to fetch the latest state from the network.`;
 
     for (const identity of identities) {
       try {
-        const client = await createClientForIdentity(identity, config);
+        const client = await createClientForIdentity(identity, config, this.getConvosHome());
         if (flags.sync) {
           await client.conversations.sync();
         }

@@ -68,7 +68,7 @@ a legacy fallback). Profile messages are the primary source of truth.`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(UpdateProfile);
     const config = this.getConvosConfig();
-    const store = createIdentityStore();
+    const store = createIdentityStore(this.getConvosHome());
 
     if (flags.name === undefined && flags.image === undefined && (!flags.metadata || flags.metadata.length === 0)) {
       this.error("At least one of --name, --image, or --metadata must be provided");
@@ -106,7 +106,7 @@ a legacy fallback). Profile messages are the primary source of truth.`;
       this.error(`No identity found for conversation ${args.id}`);
     }
 
-    const client = await createClientForIdentity(identity, config);
+    const client = await createClientForIdentity(identity, config, this.getConvosHome());
     await client.conversations.sync();
 
     const conversation = await client.conversations.getConversationById(args.id);

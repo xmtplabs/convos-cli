@@ -1,11 +1,8 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { Flags } from "@oclif/core";
 import { ConvosBaseCommand } from "../baseCommand.js";
 import { createIdentityStore } from "../utils/identities.js";
-
-const CONVOS_HOME = join(homedir(), ".convos");
 
 export default class Reset extends ConvosBaseCommand {
   static description = `Reset Convos by deleting all identities and conversation data.
@@ -39,11 +36,12 @@ and conversations cannot be recovered.`;
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Reset);
-    const store = createIdentityStore();
+    const convosHome = this.getConvosHome();
+    const store = createIdentityStore(convosHome);
     const identities = store.list();
 
-    const identitiesDir = join(CONVOS_HOME, "identities");
-    const dbDir = join(CONVOS_HOME, "db");
+    const identitiesDir = join(convosHome, "identities");
+    const dbDir = join(convosHome, "db");
 
     // Count what will be deleted
     const identityCount = identities.length;
