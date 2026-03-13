@@ -124,11 +124,15 @@ interface UpdateProfileCommand {
   image?: string;
 }
 
+interface ReadReceiptCommand {
+  type: "read-receipt";
+}
+
 interface StopCommand {
   type: "stop";
 }
 
-export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | UpdateProfileCommand | LockCommand | UnlockCommand | ExplodeCommand | StopCommand;
+export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | UpdateProfileCommand | LockCommand | UnlockCommand | ExplodeCommand | ReadReceiptCommand | StopCommand;
 
 /**
  * Encode an ExplodeSettings message matching the iOS content type.
@@ -1192,6 +1196,19 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               timestamp: new Date().toISOString(),
             });
           }
+          break;
+        }
+
+        case "read-receipt": {
+          const receiptMessageId = await conversation.sendReadReceipt();
+
+          this.emit({
+            event: "sent",
+            id: receiptMessageId,
+            type: "read-receipt",
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
           break;
         }
 

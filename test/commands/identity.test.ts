@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { parseJsonOutput, runCommand } from "../helpers.js";
+import { afterAll, describe, expect, it } from "vitest";
+import { cleanupTestHome, parseJsonOutput, runCommand } from "../helpers.js";
+
+afterAll(() => {
+  cleanupTestHome();
+});
 
 describe("identity commands", () => {
   it("identity create → list → info → remove lifecycle", async () => {
@@ -49,6 +53,12 @@ describe("identity commands", () => {
     const afterList = parseJsonOutput<Array<{ id: string }>>(
       listAfter.stdout,
     );
-    expect(afterList.some((i) => i.id === created.id)).toBe(false);
+    // After removing the only identity, list may return an object with count:0 or an empty array
+    if (Array.isArray(afterList)) {
+      expect(afterList.some((i) => i.id === created.id)).toBe(false);
+    } else {
+      // No identities left — the output is a "no identities" message object
+      expect((afterList as any).count).toBe(0);
+    }
   });
 });
