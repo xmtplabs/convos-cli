@@ -159,6 +159,12 @@ convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
 
 # send a read receipt (silent — no visible message, no push notification)
 convos conversation send-read-receipt <conversation-id>
+
+# send a typing indicator (silent — notifies others you are typing)
+convos conversation send-typing-indicator <conversation-id>
+
+# stop typing indicator
+convos conversation send-typing-indicator <conversation-id> --stop
 ```
 
 ### Send Attachments
@@ -454,6 +460,7 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
 | `message` | New message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `typing` | Member typing status changed | `senderInboxId`, `isTyping`, `conversationId` |
 | `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
 | `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
 | `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
@@ -474,6 +481,8 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
 {"type":"rename","name":"New Group Name"}
 {"type":"read-receipt"}
+{"type":"typing"}
+{"type":"typing","isTyping":false}
 {"type":"lock"}
 {"type":"unlock"}
 {"type":"explode"}
@@ -489,6 +498,7 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
 | `rename` | `name` | — |
 | `read-receipt` | — | — |
+| `typing` | — | `isTyping` (bool, default: `true`) |
 | `lock` | — | — |
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |
