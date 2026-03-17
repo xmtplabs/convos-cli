@@ -156,6 +156,9 @@ convos conversation send-reply <conversation-id> <message-id> --file ./photo.jpg
 
 # reply with a large file (auto-uploaded via provider)
 convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
+
+# send a read receipt (silent — no visible message, no push notification)
+convos conversation send-read-receipt <conversation-id>
 ```
 
 ### Send Attachments
@@ -470,6 +473,7 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"attach","file":"./photo.jpg","mimeType":"image/jpeg"}
 {"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
 {"type":"rename","name":"New Group Name"}
+{"type":"read-receipt"}
 {"type":"lock"}
 {"type":"unlock"}
 {"type":"explode"}
@@ -484,6 +488,7 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `attach` | `file` (local path) | `mimeType`, `replyTo` |
 | `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
 | `rename` | `name` | — |
+| `read-receipt` | — | — |
 | `lock` | — | — |
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |
