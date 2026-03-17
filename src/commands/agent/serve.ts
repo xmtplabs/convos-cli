@@ -64,6 +64,12 @@ import {
   normalizeMessageContent,
   requireGroup,
 } from "../../utils/xmtp.js";
+import {
+  isTypingIndicatorMessage,
+  getTypingIndicatorContent,
+  TypingIndicatorCodec,
+  type TypingIndicatorContent,
+} from "../../utils/typingIndicator.js";
 
 /**
  * Stdin command types the agent can send.
@@ -128,11 +134,16 @@ interface ReadReceiptCommand {
   type: "read-receipt";
 }
 
+interface TypingCommand {
+  type: "typing";
+  isTyping?: boolean;
+}
+
 interface StopCommand {
   type: "stop";
 }
 
-export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | UpdateProfileCommand | LockCommand | UnlockCommand | ExplodeCommand | ReadReceiptCommand | StopCommand;
+export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | UpdateProfileCommand | LockCommand | UnlockCommand | ExplodeCommand | ReadReceiptCommand | TypingCommand | StopCommand;
 
 /**
  * Encode an ExplodeSettings message matching the iOS content type.
@@ -660,6 +671,22 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           for await (const message of stream) {
             // Skip our own messages (they get a "sent" event instead)
             if (message.senderInboxId === client.inboxId) continue;
+
+            // Intercept typing indicators before the displayable filter
+            if (isTypingIndicatorMessage(message)) {
+              const typingContent = getTypingIndicatorContent(message);
+              if (typingContent) {
+                this.emit({
+                  event: "typing",
+                  senderInboxId: message.senderInboxId,
+                  isTyping: typingContent.isTyping,
+                  conversationId: conversation.id,
+                  timestamp: message.sentAt.toISOString(),
+                });
+              }
+              continue;
+            }
+
             // Skip content types we can't display cleanly
             if (!isDisplayableMessage(message)) continue;
             // Skip if already emitted by catchup
@@ -1206,6 +1233,24 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             event: "sent",
             id: receiptMessageId,
             type: "read-receipt",
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "typing": {
+          const isTyping = cmd.isTyping !== false; // default to true
+          const content: TypingIndicatorContent = { isTyping };
+          const codec = new TypingIndicatorCodec();
+          const encoded = codec.encode(content);
+          const typingMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: typingMessageId,
+            type: "typing",
+            isTyping,
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });
