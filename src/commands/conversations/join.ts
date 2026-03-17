@@ -5,7 +5,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
-import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
+import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
 import {
   JoinRequestCodec,
   type JoinRequestContent,
@@ -50,6 +50,16 @@ slug as query parameter 'i'.`;
         "<%= config.bin %> <%= command.id %> <slug> --timeout 120 --json",
       description: "Wait up to 2 minutes for acceptance",
     },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> <slug> --profile-name "Bot" --profile-image "https://example.com/avatar.jpg"',
+      description: "Join with a display name and avatar",
+    },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> <slug> --metadata role=assistant --metadata version=2',
+      description: "Join with custom metadata",
+    },
   ];
 
   static args = {
@@ -79,6 +89,18 @@ slug as query parameter 'i'.`;
       description: "Profile display name for this conversation",
       helpValue: "<name>",
     }),
+    "profile-image": Flags.string({
+      description: "Profile image URL for this conversation",
+      helpValue: "<url>",
+    }),
+    metadata: Flags.string({
+      description:
+        'Set a metadata field on the join request and profile (key=value). ' +
+        'Value is auto-typed: "true"/"false" → bool, numeric → number, else string. ' +
+        "Repeat for multiple fields.",
+      helpValue: "<key=value>",
+      multiple: true,
+    }),
     identity: Flags.string({
       description: "Use an existing unlinked identity instead of creating one",
       helpValue: "<id>",
@@ -89,6 +111,38 @@ slug as query parameter 'i'.`;
     const { args, flags } = await this.parse(ConversationsJoin);
     const config = this.getConvosConfig();
     const store = createIdentityStore(this.getConvosHome());
+
+    // Parse metadata flags into typed ProfileMetadata + flat string map for JoinRequest
+    let parsedMetadata: ProfileMetadata | undefined;
+    let joinMetadata: Record<string, string> | undefined;
+    if (flags.metadata && flags.metadata.length > 0) {
+      parsedMetadata = {};
+      joinMetadata = {};
+      for (const entry of flags.metadata) {
+        const eqIdx = entry.indexOf("=");
+        if (eqIdx === -1) {
+          this.error(`Invalid metadata format: "${entry}". Expected key=value`);
+        }
+        const key = entry.slice(0, eqIdx);
+        const rawValue = entry.slice(eqIdx + 1);
+
+        if (!key) {
+          this.error(`Empty metadata key in "${entry}"`);
+        }
+
+        // Flat string map for JoinRequest
+        joinMetadata[key] = rawValue;
+
+        // Auto-type the value for ProfileMetadata: bool → number → string
+        if (rawValue === "true" || rawValue === "false") {
+          parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
+        } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
+          parsedMetadata[key] = { type: "number", value: Number(rawValue) };
+        } else {
+          parsedMetadata[key] = { type: "string", value: rawValue };
+        }
+      }
+    }
 
     // Step 1: Parse invite
     const invite = parseInvite(args.invite);
@@ -157,8 +211,10 @@ slug as query parameter 'i'.`;
       inviteSlug: slug,
       profile: {
         ...(flags["profile-name"] && { name: flags["profile-name"] }),
+        ...(flags["profile-image"] && { imageURL: flags["profile-image"] }),
         memberKind: "agent",
       },
+      ...(joinMetadata && { metadata: joinMetadata }),
     };
     const codec = new JoinRequestCodec();
     const encoded = codec.encode(joinRequest);
@@ -178,6 +234,8 @@ slug as query parameter 'i'.`;
         tag: invite.tag,
         conversationName: invite.name ?? null,
         profileName: flags["profile-name"] ?? null,
+        profileImage: flags["profile-image"] ?? null,
+        ...(joinMetadata && { metadata: joinMetadata }),
         message:
           "Join request sent. The creator must accept it. " +
           "Run 'convos conversations list --sync' to check if you've been added.",
@@ -248,15 +306,68 @@ slug as query parameter 'i'.`;
     // We intentionally do NOT write profiles to appData to avoid the
     // read-modify-write race that can corrupt invite tags and erase
     // other members' profiles.
-    // Always send a ProfileUpdate to set memberKind: Agent (and name if provided).
+    // Always send a ProfileUpdate to set memberKind: Agent (and name/image/metadata if provided).
     try {
       await client.conversations.sync();
       const conv = await client.conversations.getConversationById(conversationId);
       if (conv && isGroup(conv)) {
         await conv.sync();
         const profileName = flags["profile-name"];
+        const profileImage = flags["profile-image"];
+
+        // If an image URL is provided, encrypt and upload it
+        let encryptedImage: import("../../utils/profileMessages.js").EncryptedProfileImageRef | undefined;
+        if (profileImage) {
+          try {
+            const { getUploadProvider } = await import("../../utils/upload.js");
+            const { encryptImage, fetchImageData, generateGroupKey } = await import("../../utils/imageEncryption.js");
+            const { serializeAppData } = await import("../../utils/metadata.js");
+
+            const uploadProvider = getUploadProvider(config);
+            if (uploadProvider) {
+              // Get or generate the group's image encryption key
+              await conv.sync();
+              const appData = conv.appData ?? "";
+              const groupMetadata = parseAppData(appData);
+              let groupKey = groupMetadata.imageEncryptionKey;
+
+              if (!groupKey || groupKey.length === 0) {
+                groupKey = generateGroupKey();
+                groupMetadata.imageEncryptionKey = groupKey;
+                await conv.updateAppData(serializeAppData(groupMetadata));
+              }
+
+              // Download, encrypt, and upload the image
+              const imageData = await fetchImageData(profileImage);
+              const payload = await encryptImage(imageData, groupKey);
+              const filename = `ep-${Date.now()}.enc`;
+              const assetUrl = await uploadProvider.upload(
+                payload.ciphertext,
+                filename,
+                "application/octet-stream",
+              );
+
+              encryptedImage = {
+                url: assetUrl,
+                salt: payload.salt,
+                nonce: payload.nonce,
+              };
+            } else {
+              this.warn(
+                "Image upload requires an upload provider. Set CONVOS_API_KEY or CONVOS_UPLOAD_PROVIDER. Skipping image.",
+              );
+            }
+          } catch (imgError) {
+            this.warn(
+              `Could not encrypt/upload profile image: ${imgError instanceof Error ? imgError.message : "unknown"}`,
+            );
+          }
+        }
+
         await sendProfileUpdate(conv, {
           ...(profileName && { name: profileName }),
+          ...(encryptedImage && { encryptedImage }),
+          ...(parsedMetadata && Object.keys(parsedMetadata).length > 0 && { metadata: parsedMetadata }),
           memberKind: MemberKind.Agent,
         });
       }
@@ -273,6 +384,7 @@ slug as query parameter 'i'.`;
       inviteTag: invite.tag,
       label: flags.label ?? invite.name ?? identity.label,
       profileName: flags["profile-name"] ?? identity.profileName,
+      profileImageUrl: flags["profile-image"] ?? identity.profileImageUrl,
     });
 
     this.output({
@@ -284,6 +396,8 @@ slug as query parameter 'i'.`;
       tag: invite.tag,
       conversationName: invite.name ?? null,
       profileName: flags["profile-name"] ?? null,
+      profileImage: flags["profile-image"] ?? null,
+      ...(joinMetadata && { metadata: joinMetadata }),
     });
   }
 }
