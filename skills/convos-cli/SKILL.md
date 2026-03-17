@@ -248,6 +248,21 @@ Convos uses a serverless invite system. The creator generates a cryptographic in
 
 The creator must process join requests *after* the person has opened/scanned the invite. If you don't know when that will happen, use `--watch` with a timeout to stream and process requests as they arrive.
 
+#### Inspect an Invite
+
+```bash
+# decode and inspect an invite without joining (useful for debugging)
+convos conversations inspect-invite <invite-slug>
+
+# inspect a full invite URL
+convos conversations inspect-invite "https://dev.convos.org/v2?i=<slug>"
+
+# output as JSON
+convos conversations inspect-invite <slug> --json
+```
+
+This displays the invite's tag, creator inbox ID, conversation name, expiration dates, signature validity, and whether the invite is expired — without creating any identities or sending join requests.
+
 #### Create an Invite
 
 ```bash
