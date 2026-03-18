@@ -1001,7 +1001,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         case "update-profile": {
-          if (cmd.name === undefined && cmd.image === undefined && cmd.metadata === undefined) {
+          if (cmd.name == null && cmd.image == null && cmd.metadata == null) {
             this.emitError("update-profile requires 'name', 'image', and/or 'metadata'");
             return;
           }
@@ -1072,7 +1072,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
           // Parse metadata: convert raw JSON values to typed ProfileMetadata
           let parsedMetadata: ProfileMetadata | undefined;
-          if (cmd.metadata !== undefined) {
+          if (cmd.metadata != null) {
             parsedMetadata = {};
             for (const [key, val] of Object.entries(cmd.metadata)) {
               if (typeof val === "boolean") {
@@ -1117,7 +1117,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             type: "update-profile",
             ...(cmd.name !== undefined && { name: cmd.name }),
             ...(cmd.image !== undefined && { image: cmd.image }),
-            ...(cmd.metadata !== undefined && { metadata: cmd.metadata }),
+            ...(cmd.metadata != null && { metadata: cmd.metadata }),
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });
