@@ -43,6 +43,7 @@ import {
   MemberKind,
   type ResolvedProfile,
   type EncryptedProfileImageRef,
+  type ProfileMetadata,
 } from "../../utils/profileMessages.js";
 import { encryptImage, fetchImageData, generateGroupKey } from "../../utils/imageEncryption.js";
 import { randomAlphanumeric } from "../../utils/random.js";
@@ -128,6 +129,7 @@ interface UpdateProfileCommand {
   type: "update-profile";
   name?: string;
   image?: string;
+  metadata?: Record<string, string | number | boolean>;
 }
 
 interface ReadReceiptCommand {
@@ -194,6 +196,7 @@ STDIN commands (one JSON object per line):
   {"type":"update-profile","name":"New Name"}           Update your profile name
   {"type":"update-profile","image":"https://..."}       Update your profile image
   {"type":"update-profile","name":"X","image":"https://..."} Update both
+  {"type":"update-profile","metadata":{"credits":75,"verified":true}} Update metadata
   {"type":"lock"}                                       Lock (prevent new joins)
   {"type":"unlock"}                                     Unlock (allow new joins)
   {"type":"explode"}                                    Explode immediately
@@ -998,8 +1001,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         case "update-profile": {
-          if (cmd.name === undefined && cmd.image === undefined) {
-            this.emitError("update-profile requires 'name' and/or 'image'");
+          if (cmd.name == null && cmd.image == null && cmd.metadata == null) {
+            this.emitError("update-profile requires 'name', 'image', and/or 'metadata'");
             return;
           }
 
@@ -1067,10 +1070,31 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             encryptedImage = existing?.encryptedImage;
           }
 
+          // Parse metadata: convert raw JSON values to typed ProfileMetadata
+          let parsedMetadata: ProfileMetadata | undefined;
+          if (cmd.metadata != null) {
+            parsedMetadata = {};
+            for (const [key, val] of Object.entries(cmd.metadata)) {
+              if (typeof val === "boolean") {
+                parsedMetadata[key] = { type: "bool", value: val };
+              } else if (typeof val === "number") {
+                parsedMetadata[key] = { type: "number", value: val };
+              } else {
+                parsedMetadata[key] = { type: "string", value: String(val) };
+              }
+            }
+          }
+
+          // Merge metadata: existing + new (new keys overwrite existing)
+          const mergedMetadata: ProfileMetadata | undefined = parsedMetadata
+            ? { ...(existing?.metadata ?? {}), ...parsedMetadata }
+            : existing?.metadata;
+
           await sendProfileUpdate(conversation, {
             name: profileName,
             memberKind,
             ...(encryptedImage && { encryptedImage }),
+            ...(mergedMetadata && Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
           });
 
           // Update cached profiles so sequential commands don't revert prior changes
@@ -1079,6 +1103,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             name: profileName,
             memberKind,
             ...(encryptedImage && { encryptedImage }),
+            ...(mergedMetadata && Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
           });
 
           // Update local identity store
@@ -1092,6 +1117,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             type: "update-profile",
             ...(cmd.name !== undefined && { name: cmd.name }),
             ...(cmd.image !== undefined && { image: cmd.image }),
+            ...(cmd.metadata != null && { metadata: cmd.metadata }),
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });
