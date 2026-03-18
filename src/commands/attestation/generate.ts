@@ -64,17 +64,13 @@ attestations and hosts the JWKS endpoint.`;
     let kid = flags.kid;
 
     if (flags["private-key"]) {
-      // Re-use existing key — extract public key
-      const { createPrivateKey } = await import("node:crypto");
+      // Re-use existing key — derive public key from private key
+      const { createPrivateKey, createPublicKey } = await import("node:crypto");
       const pk = createPrivateKey(flags["private-key"]);
-      const pubDer = pk.export({ type: "spki", format: "der" }) as Buffer;
-
-      // This doesn't work — need to derive public from private differently
-      // Use createPublicKey from the private key
-      const { createPublicKey } = await import("node:crypto");
       const pub = createPublicKey(pk);
-      const pubDer2 = pub.export({ type: "spki", format: "der" }) as Buffer;
-      publicKey = pubDer2.subarray(12).toString("base64url");
+      const pubDer = pub.export({ type: "spki", format: "der" }) as Buffer;
+      // Ed25519 DER public key is 44 bytes: 12-byte header + 32-byte key
+      publicKey = pubDer.subarray(12).toString("base64url");
       privateKeyPem = flags["private-key"];
     } else {
       const keyPair = generateAttestationKeyPair(kid);

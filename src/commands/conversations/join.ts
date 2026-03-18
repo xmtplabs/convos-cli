@@ -240,6 +240,13 @@ slug as query parameter 'i'.`;
     this.log("Join request sent.");
 
     if (flags["no-wait"]) {
+      if (flags.attestation || flags["attestation-ts"] || flags["attestation-kid"]) {
+        this.warn(
+          "Attestation flags have no effect with --no-wait. " +
+          "Attestation metadata is sent via ProfileUpdate after joining, " +
+          "which requires waiting for acceptance.",
+        );
+      }
       this.output({
         status: "request_sent",
         identityId: identity.id,

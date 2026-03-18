@@ -118,6 +118,18 @@ describe("attestation", () => {
       expect(result.reason).toMatch(/expired/);
     });
 
+    it("rejects malformed key expiry date", () => {
+      const jwks = buildJwks([{
+        publicKey: kp.publicKey,
+        kid: kp.kid,
+        exp: "not-a-date",
+      }]);
+      const attestation = signAttestation(inboxId, kp.privateKeyPem, kp.kid);
+      const result = verifyAttestationWithJwks(inboxId, attestation, jwks);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toMatch(/Invalid key expiry date/);
+    });
+
     it("accepts non-expired key", () => {
       const jwks = buildJwks([{
         publicKey: kp.publicKey,

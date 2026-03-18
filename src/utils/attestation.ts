@@ -194,6 +194,9 @@ export function verifyAttestationWithJwks(
   // Check key expiry
   if (key.exp) {
     const expDate = new Date(key.exp);
+    if (isNaN(expDate.getTime())) {
+      return { valid: false, reason: `Invalid key expiry date: ${key.exp}` };
+    }
     const ref = referenceDate ?? new Date();
     if (expDate < ref) {
       return { valid: false, reason: `Key expired: ${key.exp}` };
