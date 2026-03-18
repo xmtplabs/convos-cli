@@ -444,6 +444,55 @@ convos conversation explode <conversation-id> --scheduled "2025-03-01T00:00:00Z"
 
 When scheduled, the ExplodeSettings message is sent with a future `expiresAt` date. Members are notified but not removed — clients handle cleanup when the time arrives. When immediate (no `--scheduled`), members are removed and the local identity is destroyed right away.
 
+### Assistant Attestation
+
+Cryptographically verify that an agent was provisioned by the Convos backend. Attestations use Ed25519 signatures over `sha256(inboxId || timestamp)`.
+
+```bash
+# generate a test attestation (creates a key pair, signs, outputs JWKS)
+convos attestation generate <inbox-id>
+convos attestation generate <inbox-id> --kid my-key-2026 --json
+
+# verify an attestation against a JWKS endpoint
+convos attestation verify <inbox-id> \
+  --attestation <base64url-sig> \
+  --attestation-ts <iso8601> \
+  --attestation-kid <kid>
+
+# verify against a raw public key
+convos attestation verify <inbox-id> \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --public-key <base64url-pubkey>
+
+# verify against a local JWKS file
+convos attestation verify <inbox-id> \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --attestation-kid <kid> \
+  --jwks-file ./agents.json
+```
+
+Agents include attestation in their profile metadata when joining:
+
+```bash
+# agent serve with attestation (typically provided by the backend)
+convos agent serve --name "Bot" \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --attestation-kid <kid>
+
+# or via environment variables
+CONVOS_ATTESTATION=<sig> CONVOS_ATTESTATION_TS=<ts> CONVOS_ATTESTATION_KID=<kid> \
+  convos agent serve --name "Bot"
+
+# join with attestation
+convos conversations join <slug> \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --attestation-kid <kid>
+```
+
 ### Sync Data from Network
 
 ```bash

@@ -87,6 +87,20 @@ export {
   type TypingIndicatorContent,
 } from "./utils/typingIndicator.js";
 
+// Assistant attestation
+export {
+  signAttestation,
+  verifyAttestation,
+  verifyAttestationWithJwks,
+  generateAttestationKeyPair,
+  buildJwks,
+  fetchJwks,
+  type Attestation,
+  type Jwks,
+  type JwksKey,
+  type Ed25519KeyPair,
+} from "./utils/attestation.js";
+
 // Image encryption
 export {
   encryptImage,
