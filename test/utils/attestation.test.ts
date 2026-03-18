@@ -98,6 +98,13 @@ describe("attestation", () => {
       expect(result.valid).toBe(true);
     });
 
+    it("rejects JWKS with missing keys array", () => {
+      const attestation = signAttestation(inboxId, kp.privateKeyPem, kp.kid);
+      const result = verifyAttestationWithJwks(inboxId, attestation, {} as any);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toMatch(/missing keys/);
+    });
+
     it("rejects unknown kid", () => {
       const jwks = buildJwks([{ publicKey: kp.publicKey, kid: "other-kid" }]);
       const attestation = signAttestation(inboxId, kp.privateKeyPem, kp.kid);

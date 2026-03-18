@@ -182,6 +182,10 @@ export function verifyAttestationWithJwks(
   maxAgeMs = 24 * 60 * 60 * 1000,
   referenceDate?: Date,
 ): { valid: boolean; reason?: string } {
+  if (!Array.isArray(jwks.keys)) {
+    return { valid: false, reason: "Invalid JWKS: missing keys array" };
+  }
+
   const key = jwks.keys.find((k) => k.kid === attestation.kid);
   if (!key) {
     return { valid: false, reason: `Key not found: ${attestation.kid}` };
