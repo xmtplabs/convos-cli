@@ -163,6 +163,12 @@ convos conversation send-read-receipt <conversation-id>
 # query last read times per member (nanosecond timestamps)
 convos conversation last-read-times <conversation-id>
 convos conversation last-read-times <conversation-id> --sync --json
+
+# send a typing indicator (silent — notifies others you are typing)
+convos conversation send-typing-indicator <conversation-id>
+
+# stop typing indicator
+convos conversation send-typing-indicator <conversation-id> --stop
 ```
 
 ### Send Attachments
@@ -245,6 +251,21 @@ Convos uses a serverless invite system. The creator generates a cryptographic in
 3. **Creator processes the join request** — this validates the request and adds the person to the group
 
 The creator must process join requests *after* the person has opened/scanned the invite. If you don't know when that will happen, use `--watch` with a timeout to stream and process requests as they arrive.
+
+#### Inspect an Invite
+
+```bash
+# decode and inspect an invite without joining (useful for debugging)
+convos conversations inspect-invite <invite-slug>
+
+# inspect a full invite URL
+convos conversations inspect-invite "https://dev.convos.org/v2?i=<slug>"
+
+# output as JSON
+convos conversations inspect-invite <slug> --json
+```
+
+This displays the invite's tag, creator inbox ID, conversation name, expiration dates, signature validity, and whether the invite is expired — without creating any identities or sending join requests.
 
 #### Create an Invite
 
@@ -464,6 +485,7 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
 | `message` | New message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `typing` | Member typing status changed | `senderInboxId`, `isTyping`, `conversationId` |
 | `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
 | `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
 | `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
@@ -484,6 +506,8 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
 {"type":"rename","name":"New Group Name"}
 {"type":"read-receipt"}
+{"type":"typing"}
+{"type":"typing","isTyping":false}
 {"type":"lock"}
 {"type":"unlock"}
 {"type":"explode"}
@@ -499,6 +523,7 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
 | `rename` | `name` | — |
 | `read-receipt` | — | — |
+| `typing` | — | `isTyping` (bool, default: `true`) |
 | `lock` | — | — |
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |

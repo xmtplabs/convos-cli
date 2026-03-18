@@ -78,6 +78,15 @@ export {
   type JoinRequestProfile,
 } from "./utils/joinRequest.js";
 
+// Typing indicator content type
+export {
+  TypingIndicatorCodec,
+  ContentTypeTypingIndicator,
+  isTypingIndicatorMessage,
+  getTypingIndicatorContent,
+  type TypingIndicatorContent,
+} from "./utils/typingIndicator.js";
+
 // Image encryption
 export {
   encryptImage,
