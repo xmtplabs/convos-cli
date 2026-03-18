@@ -53,6 +53,11 @@ attestations and hosts the JWKS endpoint.`;
       description: "ISO 8601 timestamp to use (default: now)",
       helpValue: "<iso8601>",
     }),
+    issuer: Flags.string({
+      description: "Issuer identifier for the JWKS key (default: convos)",
+      helpValue: "<issuer>",
+      default: "convos",
+    }),
   };
 
   async run(): Promise<void> {
@@ -80,7 +85,7 @@ attestations and hosts the JWKS endpoint.`;
     }
 
     const attestation = signAttestation(inboxId, privateKeyPem, kid, flags.timestamp);
-    const jwks = buildJwks([{ publicKey, kid }]);
+    const jwks = buildJwks([{ publicKey, kid, issuer: flags.issuer }]);
 
     this.output({
       inboxId,

@@ -126,9 +126,13 @@ file, or a raw public key.`;
     }
 
     const result = verifyAttestationWithJwks(inboxId, attestation, jwks, maxAgeMs);
+    const matchedKey = Array.isArray(jwks.keys)
+      ? jwks.keys.find((k: any) => k.kid === attestation.kid)
+      : undefined;
     this.output({
       inboxId,
       kid: attestation.kid,
+      issuer: matchedKey?.issuer ?? null,
       verified: result.valid,
       reason: result.reason ?? null,
     });

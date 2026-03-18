@@ -40,6 +40,8 @@ export interface JwksKey {
   use?: string;
   /** Optional expiry — ISO 8601 */
   exp?: string;
+  /** Issuer identifier (e.g. "convos") — used by iOS to resolve trust level */
+  issuer?: string;
 }
 
 export interface Jwks {
@@ -234,7 +236,7 @@ export function generateAttestationKeyPair(kid: string): Ed25519KeyPair {
 /**
  * Build a JWKS from key pairs (for testing).
  */
-export function buildJwks(keys: Array<{ publicKey: string; kid: string; exp?: string }>): Jwks {
+export function buildJwks(keys: Array<{ publicKey: string; kid: string; exp?: string; issuer?: string }>): Jwks {
   return {
     keys: keys.map((k) => ({
       kid: k.kid,
@@ -243,6 +245,7 @@ export function buildJwks(keys: Array<{ publicKey: string; kid: string; exp?: st
       x: k.publicKey,
       use: "sig",
       ...(k.exp && { exp: k.exp }),
+      ...(k.issuer && { issuer: k.issuer }),
     })),
   };
 }
