@@ -159,6 +159,10 @@ convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
 
 # send a read receipt (silent — no visible message, no push notification)
 convos conversation send-read-receipt <conversation-id>
+
+# query last read times per member (nanosecond timestamps)
+convos conversation last-read-times <conversation-id>
+convos conversation last-read-times <conversation-id> --sync --json
 ```
 
 ### Send Attachments
