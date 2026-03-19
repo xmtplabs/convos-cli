@@ -105,6 +105,21 @@ slug as query parameter 'i'.`;
       description: "Use an existing unlinked identity instead of creating one",
       helpValue: "<id>",
     }),
+    attestation: Flags.string({
+      description: "Base64url-encoded Ed25519 attestation signature",
+      helpValue: "<signature>",
+      env: "CONVOS_ATTESTATION",
+    }),
+    "attestation-ts": Flags.string({
+      description: "ISO 8601 timestamp used in the attestation",
+      helpValue: "<iso8601>",
+      env: "CONVOS_ATTESTATION_TS",
+    }),
+    "attestation-kid": Flags.string({
+      description: "Key ID for the attestation",
+      helpValue: "<kid>",
+      env: "CONVOS_ATTESTATION_KID",
+    }),
   };
 
   async run(): Promise<void> {
@@ -225,6 +240,13 @@ slug as query parameter 'i'.`;
     this.log("Join request sent.");
 
     if (flags["no-wait"]) {
+      if (flags.attestation || flags["attestation-ts"] || flags["attestation-kid"]) {
+        this.warn(
+          "Attestation flags have no effect with --no-wait. " +
+          "Attestation metadata is sent via ProfileUpdate after joining, " +
+          "which requires waiting for acceptance.",
+        );
+      }
       this.output({
         status: "request_sent",
         identityId: identity.id,
@@ -364,10 +386,21 @@ slug as query parameter 'i'.`;
           }
         }
 
+        // Merge attestation metadata if provided
+        let allMetadata = parsedMetadata;
+        if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
+          const attestationMeta: ProfileMetadata = {
+            attestation: { type: "string", value: flags.attestation },
+            attestation_ts: { type: "string", value: flags["attestation-ts"] },
+            attestation_kid: { type: "string", value: flags["attestation-kid"] },
+          };
+          allMetadata = { ...(allMetadata ?? {}), ...attestationMeta };
+        }
+
         await sendProfileUpdate(conv, {
           ...(profileName && { name: profileName }),
           ...(encryptedImage && { encryptedImage }),
-          ...(parsedMetadata && Object.keys(parsedMetadata).length > 0 && { metadata: parsedMetadata }),
+          ...(allMetadata && Object.keys(allMetadata).length > 0 && { metadata: allMetadata }),
           memberKind: MemberKind.Agent,
         });
       }

@@ -272,6 +272,21 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       helpValue: "<seconds>",
       default: 0,
     }),
+    attestation: Flags.string({
+      description: "Base64url-encoded Ed25519 attestation signature",
+      helpValue: "<signature>",
+      env: "CONVOS_ATTESTATION",
+    }),
+    "attestation-ts": Flags.string({
+      description: "ISO 8601 timestamp used in the attestation",
+      helpValue: "<iso8601>",
+      env: "CONVOS_ATTESTATION_TS",
+    }),
+    "attestation-kid": Flags.string({
+      description: "Key ID for the attestation",
+      helpValue: "<kid>",
+      env: "CONVOS_ATTESTATION_KID",
+    }),
   };
 
   private streams: AsyncStreamProxy<DecodedMessage>[] = [];
@@ -1448,12 +1463,24 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       await group.updateAppData(serializeAppData(metadata));
 
       // Send ProfileUpdate message (primary profile source)
-      // Always send to set memberKind: Agent (and name if provided)
+      // Always send to set memberKind: Agent (and name + attestation metadata if provided)
       try {
         const profileName = flags["profile-name"];
+
+        // Build attestation metadata if provided
+        let attestationMetadata: import("../../utils/profileMessages.js").ProfileMetadata | undefined;
+        if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
+          attestationMetadata = {
+            attestation: { type: "string", value: flags.attestation },
+            attestation_ts: { type: "string", value: flags["attestation-ts"] },
+            attestation_kid: { type: "string", value: flags["attestation-kid"] },
+          };
+        }
+
         await sendProfileUpdate(group, {
           ...(profileName && { name: profileName }),
           memberKind: MemberKind.Agent,
+          ...(attestationMetadata && { metadata: attestationMetadata }),
         });
       } catch {
         // Non-fatal: profile will be visible once a ProfileUpdate is sent
