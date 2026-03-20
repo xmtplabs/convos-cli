@@ -8,8 +8,8 @@ import {
 } from "../../utils/attestation.js";
 
 const DEFAULT_JWKS_URLS: Record<string, string> = {
-  production: "https://convos.org/.well-known/agents.json",
-  dev: "https://dev.convos.org/.well-known/agents.json",
+  production: "https://api.convos.xyz/.well-known/agents.json",
+  dev: "https://api.dev.convos.xyz/.well-known/agents.json",
 };
 
 export default class AttestationVerify extends ConvosBaseCommand {
