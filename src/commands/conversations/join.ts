@@ -350,6 +350,9 @@ slug as query parameter 'i'.`;
               // Get or generate the group's image encryption key
               await conv.sync();
               const appData = conv.appData ?? "";
+              if (!appData) {
+                this.verboseLog("Conversation appData is empty while preparing joined profile image encryption metadata");
+              }
               const groupMetadata = parseAppDataForWrite(appData);
               let groupKey = groupMetadata.imageEncryptionKey;
 

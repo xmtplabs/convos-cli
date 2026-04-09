@@ -144,6 +144,9 @@ a legacy fallback). Profile messages are the primary source of truth.`;
         // Get or generate the group's image encryption key from appData
         await group.sync();
         const appData = group.appData ?? "";
+        if (!appData) {
+          this.verboseLog("Conversation appData is empty while preparing profile image encryption metadata");
+        }
         const metadata = parseAppDataForWrite(appData);
         let groupKey = metadata.imageEncryptionKey;
 

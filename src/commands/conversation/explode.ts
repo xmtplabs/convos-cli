@@ -130,13 +130,19 @@ Only the conversation creator (super admin) should explode.`;
       try {
         appData = group.appData ?? "";
       } catch {
-        // No appData yet
+        this.verboseWarn("Could not read conversation appData during explode; treating as empty");
+      }
+      if (!appData) {
+        this.verboseLog("Conversation appData is empty during explode metadata update");
       }
       const metadata = parseAppDataForWrite(appData);
       metadata.expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
       const newAppData = serializeAppData(metadata);
       await group.updateAppData(newAppData);
-    } catch {
+    } catch (error) {
+      this.verboseWarn(
+        `Skipping explode appData update: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
       // Non-fatal: metadata update is secondary to the message
     }
 
