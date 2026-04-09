@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseAppData,
+  parseAppDataForWrite,
   serializeAppData,
   upsertProfile,
   removeProfile,
@@ -103,6 +104,24 @@ describe("conversation metadata", () => {
       const decoded = parseAppData(legacy);
       expect(decoded.tag).toBe("oldTag");
       expect(decoded.profiles).toEqual([]);
+    });
+
+    it("parseAppDataForWrite allows empty appData for first write", () => {
+      const decoded = parseAppDataForWrite("");
+      expect(decoded.tag).toBe("");
+      expect(decoded.profiles).toEqual([]);
+    });
+
+    it("parseAppDataForWrite preserves valid existing tag", () => {
+      const encoded = serializeAppData({ tag: "keep-me", profiles: [] });
+      const decoded = parseAppDataForWrite(encoded);
+      expect(decoded.tag).toBe("keep-me");
+    });
+
+    it("parseAppDataForWrite throws on invalid non-empty appData", () => {
+      expect(() => parseAppDataForWrite("totally-invalid-data")).toThrow(
+        "Could not parse existing appData safely for write",
+      );
     });
 
     it("roundtrips iOS imageEncryptionKey and encryptedGroupImage", () => {

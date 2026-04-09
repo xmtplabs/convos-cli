@@ -35,7 +35,7 @@ import {
   verifyInviteSignature,
 } from "../../utils/invite.js";
 import { getMimeType } from "../../utils/mime.js";
-import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { parseAppData, parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import {
   sendProfileSnapshot,
   sendProfileUpdate,
@@ -1051,7 +1051,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               // Get or generate the group's image encryption key from appData
               await conversation.sync();
               const appDataStr = conversation.appData ?? "";
-              const appDataMeta = parseAppData(appDataStr);
+              const appDataMeta = parseAppDataForWrite(appDataStr);
               let groupKey = appDataMeta.imageEncryptionKey;
 
               if (!groupKey || groupKey.length === 0) {
@@ -1223,7 +1223,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             } catch {
               // no appData
             }
-            const explodeMetadata = parseAppData(appData);
+            const explodeMetadata = parseAppDataForWrite(appData);
             explodeMetadata.expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
             await conversation.updateAppData(serializeAppData(explodeMetadata));
           } catch {

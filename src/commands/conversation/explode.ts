@@ -3,7 +3,7 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
-import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import type { EncodedContent } from "@xmtp/node-bindings";
 
 /**
@@ -132,7 +132,7 @@ Only the conversation creator (super admin) should explode.`;
       } catch {
         // No appData yet
       }
-      const metadata = parseAppData(appData);
+      const metadata = parseAppDataForWrite(appData);
       metadata.expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
       const newAppData = serializeAppData(metadata);
       await group.updateAppData(newAppData);
