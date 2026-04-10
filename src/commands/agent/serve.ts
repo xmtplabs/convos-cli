@@ -36,6 +36,7 @@ import {
 } from "../../utils/invite.js";
 import { getMimeType } from "../../utils/mime.js";
 import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { emojiForIdentifier } from "../../utils/emoji.js";
 import {
   sendProfileSnapshot,
   sendProfileUpdate,
@@ -1391,6 +1392,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           await group.updateAppData(serializeAppData(metadata));
         }
 
+        // Ensure emoji exists in appData for attach mode
+        if (!metadata.emoji) {
+          metadata.emoji = emojiForIdentifier(conversationId);
+          await group.updateAppData(serializeAppData(metadata));
+        }
+
         inviteSlug = await createInviteSlug(
           conversationId,
           client.inboxId,
@@ -1399,6 +1406,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           {
             name: group.name || undefined,
             description: group.description || undefined,
+            emoji: metadata.emoji,
           },
         );
 
@@ -1453,11 +1461,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         profileName: flags["profile-name"] ?? identity.profileName,
       });
 
-      // Store invite tag in appData (no profiles — profiles go via messages only
+      // Generate a stable conversation emoji from the group ID
+      const conversationEmoji = emojiForIdentifier(group.id);
+
+      // Store invite tag + emoji in appData (no profiles — profiles go via messages only
       // to avoid read-modify-write races that corrupt tags and erase profiles)
       const metadata = {
         tag: inviteTag,
         profiles: [] as never[],
+        emoji: conversationEmoji,
       };
 
       await group.updateAppData(serializeAppData(metadata));
@@ -1495,6 +1507,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         {
           name: flags.name || undefined,
           description: flags.description || undefined,
+          emoji: conversationEmoji,
         },
       );
 

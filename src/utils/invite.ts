@@ -24,7 +24,8 @@ root.add(
     .add(new protobuf.Field("imageURL", 6, "string", "optional"))
     .add(new protobuf.Field("conversationExpiresAtUnix", 7, "sfixed64", "optional"))
     .add(new protobuf.Field("expiresAtUnix", 8, "sfixed64", "optional"))
-    .add(new protobuf.Field("expiresAfterUse", 9, "bool")),
+    .add(new protobuf.Field("expiresAfterUse", 9, "bool"))
+    .add(new protobuf.Field("emoji", 10, "string", "optional")),
 );
 
 root.add(
@@ -242,6 +243,7 @@ export interface InviteOptions {
   name?: string;
   description?: string;
   imageUrl?: string;
+  emoji?: string;
   expiresAt?: Date;
   expiresAfterUse?: boolean;
 }
@@ -275,6 +277,7 @@ export async function createInviteSlug(
   if (options?.name) payloadObj.name = options.name;
   if (options?.description) payloadObj.description_p = options.description;
   if (options?.imageUrl) payloadObj.imageURL = options.imageUrl;
+  if (options?.emoji) payloadObj.emoji = options.emoji;
   if (options?.expiresAt) {
     payloadObj.expiresAtUnix = Math.floor(options.expiresAt.getTime() / 1000);
   }
@@ -305,6 +308,7 @@ export interface ParsedInvite {
   name?: string;
   description?: string;
   imageUrl?: string;
+  emoji?: string;
   expiresAt?: Date;
   conversationExpiresAt?: Date;
   expiresAfterUse: boolean;
@@ -346,6 +350,7 @@ export function parseInvite(inviteInput: string): ParsedInvite {
     name?: string;
     description_p?: string;
     imageURL?: string;
+    emoji?: string;
     expiresAtUnix?: number | { toNumber(): number };
     conversationExpiresAtUnix?: number | { toNumber(): number };
     expiresAfterUse: boolean;
@@ -366,6 +371,7 @@ export function parseInvite(inviteInput: string): ParsedInvite {
     name: payload.name || undefined,
     description: payload.description_p || undefined,
     imageUrl: payload.imageURL || undefined,
+    emoji: payload.emoji || undefined,
     expiresAt: expiresAtUnix ? new Date(expiresAtUnix * 1000) : undefined,
     conversationExpiresAt: convExpiresAtUnix ? new Date(convExpiresAtUnix * 1000) : undefined,
     expiresAfterUse: payload.expiresAfterUse ?? false,

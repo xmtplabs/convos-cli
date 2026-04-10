@@ -7,6 +7,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { serializeAppData } from "../../utils/metadata.js";
+import { emojiForIdentifier } from "../../utils/emoji.js";
 import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
@@ -132,9 +133,12 @@ The creator becomes super admin. Others join via invite links.`;
       profileName: flags["profile-name"] ?? identity.profileName,
     });
 
-    // Store invite tag in appData (no profiles — profiles go via messages only
+    // Generate a stable conversation emoji from the group ID
+    const conversationEmoji = emojiForIdentifier(group.id);
+
+    // Store invite tag + emoji in appData (no profiles — profiles go via messages only
     // to avoid read-modify-write races that corrupt tags and erase profiles)
-    const metadata = { tag: inviteTag, profiles: [] as never[] };
+    const metadata = { tag: inviteTag, profiles: [] as never[], emoji: conversationEmoji };
     await group.updateAppData(serializeAppData(metadata));
 
     // Send ProfileUpdate message (primary profile source)
@@ -158,6 +162,7 @@ The creator becomes super admin. Others join via invite links.`;
       {
         name: flags.name || undefined,
         description: flags.description || undefined,
+        emoji: conversationEmoji,
       },
     );
 

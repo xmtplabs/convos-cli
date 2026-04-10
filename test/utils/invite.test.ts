@@ -145,6 +145,35 @@ describe("invite crypto", () => {
       expect(parsed.expiresAfterUse).toBe(true);
     });
 
+    it("includes emoji in invite", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "tagWithEmoji",
+        testPrivateKey,
+        {
+          name: "Emoji Group",
+          emoji: "🦊",
+        },
+      );
+
+      const parsed = parseInvite(slug);
+      expect(parsed.emoji).toBe("🦊");
+      expect(parsed.name).toBe("Emoji Group");
+    });
+
+    it("omits emoji when not provided", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "tagNoEmoji",
+        testPrivateKey,
+      );
+
+      const parsed = parseInvite(slug);
+      expect(parsed.emoji).toBeUndefined();
+    });
+
     it("includes expiration time", async () => {
       const expiresAt = new Date(Date.now() + 3600 * 1000);
       const slug = await createInviteSlug(

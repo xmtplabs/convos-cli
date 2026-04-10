@@ -124,6 +124,7 @@ Invite URLs use the format:
         description: flags["include-metadata"]
           ? group.description || undefined
           : undefined,
+        emoji: metadata.emoji || undefined,
         expiresAt,
         expiresAfterUse: flags["single-use"],
       },

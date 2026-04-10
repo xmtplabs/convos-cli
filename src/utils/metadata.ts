@@ -28,7 +28,8 @@ const ConversationCustomMetadataType = new protobuf.Type("ConversationCustomMeta
   .add(new protobuf.Field("profiles", 2, "ConversationProfile", "repeated"))
   .add(new protobuf.Field("expiresAtUnix", 3, "sfixed64", "optional"))
   .add(new protobuf.Field("imageEncryptionKey", 4, "bytes", "optional"))
-  .add(new protobuf.Field("encryptedGroupImage", 5, "EncryptedImageRef", "optional"));
+  .add(new protobuf.Field("encryptedGroupImage", 5, "EncryptedImageRef", "optional"))
+  .add(new protobuf.Field("emoji", 6, "string", "optional"));
 
 root.add(EncryptedImageRefType);
 root.add(ConversationProfileType);
@@ -55,6 +56,7 @@ export interface ConversationCustomMetadata {
   expiresAtUnix?: number;
   imageEncryptionKey?: Uint8Array; // iOS group image key
   encryptedGroupImage?: EncryptedImageRef; // iOS group avatar
+  emoji?: string; // Stable conversation emoji (shared across all members)
 }
 
 // ─── Compression (matching iOS: DEFLATE if >100 bytes) ───
@@ -152,6 +154,7 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
       expiresAtUnix?: number | { toNumber(): number };
       imageEncryptionKey?: Uint8Array | null;
       encryptedGroupImage?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
+      emoji?: string;
     };
 
     const toNum = (v: number | { toNumber(): number } | undefined): number | undefined => {
@@ -185,6 +188,7 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
           ? msg.imageEncryptionKey
           : undefined,
       encryptedGroupImage: parseEncryptedImageRef(msg.encryptedGroupImage),
+      emoji: msg.emoji || undefined,
     };
   } catch {
     return { tag: "", profiles: [] };
@@ -207,6 +211,7 @@ export function serializeAppData(metadata: ConversationCustomMetadata): string {
     expiresAtUnix: metadata.expiresAtUnix,
     imageEncryptionKey: metadata.imageEncryptionKey,
     encryptedGroupImage: metadata.encryptedGroupImage,
+    emoji: metadata.emoji,
   };
 
   const errMsg = ConversationCustomMetadataType.verify(obj);
