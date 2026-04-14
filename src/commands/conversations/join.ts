@@ -4,7 +4,7 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
-import { parseAppData } from "../../utils/metadata.js";
+import { parseAppData, parseAppDataForWrite } from "../../utils/metadata.js";
 import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
 import {
   JoinRequestCodec,
@@ -350,7 +350,10 @@ slug as query parameter 'i'.`;
               // Get or generate the group's image encryption key
               await conv.sync();
               const appData = conv.appData ?? "";
-              const groupMetadata = parseAppData(appData);
+              if (!appData) {
+                this.verboseLog("Conversation appData is empty while preparing joined profile image encryption metadata");
+              }
+              const groupMetadata = parseAppDataForWrite(appData);
               let groupKey = groupMetadata.imageEncryptionKey;
 
               if (!groupKey || groupKey.length === 0) {

@@ -268,6 +268,14 @@ export class ConvosBaseCommand extends Command {
     return this.#home!;
   }
 
+  verboseLog(message: string): void {
+    if (this.verbose) this.log(message);
+  }
+
+  verboseWarn(message: string): void {
+    if (this.verbose) this.warn(message);
+  }
+
   async run(): Promise<void> {
     // Override in subclasses
   }
