@@ -98,13 +98,18 @@ Invite URLs use the format:
     try {
       appData = group.appData ?? "";
     } catch {
-      // No appData yet
+      this.verboseWarn("Could not read conversation appData while generating invite; treating as empty");
+    }
+
+    if (!appData) {
+      this.verboseLog("Conversation appData is empty while generating invite");
     }
 
     let metadata = parseAppData(appData);
     let inviteTag = metadata.tag;
 
     if (!inviteTag) {
+      this.verboseWarn("Conversation invite tag is empty; generating a new invite tag");
       inviteTag = randomAlphanumeric(10);
       metadata = { ...metadata, tag: inviteTag };
       await group.updateAppData(serializeAppData(metadata));

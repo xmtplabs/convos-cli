@@ -35,7 +35,7 @@ import {
   verifyInviteSignature,
 } from "../../utils/invite.js";
 import { getMimeType } from "../../utils/mime.js";
-import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { parseAppData, parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import { emojiForIdentifier } from "../../utils/emoji.js";
 import {
   sendProfileSnapshot,
@@ -1052,7 +1052,10 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               // Get or generate the group's image encryption key from appData
               await conversation.sync();
               const appDataStr = conversation.appData ?? "";
-              const appDataMeta = parseAppData(appDataStr);
+              if (!appDataStr) {
+                this.verboseLog("Conversation appData is empty in agent serve while preparing profile image encryption metadata");
+              }
+              const appDataMeta = parseAppDataForWrite(appDataStr);
               let groupKey = appDataMeta.imageEncryptionKey;
 
               if (!groupKey || groupKey.length === 0) {
@@ -1222,9 +1225,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             try {
               appData = conversation.appData ?? "";
             } catch {
-              // no appData
+              this.verboseWarn("Could not read conversation appData in agent serve explode; treating as empty");
             }
-            const explodeMetadata = parseAppData(appData);
+            if (!appData) {
+              this.verboseLog("Conversation appData is empty in agent serve during explode metadata update");
+            }
+            const explodeMetadata = parseAppDataForWrite(appData);
             explodeMetadata.expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
             await conversation.updateAppData(serializeAppData(explodeMetadata));
           } catch {
@@ -1381,12 +1387,16 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         try {
           appData = group.appData ?? "";
         } catch {
-          // no appData
+          this.verboseWarn("Could not read conversation appData in agent attach mode; treating as empty");
+        }
+        if (!appData) {
+          this.verboseLog("Conversation appData is empty in agent attach mode while generating invite");
         }
         let metadata = parseAppData(appData);
         inviteTag = metadata.tag;
 
         if (!inviteTag) {
+          this.verboseWarn("Conversation invite tag is empty in agent attach mode; generating a new invite tag");
           inviteTag = randomAlphanumeric(10);
           metadata = { ...metadata, tag: inviteTag };
           await group.updateAppData(serializeAppData(metadata));

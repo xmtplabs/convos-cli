@@ -196,6 +196,24 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
 }
 
 /**
+ * Parse appData for read-modify-write operations that must preserve the invite
+ * tag. Empty appData is allowed, but invalid/non-empty appData throws so callers
+ * don't accidentally write back metadata with an empty tag.
+ */
+export function parseAppDataForWrite(appData: string): ConversationCustomMetadata {
+  if (!appData || appData.length === 0) {
+    return { tag: "", profiles: [] };
+  }
+
+  const parsed = parseAppData(appData);
+  if (!parsed.tag) {
+    throw new Error("Could not parse existing appData safely for write");
+  }
+
+  return parsed;
+}
+
+/**
  * Serialize ConversationCustomMetadata to an appData string.
  * Throws if result exceeds 8KB.
  */

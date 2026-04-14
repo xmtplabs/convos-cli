@@ -3,7 +3,7 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
-import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import type { EncodedContent } from "@xmtp/node-bindings";
 
 /**
@@ -130,13 +130,19 @@ Only the conversation creator (super admin) should explode.`;
       try {
         appData = group.appData ?? "";
       } catch {
-        // No appData yet
+        this.verboseWarn("Could not read conversation appData during explode; treating as empty");
       }
-      const metadata = parseAppData(appData);
+      if (!appData) {
+        this.verboseLog("Conversation appData is empty during explode metadata update");
+      }
+      const metadata = parseAppDataForWrite(appData);
       metadata.expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
       const newAppData = serializeAppData(metadata);
       await group.updateAppData(newAppData);
-    } catch {
+    } catch (error) {
+      this.verboseWarn(
+        `Skipping explode appData update: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
       // Non-fatal: metadata update is secondary to the message
     }
 

@@ -5,7 +5,7 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { sendProfileUpdate, MemberKind, type ProfileMetadataValue, type ProfileMetadata, type EncryptedProfileImageRef } from "../../utils/profileMessages.js";
 import { encryptImage, fetchImageData, generateGroupKey } from "../../utils/imageEncryption.js";
-import { parseAppData, serializeAppData } from "../../utils/metadata.js";
+import { parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import { getUploadProvider } from "../../utils/upload.js";
 
 export default class UpdateProfile extends ConvosBaseCommand {
@@ -144,7 +144,10 @@ a legacy fallback). Profile messages are the primary source of truth.`;
         // Get or generate the group's image encryption key from appData
         await group.sync();
         const appData = group.appData ?? "";
-        const metadata = parseAppData(appData);
+        if (!appData) {
+          this.verboseLog("Conversation appData is empty while preparing profile image encryption metadata");
+        }
+        const metadata = parseAppDataForWrite(appData);
         let groupKey = metadata.imageEncryptionKey;
 
         if (!groupKey || groupKey.length === 0) {
