@@ -8,7 +8,7 @@ import { createIdentityStore } from "../../utils/identities.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { serializeAppData } from "../../utils/metadata.js";
 import { emojiForIdentifier } from "../../utils/emoji.js";
-import { sendProfileUpdate, MemberKind } from "../../utils/profileMessages.js";
+import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
@@ -46,6 +46,11 @@ The creator becomes super admin. Others join via invite links.`;
         '<%= config.bin %> <%= command.id %> --name "Private" --permissions admin-only --json',
       description: "Create admin-only group with JSON output",
     },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> --name "Bot" --identity <id> --attestation <sig> --attestation-ts <iso8601> --attestation-kid <kid>',
+      description: "Create with pre-signed attestation metadata",
+    },
   ];
 
   static flags = {
@@ -78,6 +83,21 @@ The creator becomes super admin. Others join via invite links.`;
     "profile-name": Flags.string({
       description: "Profile display name for this conversation",
       helpValue: "<name>",
+    }),
+    attestation: Flags.string({
+      description: "Base64url-encoded Ed25519 attestation signature",
+      helpValue: "<signature>",
+      env: "CONVOS_ATTESTATION",
+    }),
+    "attestation-ts": Flags.string({
+      description: "ISO 8601 timestamp used in the attestation",
+      helpValue: "<iso8601>",
+      env: "CONVOS_ATTESTATION_TS",
+    }),
+    "attestation-kid": Flags.string({
+      description: "Key ID for the attestation",
+      helpValue: "<kid>",
+      env: "CONVOS_ATTESTATION_KID",
     }),
   };
 
@@ -145,8 +165,20 @@ The creator becomes super admin. Others join via invite links.`;
     // Always send to set memberKind: Agent (and name if provided)
     try {
       const profileName = flags["profile-name"];
+
+      // Merge attestation metadata if all three flags are present
+      let attestationMeta: ProfileMetadata | undefined;
+      if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
+        attestationMeta = {
+          attestation: { type: "string", value: flags.attestation },
+          attestation_ts: { type: "string", value: flags["attestation-ts"] },
+          attestation_kid: { type: "string", value: flags["attestation-kid"] },
+        };
+      }
+
       await sendProfileUpdate(group, {
         ...(profileName && { name: profileName }),
+        ...(attestationMeta && { metadata: attestationMeta }),
         memberKind: MemberKind.Agent,
       });
     } catch {
