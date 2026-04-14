@@ -145,6 +145,73 @@ describe("invite crypto", () => {
       expect(parsed.expiresAfterUse).toBe(true);
     });
 
+    it("includes emoji in invite", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "tagWithEmoji",
+        testPrivateKey,
+        {
+          name: "Emoji Group",
+          emoji: "🦊",
+        },
+      );
+
+      const parsed = parseInvite(slug);
+      expect(parsed.emoji).toBe("🦊");
+      expect(parsed.name).toBe("Emoji Group");
+    });
+
+    it("omits emoji when not provided", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "tagNoEmoji",
+        testPrivateKey,
+      );
+
+      const parsed = parseInvite(slug);
+      expect(parsed.emoji).toBeUndefined();
+    });
+
+    it("backward compat: old invite without emoji parses cleanly", async () => {
+      // Create an invite without emoji (simulates older client)
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "oldInvite",
+        testPrivateKey,
+        { name: "Old Group", description: "No emoji field" },
+      );
+
+      const parsed = parseInvite(slug);
+      expect(parsed.tag).toBe("oldInvite");
+      expect(parsed.name).toBe("Old Group");
+      expect(parsed.emoji).toBeUndefined();
+      expect(await verifyInvite(parsed)).toBe(true);
+    });
+
+    it("backward compat: invite with emoji still verifies and roundtrips", async () => {
+      const slug = await createInviteSlug(
+        testConversationId,
+        testInboxId,
+        "newInvite",
+        testPrivateKey,
+        { name: "New Group", emoji: "\uD83D\uDC19" },
+      );
+
+      const parsed = parseInvite(slug);
+      expect(parsed.emoji).toBe("\uD83D\uDC19");
+      expect(parsed.name).toBe("New Group");
+      expect(await verifyInvite(parsed)).toBe(true);
+
+      // Re-encode and re-parse
+      const reencoded = inviteToSlug(parsed);
+      const reparsed = parseInvite(reencoded);
+      expect(reparsed.emoji).toBe("\uD83D\uDC19");
+      expect(reparsed.tag).toBe("newInvite");
+    });
+
     it("includes expiration time", async () => {
       const expiresAt = new Date(Date.now() + 3600 * 1000);
       const slug = await createInviteSlug(

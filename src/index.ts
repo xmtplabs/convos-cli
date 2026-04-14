@@ -110,6 +110,9 @@ export {
   type EncryptedPayload,
 } from "./utils/imageEncryption.js";
 
+// Emoji utilities
+export { emojiForIdentifier, EMOJIS } from "./utils/emoji.js";
+
 // Random utilities
 export { randomAlphanumeric } from "./utils/random.js";
 

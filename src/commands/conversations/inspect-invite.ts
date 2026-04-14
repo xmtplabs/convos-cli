@@ -66,6 +66,7 @@ Does NOT create an identity, send a join request, or modify any state.`;
       name: invite.name ?? null,
       description: invite.description ?? null,
       imageUrl: invite.imageUrl ?? null,
+      emoji: invite.emoji ?? null,
       expiresAt: invite.expiresAt?.toISOString() ?? null,
       expiresAfterUse: invite.expiresAfterUse,
       conversationExpiresAt: invite.conversationExpiresAt?.toISOString() ?? null,

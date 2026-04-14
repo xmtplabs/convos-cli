@@ -286,6 +286,17 @@ export function describeAppDataChange(
     }
   }
 
+  // ─── Emoji changes ───
+  if ((oldMeta.emoji ?? "") !== (newMeta.emoji ?? "")) {
+    if (newMeta.emoji && !oldMeta.emoji) {
+      descriptions.push(`${initiator} set the conversation emoji to ${newMeta.emoji}`);
+    } else if (!newMeta.emoji && oldMeta.emoji) {
+      descriptions.push(`${initiator} cleared the conversation emoji`);
+    } else if (newMeta.emoji && oldMeta.emoji) {
+      descriptions.push(`${initiator} changed the conversation emoji from ${oldMeta.emoji} to ${newMeta.emoji}`);
+    }
+  }
+
   // ─── Expiration changes ───
   if (oldMeta.expiresAtUnix !== newMeta.expiresAtUnix) {
     if (newMeta.expiresAtUnix) {

@@ -204,6 +204,75 @@ describe("conversation metadata", () => {
       expect(final.encryptedGroupImage!.url).toBe("https://example.com/group.enc");
     });
 
+    it("roundtrips emoji field", () => {
+      const original = { tag: "emojiTag", profiles: [], emoji: "🦊" };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+      expect(decoded.emoji).toBe("🦊");
+    });
+
+    it("preserves emoji through read-modify-write cycle", () => {
+      const original = {
+        tag: "emojiPreserve",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+        emoji: "🐙",
+      };
+      const encoded = serializeAppData(original);
+      const parsed = parseAppData(encoded);
+      // Simulate lock: change tag, preserve emoji
+      parsed.tag = "newTag";
+      const reEncoded = serializeAppData(parsed);
+      const final = parseAppData(reEncoded);
+      expect(final.emoji).toBe("🐙");
+      expect(final.tag).toBe("newTag");
+      expect(final.profiles).toHaveLength(1);
+    });
+
+    it("treats missing emoji as undefined", () => {
+      const original = { tag: "noEmoji", profiles: [] };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+      expect(decoded.emoji).toBeUndefined();
+    });
+
+    it("backward compat: old appData without emoji field decodes cleanly", () => {
+      // Simulate appData written by an older CLI/iOS that didn't have the emoji field.
+      // Serialize without emoji, then verify parsing doesn't break and emoji is undefined.
+      const oldStyleMetadata = { tag: "oldClient", profiles: [{ inboxId: inboxA, name: "Alice" }] };
+      const encoded = serializeAppData(oldStyleMetadata);
+
+      const decoded = parseAppData(encoded);
+      expect(decoded.tag).toBe("oldClient");
+      expect(decoded.profiles).toHaveLength(1);
+      expect(decoded.profiles[0].name).toBe("Alice");
+      expect(decoded.emoji).toBeUndefined();
+    });
+
+    it("backward compat: legacy JSON appData without emoji decodes cleanly", () => {
+      const legacy = JSON.stringify({ tag: "legacyTag" });
+      const decoded = parseAppData(legacy);
+      expect(decoded.tag).toBe("legacyTag");
+      expect(decoded.emoji).toBeUndefined();
+    });
+
+    it("backward compat: new appData with emoji is safe to read by old parser logic", () => {
+      // An older CLI that doesn't know about emoji would still parse tag/profiles correctly.
+      // We verify the encoded data roundtrips and that adding emoji doesn't corrupt other fields.
+      const withEmoji = {
+        tag: "newClient",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+        emoji: "\uD83E\uDD8A",
+        imageEncryptionKey: Buffer.from("deadbeef".repeat(4), "hex"),
+      };
+      const encoded = serializeAppData(withEmoji);
+      const decoded = parseAppData(encoded);
+      expect(decoded.tag).toBe("newClient");
+      expect(decoded.profiles).toHaveLength(1);
+      expect(decoded.profiles[0].name).toBe("Alice");
+      expect(decoded.emoji).toBe("\uD83E\uDD8A");
+      expect(Buffer.from(decoded.imageEncryptionKey!)).toEqual(Buffer.from("deadbeef".repeat(4), "hex"));
+    });
+
     it("stays under 8KB for many profiles", () => {
       const profiles = Array.from({ length: 50 }, (_, i) => ({
         inboxId: i.toString(16).padStart(64, "0"),

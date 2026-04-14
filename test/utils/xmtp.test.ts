@@ -382,6 +382,34 @@ describe("describeAppDataChange", () => {
       const result = describeAppDataChange(emptyMeta, emptyMeta, "Alice", emptyProfiles);
       expect(result).toEqual([]);
     });
+
+    it("reports emoji set", () => {
+      const oldMeta: ConversationCustomMetadata = { tag: "t", profiles: [] };
+      const newMeta: ConversationCustomMetadata = { tag: "t", profiles: [], emoji: "🦊" };
+      const result = describeAppDataChange(oldMeta, newMeta, "Alice", emptyProfiles);
+      expect(result).toEqual(["Alice set the conversation emoji to 🦊"]);
+    });
+
+    it("reports emoji changed", () => {
+      const oldMeta: ConversationCustomMetadata = { tag: "t", profiles: [], emoji: "🦊" };
+      const newMeta: ConversationCustomMetadata = { tag: "t", profiles: [], emoji: "🐙" };
+      const result = describeAppDataChange(oldMeta, newMeta, "Alice", emptyProfiles);
+      expect(result).toEqual(["Alice changed the conversation emoji from 🦊 to 🐙"]);
+    });
+
+    it("reports emoji cleared", () => {
+      const oldMeta: ConversationCustomMetadata = { tag: "t", profiles: [], emoji: "🦊" };
+      const newMeta: ConversationCustomMetadata = { tag: "t", profiles: [] };
+      const result = describeAppDataChange(oldMeta, newMeta, "Alice", emptyProfiles);
+      expect(result).toEqual(["Alice cleared the conversation emoji"]);
+    });
+
+    it("does not report when emoji is unchanged", () => {
+      const oldMeta: ConversationCustomMetadata = { tag: "t", profiles: [], emoji: "🦊" };
+      const newMeta: ConversationCustomMetadata = { tag: "t", profiles: [], emoji: "🦊" };
+      const result = describeAppDataChange(oldMeta, newMeta, "Alice", emptyProfiles);
+      expect(result).toEqual([]);
+    });
   });
 });
 
