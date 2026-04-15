@@ -287,7 +287,7 @@ interface PresignedUrlResponse {
 /** Default Convos API base URLs per XMTP environment */
 const CONVOS_API_BASE_URLS: Record<string, string> = {
   dev: "https://api.dev.convos.xyz/api",
-  production: "https://api.convos.xyz/api",
+  production: "https://api.prod.convos.xyz/api",
   local: "http://localhost:4000/api",
 };
 
