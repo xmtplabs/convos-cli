@@ -143,3 +143,74 @@ export async function fetchImageData(url: string): Promise<Uint8Array> {
   }
   return new Uint8Array(await response.arrayBuffer());
 }
+
+/**
+ * Conversation-like object — just the fields needed for image encryption key management.
+ */
+interface ConversationLike {
+  sync(): Promise<void>;
+  appData: string | undefined;
+  updateAppData(data: string): Promise<void>;
+}
+
+interface EncryptAndUploadLogger {
+  log?: (message: string) => void;
+  verboseLog?: (message: string) => void;
+}
+
+/**
+ * Download an image URL, encrypt it with the conversation's group key, and upload
+ * the encrypted blob. Returns an EncryptedProfileImageRef ready for a ProfileUpdate.
+ *
+ * This is the shared implementation used by create, join, update-profile, and agent/serve.
+ *
+ * @param imageUrl - URL of the image to encrypt
+ * @param conversation - Group conversation (used to read/write the encryption key in appData)
+ * @param uploadFn - Upload function: (data, filename, mimeType) => URL
+ * @param logger - Optional log/verboseLog callbacks for progress output
+ * @returns EncryptedProfileImageRef with url, salt, and nonce
+ */
+export async function encryptAndUploadProfileImage(
+  imageUrl: string,
+  conversation: ConversationLike,
+  uploadFn: (data: Uint8Array, filename: string, mimeType: string) => Promise<string>,
+  logger?: EncryptAndUploadLogger,
+): Promise<{ url: string; salt: Uint8Array; nonce: Uint8Array }> {
+  // Lazy import to avoid circular deps
+  const { parseAppDataForWrite, serializeAppData } = await import("./metadata.js");
+
+  // Get or generate the group's image encryption key
+  await conversation.sync();
+  const appData = conversation.appData ?? "";
+  if (!appData) {
+    logger?.verboseLog?.("Conversation appData is empty while preparing profile image encryption metadata");
+  }
+  const metadata = parseAppDataForWrite(appData);
+  let groupKey = metadata.imageEncryptionKey;
+
+  if (!groupKey || groupKey.length === 0) {
+    groupKey = generateGroupKey();
+    metadata.imageEncryptionKey = groupKey;
+    await conversation.updateAppData(serializeAppData(metadata));
+    logger?.log?.("Generated new image encryption key for this conversation");
+  }
+
+  // Download, encrypt, and upload
+  logger?.log?.(`Downloading image from ${imageUrl}...`);
+  const imageData = await fetchImageData(imageUrl);
+  const payload = await encryptImage(imageData, groupKey);
+  const filename = `ep-${Date.now()}.enc`;
+  logger?.log?.(`Uploading encrypted image (${payload.ciphertext.length} bytes)...`);
+  const assetUrl = await uploadFn(
+    payload.ciphertext,
+    filename,
+    "application/octet-stream",
+  );
+  logger?.log?.(`Encrypted image uploaded: ${assetUrl}`);
+
+  return {
+    url: assetUrl,
+    salt: payload.salt,
+    nonce: payload.nonce,
+  };
+}

@@ -46,7 +46,7 @@ import {
   type EncryptedProfileImageRef,
   type ProfileMetadata,
 } from "../../utils/profileMessages.js";
-import { encryptImage, fetchImageData, generateGroupKey } from "../../utils/imageEncryption.js";
+import { encryptAndUploadProfileImage } from "../../utils/imageEncryption.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 import {
   getUploadProvider,
@@ -1049,40 +1049,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
                 return;
               }
 
-              // Get or generate the group's image encryption key from appData
-              await conversation.sync();
-              const appDataStr = conversation.appData ?? "";
-              if (!appDataStr) {
-                this.verboseLog("Conversation appData is empty in agent serve while preparing profile image encryption metadata");
-              }
-              const appDataMeta = parseAppDataForWrite(appDataStr);
-              let groupKey = appDataMeta.imageEncryptionKey;
-
-              if (!groupKey || groupKey.length === 0) {
-                groupKey = generateGroupKey();
-                appDataMeta.imageEncryptionKey = groupKey;
-                await conversation.updateAppData(serializeAppData(appDataMeta));
-              }
-
-              // Download the image
-              const imageData = await fetchImageData(cmd.image);
-
-              // Encrypt
-              const payload = await encryptImage(imageData, groupKey);
-
-              // Upload the encrypted blob
-              const filename = `ep-${Date.now()}.enc`;
-              const assetUrl = await uploadProvider.upload(
-                payload.ciphertext,
-                filename,
-                "application/octet-stream",
+              encryptedImage = await encryptAndUploadProfileImage(
+                cmd.image,
+                conversation,
+                (data, filename, mimeType) => uploadProvider.upload(data, filename, mimeType),
+                { verboseLog: (m) => this.verboseLog(m) },
               );
-
-              encryptedImage = {
-                url: assetUrl,
-                salt: payload.salt,
-                nonce: payload.nonce,
-              };
             }
           } else {
             // Preserve existing encrypted image

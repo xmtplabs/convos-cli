@@ -342,41 +342,16 @@ slug as query parameter 'i'.`;
         if (profileImage) {
           try {
             const { getUploadProvider } = await import("../../utils/upload.js");
-            const { encryptImage, fetchImageData, generateGroupKey } = await import("../../utils/imageEncryption.js");
-            const { serializeAppData } = await import("../../utils/metadata.js");
+            const { encryptAndUploadProfileImage } = await import("../../utils/imageEncryption.js");
 
             const uploadProvider = getUploadProvider(config);
             if (uploadProvider) {
-              // Get or generate the group's image encryption key
-              await conv.sync();
-              const appData = conv.appData ?? "";
-              if (!appData) {
-                this.verboseLog("Conversation appData is empty while preparing joined profile image encryption metadata");
-              }
-              const groupMetadata = parseAppDataForWrite(appData);
-              let groupKey = groupMetadata.imageEncryptionKey;
-
-              if (!groupKey || groupKey.length === 0) {
-                groupKey = generateGroupKey();
-                groupMetadata.imageEncryptionKey = groupKey;
-                await conv.updateAppData(serializeAppData(groupMetadata));
-              }
-
-              // Download, encrypt, and upload the image
-              const imageData = await fetchImageData(profileImage);
-              const payload = await encryptImage(imageData, groupKey);
-              const filename = `ep-${Date.now()}.enc`;
-              const assetUrl = await uploadProvider.upload(
-                payload.ciphertext,
-                filename,
-                "application/octet-stream",
+              encryptedImage = await encryptAndUploadProfileImage(
+                profileImage,
+                conv,
+                (data, filename, mimeType) => uploadProvider.upload(data, filename, mimeType),
+                { verboseLog: (m) => this.verboseLog(m) },
               );
-
-              encryptedImage = {
-                url: assetUrl,
-                salt: payload.salt,
-                nonce: payload.nonce,
-              };
             } else {
               this.warn(
                 "Image upload requires an upload provider. Set CONVOS_API_KEY or CONVOS_UPLOAD_PROVIDER. Skipping image.",

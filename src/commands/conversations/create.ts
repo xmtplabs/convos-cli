@@ -84,6 +84,10 @@ The creator becomes super admin. Others join via invite links.`;
       description: "Profile display name for this conversation",
       helpValue: "<name>",
     }),
+    "profile-image": Flags.string({
+      description: "Profile image URL for this conversation",
+      helpValue: "<url>",
+    }),
     attestation: Flags.string({
       description: "Base64url-encoded Ed25519 attestation signature",
       helpValue: "<signature>",
@@ -162,9 +166,36 @@ The creator becomes super admin. Others join via invite links.`;
     await group.updateAppData(serializeAppData(metadata));
 
     // Send ProfileUpdate message (primary profile source)
-    // Always send to set memberKind: Agent (and name if provided)
+    // Always send to set memberKind: Agent (and name/image if provided)
     try {
       const profileName = flags["profile-name"];
+      const profileImage = flags["profile-image"];
+
+      // If an image URL is provided, encrypt and upload it
+      let encryptedImage: import("../../utils/profileMessages.js").EncryptedProfileImageRef | undefined;
+      if (profileImage) {
+        try {
+          const { getUploadProvider } = await import("../../utils/upload.js");
+          const { encryptAndUploadProfileImage } = await import("../../utils/imageEncryption.js");
+
+          const uploadProvider = getUploadProvider(config);
+          if (uploadProvider) {
+            encryptedImage = await encryptAndUploadProfileImage(
+              profileImage,
+              group,
+              (data, filename, mimeType) => uploadProvider.upload(data, filename, mimeType),
+            );
+          } else {
+            this.warn(
+              "Image upload requires an upload provider. Set CONVOS_API_KEY or CONVOS_UPLOAD_PROVIDER. Skipping image.",
+            );
+          }
+        } catch (imgError) {
+          this.warn(
+            `Could not encrypt/upload profile image: ${imgError instanceof Error ? imgError.message : "unknown"}`,
+          );
+        }
+      }
 
       // Merge attestation metadata if all three flags are present
       let attestationMeta: ProfileMetadata | undefined;
@@ -178,6 +209,7 @@ The creator becomes super admin. Others join via invite links.`;
 
       await sendProfileUpdate(group, {
         ...(profileName && { name: profileName }),
+        ...(encryptedImage && { encryptedImage }),
         ...(attestationMeta && { metadata: attestationMeta }),
         memberKind: MemberKind.Agent,
       });
