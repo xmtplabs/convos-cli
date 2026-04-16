@@ -4,8 +4,7 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { sendProfileUpdate, MemberKind, type ProfileMetadataValue, type ProfileMetadata, type EncryptedProfileImageRef } from "../../utils/profileMessages.js";
-import { encryptImage, fetchImageData, generateGroupKey } from "../../utils/imageEncryption.js";
-import { parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
+import { encryptAndUploadProfileImage } from "../../utils/imageEncryption.js";
 import { getUploadProvider } from "../../utils/upload.js";
 
 export default class UpdateProfile extends ConvosBaseCommand {
@@ -141,45 +140,12 @@ a legacy fallback). Profile messages are the primary source of truth.`;
           );
         }
 
-        // Get or generate the group's image encryption key from appData
-        await group.sync();
-        const appData = group.appData ?? "";
-        if (!appData) {
-          this.verboseLog("Conversation appData is empty while preparing profile image encryption metadata");
-        }
-        const metadata = parseAppDataForWrite(appData);
-        let groupKey = metadata.imageEncryptionKey;
-
-        if (!groupKey || groupKey.length === 0) {
-          // Generate a new key and persist it in appData
-          groupKey = generateGroupKey();
-          metadata.imageEncryptionKey = groupKey;
-          await group.updateAppData(serializeAppData(metadata));
-          this.log("Generated new image encryption key for this conversation");
-        }
-
-        // Download the image
-        this.log(`Downloading image from ${flags.image}...`);
-        const imageData = await fetchImageData(flags.image);
-
-        // Encrypt
-        const payload = await encryptImage(imageData, groupKey);
-
-        // Upload the encrypted blob
-        const filename = `ep-${Date.now()}.enc`;
-        this.log(`Uploading encrypted image (${payload.ciphertext.length} bytes)...`);
-        const assetUrl = await uploadProvider.upload(
-          payload.ciphertext,
-          filename,
-          "application/octet-stream",
+        encryptedImage = await encryptAndUploadProfileImage(
+          flags.image,
+          group,
+          (data, filename, mimeType) => uploadProvider.upload(data, filename, mimeType),
+          { log: (m) => this.log(m), verboseLog: (m) => this.verboseLog(m) },
         );
-
-        encryptedImage = {
-          url: assetUrl,
-          salt: payload.salt,
-          nonce: payload.nonce,
-        };
-        this.log(`Encrypted image uploaded: ${assetUrl}`);
       }
     } else {
       // Preserve existing encrypted image
