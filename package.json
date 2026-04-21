@@ -74,7 +74,7 @@
         "description": "Agent mode — long-running sessions with streaming I/O"
       },
       "identity": {
-        "description": "Manage per-conversation identities (inboxes)"
+        "description": "Manage this install's singleton XMTP inbox identity"
       },
       "conversation": {
         "description": "Interact with a specific conversation"
