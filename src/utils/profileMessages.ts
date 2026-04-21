@@ -16,8 +16,7 @@ import type { ContentCodec } from "@xmtp/content-type-primitives";
 import type { Group, DecodedMessage } from "@xmtp/node-sdk";
 import { SortDirection } from "@xmtp/node-sdk";
 
-// ─── Protobuf Schema (matches profile_messages.proto) ───
-
+// Protobuf schema mirrors profile_messages.proto in the convos-ios repo.
 const root = new protobuf.Root();
 
 const MemberKindEnum = new protobuf.Enum("MemberKind")

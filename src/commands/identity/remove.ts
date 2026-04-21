@@ -1,29 +1,22 @@
-import { Args, Flags } from "@oclif/core";
+import { Flags } from "@oclif/core";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createIdentityStore } from "../../utils/identities.js";
 
 export default class IdentityRemove extends ConvosBaseCommand {
-  static description = `Remove an identity and all associated data.
+  static description = `Remove this install's identity and all associated data.
 
-Permanently deletes the identity's wallet key, database encryption key,
-XMTP database files, and all local data. This is irreversible.
+Permanently deletes the wallet key, database encryption key, and all
+XMTP database files. Any conversations this install participated in
+remain on the network but this install can no longer access them.
 
-Per ADR 002 and ADR 004: destroying an identity destroys the
-cryptographic material needed to participate in its conversation.`;
+This is irreversible.`;
 
   static examples = [
     {
-      command: "<%= config.bin %> <%= command.id %> <identity-id> --force",
-      description: "Remove an identity",
+      command: "<%= config.bin %> <%= command.id %> --force",
+      description: "Remove the identity",
     },
   ];
-
-  static args = {
-    id: Args.string({
-      description: "The identity ID to remove",
-      required: true,
-    }),
-  };
 
   static flags = {
     ...ConvosBaseCommand.baseFlags,
@@ -35,29 +28,27 @@ cryptographic material needed to participate in its conversation.`;
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(IdentityRemove);
+    const { flags } = await this.parse(IdentityRemove);
     const store = createIdentityStore(this.getConvosHome());
 
-    const identity = store.get(args.id);
+    const identity = store.load();
     if (!identity) {
-      this.error(`Identity not found: ${args.id}`);
+      this.error("No identity found.");
     }
 
     await this.confirmAction(
-      `This will permanently delete identity ${args.id}` +
-        (identity.conversationId
-          ? ` and its conversation ${identity.conversationId}`
-          : "") +
-        ". All cryptographic keys will be destroyed.",
+      `This will permanently delete identity ${identity.id}. ` +
+        "All cryptographic keys will be destroyed and the XMTP database " +
+        "will be removed. You will lose access to all conversations on " +
+        "this install.",
       flags.force,
     );
 
-    store.remove(args.id);
+    store.delete();
 
     this.output({
       success: true,
-      removedIdentityId: args.id,
-      removedConversationId: identity.conversationId ?? null,
+      removedIdentityId: identity.id,
     });
   }
 }

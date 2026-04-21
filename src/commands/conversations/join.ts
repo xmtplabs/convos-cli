@@ -1,10 +1,9 @@
 import { Args, Flags } from "@oclif/core";
 import { getAccountAddress, isGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getIdentityAndClient } from "../../utils/client.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
-import { parseAppData, parseAppDataForWrite } from "../../utils/metadata.js";
+import { parseAppData } from "../../utils/metadata.js";
 import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
 import {
   JoinRequestCodec,
@@ -14,14 +13,14 @@ import {
 export default class ConversationsJoin extends ConvosBaseCommand {
   static description = `Join a conversation using an invite slug or URL.
 
-Implements the Convos join flow (per ADR 001):
+Uses this install's singleton identity (per ADR 011) to send a join
+request to the creator.
 
+Steps:
 1. Parse and validate the invite (verify signature, check expiration)
-2. Create a new per-conversation identity for this conversation
-3. Send the invite slug as a DM to the creator's inbox
-4. Wait for the creator's client to process the join request and
-   add this identity to the conversation
-5. Link the identity to the conversation once joined
+2. DM the creator's inbox with the invite slug + joiner profile
+3. Wait for the creator's client to process the request and add us
+4. Send a ProfileUpdate once joined
 
 The creator's client (iOS app or another CLI instance running
 'convos conversations process-join-requests') must be online to
@@ -81,16 +80,12 @@ slug as query parameter 'i'.`;
       helpValue: "<seconds>",
       default: 60,
     }),
-    label: Flags.string({
-      description: "Local label for the new identity",
-      helpValue: "<label>",
-    }),
     "profile-name": Flags.string({
-      description: "Profile display name for this conversation",
+      description: "Profile display name to use in this conversation",
       helpValue: "<name>",
     }),
     "profile-image": Flags.string({
-      description: "Profile image URL for this conversation",
+      description: "Profile image URL to use in this conversation",
       helpValue: "<url>",
     }),
     metadata: Flags.string({
@@ -100,10 +95,6 @@ slug as query parameter 'i'.`;
         "Repeat for multiple fields.",
       helpValue: "<key=value>",
       multiple: true,
-    }),
-    identity: Flags.string({
-      description: "Use an existing unlinked identity instead of creating one",
-      helpValue: "<id>",
     }),
     attestation: Flags.string({
       description: "Base64url-encoded Ed25519 attestation signature",
@@ -125,9 +116,7 @@ slug as query parameter 'i'.`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationsJoin);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
-    // Parse metadata flags into typed ProfileMetadata + flat string map for JoinRequest
     let parsedMetadata: ProfileMetadata | undefined;
     let joinMetadata: Record<string, string> | undefined;
     if (flags.metadata && flags.metadata.length > 0) {
@@ -145,10 +134,8 @@ slug as query parameter 'i'.`;
           this.error(`Empty metadata key in "${entry}"`);
         }
 
-        // Flat string map for JoinRequest
         joinMetadata[key] = rawValue;
 
-        // Auto-type the value for ProfileMetadata: bool → number → string
         if (rawValue === "true" || rawValue === "false") {
           parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
         } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
@@ -159,10 +146,8 @@ slug as query parameter 'i'.`;
       }
     }
 
-    // Step 1: Parse invite
     const invite = parseInvite(args.invite);
 
-    // Validate
     if (!(await verifyInvite(invite))) {
       this.error("Invalid invite signature");
     }
@@ -181,46 +166,34 @@ slug as query parameter 'i'.`;
         ` creator=${invite.creatorInboxId.slice(0, 12)}...`,
     );
 
-    // Check if we've already joined this conversation (same invite tag)
-    const existingIdentity = store.getByInviteTag(invite.tag);
-    if (existingIdentity) {
+    const { identity, client } = await getIdentityAndClient(
+      config,
+      this.getConvosHome(),
+    );
+
+    if (invite.creatorInboxId === client.inboxId) {
       this.error(
-        `Already joined this conversation.\n` +
-          `  Identity: ${existingIdentity.id}\n` +
-          `  Conversation: ${existingIdentity.conversationId ?? "(pending)"}\n` +
-          `  Label: ${existingIdentity.label ?? ""}\n\n` +
-          `Use 'convos conversation send-text ${existingIdentity.conversationId ?? "<id>"}' to send messages.`,
+        "Invite was created by this install — you cannot join your own conversation.",
       );
     }
 
-    // Step 2: Get or create identity
-    let identity;
-    if (flags.identity) {
-      identity = store.get(flags.identity);
-      if (!identity) this.error(`Identity not found: ${flags.identity}`);
-      if (identity.conversationId) {
-        this.error(`Identity already linked to conversation ${identity.conversationId}`);
-      }
-    } else {
-      identity = store.create({
-        label: flags.label ?? invite.name,
-        profileName: flags["profile-name"],
-      });
-    }
-
-    // Store invite tag immediately so duplicate detection works even if we exit early
-    store.update(identity.id, { inviteTag: invite.tag });
-
-    // Step 3: Create XMTP client and send DM to creator
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
-
-    this.log(`Created identity ${identity.id.slice(0, 12)}... (${getAccountAddress(identity.walletKey)})`);
+    this.log(
+      `Identity ${identity.id.slice(0, 12)}... (${getAccountAddress(identity.walletKey)})`,
+    );
     this.log(`Sending join request to creator inbox ${invite.creatorInboxId.slice(0, 12)}...`);
 
-    // Create DM with creator using their XMTP inbox ID
+    // createDm is idempotent — returns the existing DM with the creator if we
+    // already have one (e.g. from a previous join attempt for another invite)
     const dm = await client.conversations.createDm(invite.creatorInboxId);
 
-    // Send JoinRequest content type (new format) + plain text slug (backward compat)
+    // Record group IDs that existed before the join, so we can identify
+    // the newly-added group after the creator accepts.
+    await client.conversations.sync();
+    const preJoinGroupIds = new Set<string>();
+    for (const conv of await client.conversations.list()) {
+      if (conv.id !== dm.id) preJoinGroupIds.add(conv.id);
+    }
+
     const slug = inviteToSlug(invite);
     const joinRequest: JoinRequestContent = {
       inviteSlug: slug,
@@ -265,7 +238,6 @@ slug as query parameter 'i'.`;
       return;
     }
 
-    // Step 4: Wait for acceptance (poll for new group conversations)
     this.log(`Waiting for acceptance (timeout: ${flags.timeout}s)...`);
 
     const startTime = Date.now();
@@ -276,17 +248,15 @@ slug as query parameter 'i'.`;
       await client.conversations.sync();
       const conversations = await client.conversations.list();
 
-      // Look for a new group conversation (not the DM we created)
       for (const conv of conversations) {
-        if (conv.id !== dm.id) {
-          conversationId = conv.id;
-          break;
-        }
+        if (conv.id === dm.id) continue;
+        if (preJoinGroupIds.has(conv.id)) continue;
+        conversationId = conv.id;
+        break;
       }
 
       if (conversationId) break;
 
-      // Poll every 2 seconds
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
@@ -305,8 +275,7 @@ slug as query parameter 'i'.`;
       return;
     }
 
-    // Step 5: Verify the group's invite tag matches the invite we used (ADR 001)
-    // This protects against being added to a different conversation than requested.
+    // Verify the group's invite tag matches (ADR 001 safety check)
     try {
       const conv = await client.conversations.getConversationById(conversationId);
       if (conv && isGroup(conv)) {
@@ -318,26 +287,21 @@ slug as query parameter 'i'.`;
             "You may have been added to a different conversation than expected.",
           );
         }
-
       }
     } catch {
       // Non-fatal: tag verification is a safety check, don't block joining
     }
 
-    // Step 6: Write joiner's profile via ProfileUpdate message.
-    // We intentionally do NOT write profiles to appData to avoid the
-    // read-modify-write race that can corrupt invite tags and erase
-    // other members' profiles.
-    // Always send a ProfileUpdate to set memberKind: Agent (and name/image/metadata if provided).
+    // Send ProfileUpdate message (primary profile source).
+    // Always send to set memberKind: Agent (and name/image/metadata if provided).
     try {
       await client.conversations.sync();
       const conv = await client.conversations.getConversationById(conversationId);
       if (conv && isGroup(conv)) {
         await conv.sync();
-        const profileName = flags["profile-name"];
-        const profileImage = flags["profile-image"];
+        const profileName = flags["profile-name"] ?? identity.profileName;
+        const profileImage = flags["profile-image"] ?? identity.profileImageUrl;
 
-        // If an image URL is provided, encrypt and upload it
         let encryptedImage: import("../../utils/profileMessages.js").EncryptedProfileImageRef | undefined;
         if (profileImage) {
           try {
@@ -364,7 +328,6 @@ slug as query parameter 'i'.`;
           }
         }
 
-        // Merge attestation metadata if provided
         let allMetadata = parsedMetadata;
         if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
           const attestationMeta: ProfileMetadata = {
@@ -387,16 +350,6 @@ slug as query parameter 'i'.`;
         `Could not send ProfileUpdate message: ${error instanceof Error ? error.message : "unknown"}`,
       );
     }
-
-    // Step 7: Link identity to conversation
-    store.update(identity.id, {
-      conversationId,
-      inboxId: client.inboxId,
-      inviteTag: invite.tag,
-      label: flags.label ?? invite.name ?? identity.label,
-      profileName: flags["profile-name"] ?? identity.profileName,
-      profileImageUrl: flags["profile-image"] ?? identity.profileImageUrl,
-    });
 
     this.output({
       status: "joined",

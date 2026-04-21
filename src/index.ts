@@ -10,8 +10,8 @@ export {
   type IdentityStore,
 } from "./utils/identities.js";
 
-// Client creation
-export { createClientForIdentity } from "./utils/client.js";
+// Client creation (single-inbox — one client per CONVOS_HOME)
+export { getClient, getIdentityAndClient } from "./utils/client.js";
 
 // Config types
 export type { ConvosConfig } from "./utils/config.js";

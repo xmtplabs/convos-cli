@@ -42,7 +42,6 @@ describe("identity commands", () => {
     const removeResult = await runCommand([
       "identity",
       "remove",
-      created.id,
       "--force",
       "--json",
     ]);

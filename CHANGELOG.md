@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.8.0
+
+### Breaking Changes: Single-Inbox Identity Model (ADR 011)
+
+The CLI now uses **one XMTP inbox per install**, shared across every conversation and DM — mirroring the [convos-ios single-inbox refactor](https://github.com/xmtplabs/convos-ios/pull/713). This replaces the previous per-conversation identity model (ADR 002), which created a fresh XMTP inbox for every conversation.
+
+Agents benefit: one agent identity across every conversation it participates in.
+
+**Behavior changes:**
+
+- `conversations create` / `conversations join` no longer create a new identity per conversation. They use (or create on first use) the install's single identity at `~/.convos/identity.json`.
+- `conversation explode` no longer destroys the identity. It sends `ExplodeSettings`, updates metadata, and calls `removeMembers` on every other member. Receiving clients drop the conversation on either the `ExplodeSettings` message or the MLS remove commit.
+- `identity list` returns zero or one entries. `identity info` and `identity remove` take no id argument. `identity create` errors if an identity already exists.
+- `conversations list` returns every group in the install's inbox (no more deduplication across identities); pass `--include-dms` to include DMs.
+- `conversations sync` now performs a single `client.sync()` call.
+- `agent serve` drops `--identity`. Bind to an existing conversation via positional arg, or create a new one.
+- `reset` wipes the single identity.json and all db files. Legacy per-conversation identity files are swept out if found.
+
+**Wire protocol is unchanged.** Invites, join requests, ProfileUpdate/ProfileSnapshot, and ExplodeSettings all interop with older CLI clients and the iOS app both pre- and post-refactor.
+
+**Migration from 0.7.x:**
+
+Existing `~/.convos/identities/*.json` files are no longer used. The CLI will create a fresh `identity.json` on first use. To clear the legacy files, run `convos reset`. To keep them as archival state, they will sit unused and can be removed manually.
+
+**Data layout:**
+
+```
+~/.convos/
+├── .env
+├── identity.json       (was: identities/<id>.json × N)
+└── db/
+    └── dev/
+        └── main.db3    (was: db/dev/<id>.db3 × N)
+```
+
+**API changes:**
+
+- `createClientForIdentity(identity, config, home)` → `getClient(config, home)` and `getIdentityAndClient(config, home)`. The client is cached per (home, env) for the process lifetime.
+- `IdentityStore`: `list()`, `get(id)`, `create()`, `update(id, patch)`, `remove(id)`, `getByConversationId()`, `getByInviteTag()`, `getUnlinked()`, `getAllByConversationId()` are gone. Replaced with `load()`, `loadOrUpsert(opts)`, `exists()`, `update(patch)`, `delete()`, `getDbPath(env)`. `loadOrUpsert` overwrites `label`/`profileName` when those opts differ from the stored values.
+- `Identity`: loses `conversationId` and `inviteTag` fields.
+
+### Added
+
+- `conversations list --include-dms` — include DMs alongside groups in output.
+
 ## 0.4.0 (2025-03-04)
 
 ### Features

@@ -3,19 +3,16 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createIdentityStore } from "../../utils/identities.js";
 
 export default class IdentityList extends ConvosBaseCommand {
-  static description = `List all Convos identities.
+  static description = `List the Convos identity for this install.
 
-Each Convos conversation uses its own XMTP identity (inbox) for privacy.
-This command shows all identities, including which conversation each is
-linked to.
-
-Identities without a conversation ID are "unlinked" — available for
-use with new conversations.`;
+Per ADR 011, each CLI install has a single XMTP inbox shared across
+all conversations. This command returns zero or one entries — to run
+multiple independent agents, use separate CONVOS_HOME directories.`;
 
   static examples = [
     {
       command: "<%= config.bin %> <%= command.id %>",
-      description: "List all identities",
+      description: "Show the identity",
     },
     {
       command: "<%= config.bin %> <%= command.id %> --json",
@@ -29,43 +26,26 @@ use with new conversations.`;
 
   async run(): Promise<void> {
     const store = createIdentityStore(this.getConvosHome());
-    const identities = store.list();
+    const identity = store.load();
 
-    if (identities.length === 0) {
+    if (!identity) {
       this.output({
         message:
-          "No identities found. Create one with: convos identity create",
+          "No identity found. Create one with: convos identity create",
         count: 0,
       });
       return;
     }
 
-    // Detect duplicate identities per conversation
-    const convCounts = new Map<string, number>();
-    for (const identity of identities) {
-      if (identity.conversationId) {
-        convCounts.set(
-          identity.conversationId,
-          (convCounts.get(identity.conversationId) ?? 0) + 1,
-        );
-      }
-    }
-
-    const output = identities.map((identity) => ({
-      id: identity.id,
-      address: getAccountAddress(identity.walletKey),
-      inboxId: identity.inboxId ?? "(not yet registered)",
-      conversationId: identity.conversationId ?? "(unlinked)",
-      inviteTag: identity.inviteTag ?? "",
-      label: identity.label ?? "",
-      profileName: identity.profileName ?? "",
-      createdAt: identity.createdAt,
-      ...(identity.conversationId &&
-      (convCounts.get(identity.conversationId) ?? 0) > 1
-        ? { duplicate: true }
-        : {}),
-    }));
-
-    this.output(output);
+    this.output([
+      {
+        id: identity.id,
+        address: getAccountAddress(identity.walletKey),
+        inboxId: identity.inboxId ?? "(not yet registered)",
+        label: identity.label ?? "",
+        profileName: identity.profileName ?? "",
+        createdAt: identity.createdAt,
+      },
+    ]);
   }
 }

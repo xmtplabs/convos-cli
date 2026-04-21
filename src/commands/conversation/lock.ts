@@ -2,8 +2,7 @@ import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import { PermissionPolicy, PermissionUpdateType } from "@xmtp/node-sdk";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
 import { parseAppData, serializeAppData } from "../../utils/metadata.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
@@ -50,10 +49,6 @@ Only super admins can lock/unlock.`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationLock);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
-
-    const identity = store.getByConversationId(args.id);
-    if (!identity) this.error(`No identity found for conversation: ${args.id}`);
 
     if (!flags.unlock) {
       await this.confirmAction(
@@ -62,7 +57,7 @@ Only super admins can lock/unlock.`;
       );
     }
 
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );

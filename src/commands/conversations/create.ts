@@ -3,8 +3,7 @@ import { getAccountAddress } from "../../utils/xmtp.js";
 import { GroupPermissionsOptions, type CreateGroupOptions } from "@xmtp/node-sdk";
 import qrcode from "qrcode-terminal";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getIdentityAndClient } from "../../utils/client.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { serializeAppData } from "../../utils/metadata.js";
 import { emojiForIdentifier } from "../../utils/emoji.js";
@@ -14,17 +13,11 @@ import { randomAlphanumeric } from "../../utils/random.js";
 export default class ConversationsCreate extends ConvosBaseCommand {
   static description = `Create a new Convos conversation.
 
-Creates a new conversation with a fresh per-conversation identity.
-Each conversation gets its own XMTP inbox for privacy isolation
-(per ADR 002).
+Creates an MLS group inside this install's singleton XMTP inbox
+(per ADR 011). The creator becomes super admin. Others join via
+invite links.
 
-This command:
-1. Creates a new identity (or uses an existing unlinked one)
-2. Initializes the XMTP client for that identity
-3. Creates a group conversation
-4. Links the identity to the conversation
-
-The creator becomes super admin. Others join via invite links.`;
+If no identity exists yet, one is created automatically.`;
 
   static examples = [
     {
@@ -38,17 +31,12 @@ The creator becomes super admin. Others join via invite links.`;
     },
     {
       command:
-        "<%= config.bin %> <%= command.id %> --identity <identity-id>",
-      description: "Use a pre-created identity",
-    },
-    {
-      command:
         '<%= config.bin %> <%= command.id %> --name "Private" --permissions admin-only --json',
       description: "Create admin-only group with JSON output",
     },
     {
       command:
-        '<%= config.bin %> <%= command.id %> --name "Bot" --identity <id> --attestation <sig> --attestation-ts <iso8601> --attestation-kid <kid>',
+        '<%= config.bin %> <%= command.id %> --name "Bot" --attestation <sig> --attestation-ts <iso8601> --attestation-kid <kid>',
       description: "Create with pre-signed attestation metadata",
     },
   ];
@@ -72,20 +60,12 @@ The creator becomes super admin. Others join via invite links.`;
       description: "Permission preset",
       default: "all-members" as const,
     })(),
-    identity: Flags.string({
-      description: "Use an existing unlinked identity ID",
-      helpValue: "<id>",
-    }),
-    label: Flags.string({
-      description: "Local label for the identity",
-      helpValue: "<label>",
-    }),
     "profile-name": Flags.string({
-      description: "Profile display name for this conversation",
+      description: "Profile display name to use in this conversation",
       helpValue: "<name>",
     }),
     "profile-image": Flags.string({
-      description: "Profile image URL for this conversation",
+      description: "Profile image URL to use in this conversation",
       helpValue: "<url>",
     }),
     attestation: Flags.string({
@@ -108,28 +88,11 @@ The creator becomes super admin. Others join via invite links.`;
   async run(): Promise<void> {
     const { flags } = await this.parse(ConversationsCreate);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
-    // Get or create identity
-    let identity;
-    if (flags.identity) {
-      identity = store.get(flags.identity);
-      if (!identity) {
-        this.error(`Identity not found: ${flags.identity}`);
-      }
-      if (identity.conversationId) {
-        this.error(
-          `Identity ${flags.identity} is already linked to conversation ${identity.conversationId}`,
-        );
-      }
-    } else {
-      identity = store.create({
-        label: flags.label ?? flags.name,
-        profileName: flags["profile-name"],
-      });
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const { identity, client } = await getIdentityAndClient(
+      config,
+      this.getConvosHome(),
+    );
 
     const permissionsMap: Record<string, GroupPermissionsOptions> = {
       "all-members": GroupPermissionsOptions.Default,
@@ -146,18 +109,7 @@ The creator becomes super admin. Others join via invite links.`;
     // Convos conversations start with just the creator
     const group = await client.conversations.createGroup([], options);
 
-    // Generate invite tag
     const inviteTag = randomAlphanumeric(10);
-
-    store.update(identity.id, {
-      conversationId: group.id,
-      inboxId: client.inboxId,
-      inviteTag,
-      label: flags.label ?? flags.name ?? identity.label,
-      profileName: flags["profile-name"] ?? identity.profileName,
-    });
-
-    // Generate a stable conversation emoji from the group ID
     const conversationEmoji = emojiForIdentifier(group.id);
 
     // Store invite tag + emoji in appData (no profiles — profiles go via messages only
@@ -168,10 +120,9 @@ The creator becomes super admin. Others join via invite links.`;
     // Send ProfileUpdate message (primary profile source)
     // Always send to set memberKind: Agent (and name/image if provided)
     try {
-      const profileName = flags["profile-name"];
-      const profileImage = flags["profile-image"];
+      const profileName = flags["profile-name"] ?? identity.profileName;
+      const profileImage = flags["profile-image"] ?? identity.profileImageUrl;
 
-      // If an image URL is provided, encrypt and upload it
       let encryptedImage: import("../../utils/profileMessages.js").EncryptedProfileImageRef | undefined;
       if (profileImage) {
         try {
@@ -197,7 +148,6 @@ The creator becomes super admin. Others join via invite links.`;
         }
       }
 
-      // Merge attestation metadata if all three flags are present
       let attestationMeta: ProfileMetadata | undefined;
       if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
         attestationMeta = {
@@ -217,7 +167,6 @@ The creator becomes super admin. Others join via invite links.`;
       // Non-fatal: profile will be visible once a ProfileUpdate is sent
     }
 
-    // Generate invite slug and URL
     const slug = await createInviteSlug(
       group.id,
       client.inboxId,
@@ -237,9 +186,8 @@ The creator becomes super admin. Others join via invite links.`;
         : "https://dev.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
-    // Display QR code unless --json
     if (!flags.json) {
-      this.log(""); // blank line before QR
+      this.log("");
       await new Promise<void>((resolve) => {
         qrcode.generate(inviteUrl, { small: true }, (code: string) => {
           this.log(code);
@@ -266,5 +214,3 @@ The creator becomes super admin. Others join via invite links.`;
     });
   }
 }
-
-

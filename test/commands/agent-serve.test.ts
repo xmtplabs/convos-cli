@@ -1,9 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import {
-  encodeExplodeSettings,
-  type AgentCommand,
-} from "../../src/commands/agent/serve.js";
+import { type AgentCommand } from "../../src/commands/agent/serve.js";
 import AgentServe from "../../src/commands/agent/serve.js";
+import { encodeExplodeSettings } from "../../src/utils/explodeSettings.js";
 import { parseAppData, serializeAppData } from "../../src/utils/metadata.js";
 import { SortDirection } from "@xmtp/node-sdk";
 
@@ -45,7 +43,9 @@ function createTestAgent() {
   agent.lastDmTimestampNs = 0n;
   agent.recentMessageIds = new Set();
   agent.isCatchingUpMessages = false;
+  agent.isMessagesCatchupPending = false;
   agent.isCatchingUpDms = false;
+  agent.isDmsCatchupPending = false;
   agent.commandQueue = Promise.resolve();
 
   const events: Record<string, unknown>[] = [];
@@ -449,21 +449,25 @@ describe("catchUpDmJoinRequests", () => {
       conversations: { sync: vi.fn(), list: vi.fn() },
     };
 
-    await agent.catchUpDmJoinRequests(client, mockIdentity(), 0n);
+    await agent.catchUpDmJoinRequests(client, mockIdentity(), "conv-123", 0n);
 
     expect(client.conversations.sync).not.toHaveBeenCalled();
   });
 
-  it("skips when already catching up (concurrency guard)", async () => {
+  it("scheduleDmJoinRequestsCatchup coalesces concurrent restarts", () => {
     const { agent } = createTestAgent();
+    // Simulate an in-flight catchup
     agent.isCatchingUpDms = true;
+    agent.lastDmTimestampNs = 1000n;
     const client = {
       inboxId: "self",
       conversations: { sync: vi.fn(), list: vi.fn() },
     };
 
-    await agent.catchUpDmJoinRequests(client, mockIdentity(), 1000n);
+    agent.scheduleDmJoinRequestsCatchup(client, mockIdentity(), "conv-123");
 
+    // Second restart during an active run should mark pending, not start work.
+    expect(agent.isDmsCatchupPending).toBe(true);
     expect(client.conversations.sync).not.toHaveBeenCalled();
   });
 });
@@ -528,36 +532,42 @@ describe("message deduplication", () => {
   });
 });
 
-// ─── catchup concurrency guard ───
+// ─── catchup scheduler coalescing ───
 
-describe("catchUpMessages concurrency guard", () => {
-  it("skips when already catching up", async () => {
-    const { agent, events } = createTestAgent();
+describe("scheduleMessagesCatchup", () => {
+  it("coalesces a second restart during an in-flight catchup", () => {
+    const { agent } = createTestAgent();
     agent.isCatchingUpMessages = true;
+    agent.lastMessageTimestampNs = 1000n;
     const group = mockGroup();
 
-    await agent.catchUpMessages(group, { inboxId: "self" }, 1000n);
+    agent.scheduleMessagesCatchup(group, { inboxId: "self" });
 
+    expect(agent.isMessagesCatchupPending).toBe(true);
     expect(group.sync).not.toHaveBeenCalled();
-    expect(events).toHaveLength(0);
   });
 
-  it("resets the guard after completion", async () => {
+  it("clears the running flag after completion", async () => {
     const { agent } = createTestAgent();
+    agent.lastMessageTimestampNs = 1000n;
     const group = mockGroup();
 
-    await agent.catchUpMessages(group, { inboxId: "self" }, 1000n);
+    agent.scheduleMessagesCatchup(group, { inboxId: "self" });
+    // Let the scheduled IIFE run
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(agent.isCatchingUpMessages).toBe(false);
   });
 
-  it("resets the guard even after errors", async () => {
+  it("clears the running flag even after errors", async () => {
     const { agent } = createTestAgent();
+    agent.lastMessageTimestampNs = 1000n;
     const group = mockGroup({
       sync: vi.fn().mockRejectedValue(new Error("boom")),
     });
 
-    await agent.catchUpMessages(group, { inboxId: "self" }, 1000n);
+    agent.scheduleMessagesCatchup(group, { inboxId: "self" });
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(agent.isCatchingUpMessages).toBe(false);
   });

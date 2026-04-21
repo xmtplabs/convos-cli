@@ -4,28 +4,28 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createIdentityStore } from "../../utils/identities.js";
 
 export default class IdentityCreate extends ConvosBaseCommand {
-  static description = `Create a new Convos identity.
+  static description = `Create the Convos identity for this install.
 
-Generates a new wallet key and database encryption key for use with
-a single conversation. Each conversation gets its own identity for
-maximum privacy (per ADR 002).
+Generates a wallet key and database encryption key for the single
+XMTP inbox shared across all conversations on this install
+(per ADR 011: Single-Inbox Identity Model).
 
-You can optionally set a label (local-only) and profile name (shared
-with conversation members per ADR 005).`;
+Errors if an identity already exists. To run multiple independent
+agents on one machine, point each at its own CONVOS_HOME.`;
 
   static examples = [
     {
       command: "<%= config.bin %> <%= command.id %>",
-      description: "Create a new identity",
+      description: "Create the identity",
     },
     {
-      command: '<%= config.bin %> <%= command.id %> --label "Work Chat"',
+      command: '<%= config.bin %> <%= command.id %> --label "My Bot"',
       description: "Create with a local label",
     },
     {
       command:
-        '<%= config.bin %> <%= command.id %> --label "Team" --profile-name "Alice"',
-      description: "Create with label and profile name",
+        '<%= config.bin %> <%= command.id %> --label "Agent" --profile-name "Assistant"',
+      description: "Create with label and default profile name",
     },
   ];
 
@@ -36,7 +36,7 @@ with conversation members per ADR 005).`;
       helpValue: "<label>",
     }),
     "profile-name": Flags.string({
-      description: "Profile display name (shared with conversation members)",
+      description: "Default profile display name for this install",
       helpValue: "<name>",
     }),
   };
@@ -44,7 +44,15 @@ with conversation members per ADR 005).`;
   async run(): Promise<void> {
     const { flags } = await this.parse(IdentityCreate);
     const store = createIdentityStore(this.getConvosHome());
-    const identity = store.create({
+
+    if (store.exists()) {
+      this.error(
+        "An identity already exists for this install. " +
+          "Use 'convos identity info' to view it, or 'convos identity remove' to replace it.",
+      );
+    }
+
+    const identity = store.loadOrUpsert({
       label: flags.label,
       profileName: flags["profile-name"],
     });
@@ -56,8 +64,7 @@ with conversation members per ADR 005).`;
       profileName: identity.profileName ?? "",
       createdAt: identity.createdAt,
       message:
-        "Identity created. Use it with: convos conversations create --identity " +
-        identity.id,
+        "Identity created. Start using it with: convos conversations create",
     });
   }
 }

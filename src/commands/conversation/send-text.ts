@@ -1,13 +1,9 @@
 import { Args, Flags } from "@oclif/core";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
 
 export default class ConversationSendText extends ConvosBaseCommand {
   static description = `Send a text message to a conversation.
-
-Automatically resolves the per-conversation identity and sends
-the message using the correct XMTP client.
 
 The text can be provided as a positional argument or via --text.
 Use --text to avoid shell quoting issues (e.g. smart quotes on macOS).`;
@@ -46,7 +42,6 @@ Use --text to avoid shell quoting issues (e.g. smart quotes on macOS).`;
   async run(): Promise<void> {
     const { args, argv, flags } = await this.parse(ConversationSendText);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
     // Text can come from --text flag or remaining positional args
     const text = flags.text ?? (argv as string[]).slice(1).join(" ");
@@ -57,14 +52,7 @@ Use --text to avoid shell quoting issues (e.g. smart quotes on macOS).`;
       );
     }
 
-    const identity = store.getByConversationId(args.id);
-    if (!identity) {
-      this.error(
-        `No identity found for conversation: ${args.id}\nUse 'convos conversations list' to see available conversations.`,
-      );
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(args.id);
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);

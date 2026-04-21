@@ -8,8 +8,6 @@
 import { deflateSync, inflateSync } from "node:zlib";
 import protobuf from "protobufjs";
 
-// ─── Protobuf Schema ───
-
 const root = new protobuf.Root();
 
 const EncryptedImageRefType = new protobuf.Type("EncryptedImageRef")
@@ -35,8 +33,6 @@ root.add(EncryptedImageRefType);
 root.add(ConversationProfileType);
 root.add(ConversationCustomMetadataType);
 
-// ─── Types ───
-
 export interface EncryptedImageRef {
   url: string;
   salt: Uint8Array;
@@ -59,12 +55,10 @@ export interface ConversationCustomMetadata {
   emoji?: string; // Stable conversation emoji (shared across all members)
 }
 
-// ─── Compression (matching iOS: DEFLATE if >100 bytes) ───
-
+// Wire format matches iOS: DEFLATE if payload >100 bytes, framed as
+// [marker: 1 byte][original_size: 4 bytes big-endian][zlib data].
 const COMPRESSION_MARKER = 0x1f;
 const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024; // 10MB
-
-// Format must match iOS: [marker: 1 byte][original_size: 4 bytes big-endian][zlib data]
 
 function compressIfSmaller(data: Buffer): Buffer {
   if (data.length <= 100) return data;

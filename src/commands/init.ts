@@ -7,14 +7,13 @@ import { VALID_ENVS } from "../utils/xmtp.js";
 export default class Init extends Command {
   static description = `Initialize Convos CLI configuration.
 
-Sets up the Convos data directory structure and default environment.
-Unlike standard XMTP, Convos does not generate a single wallet key.
-Each conversation creates its own identity (see 'convos identity create').
+Sets up the Convos data directory structure and writes a default .env file.
+The single XMTP inbox identity for this install is created lazily on first use
+(see 'convos identity create' to create it up-front).
 
 This command creates:
 - The data directory (default: ~/.convos, override with --home or $CONVOS_HOME)
-- A .env file with default environment settings
-- The identities storage directory`;
+- A .env file with default environment settings`;
 
   static examples = [
     {
@@ -79,7 +78,7 @@ This command creates:
     const convosHome = flags.home ?? join(homedir(), ".convos");
 
     const envContent = `# Convos CLI Configuration
-# Each conversation creates its own identity — no global wallet key needed.
+# One XMTP inbox identity per install (ADR 011), stored in this directory.
 CONVOS_ENV=${flags.env}
 `;
 
@@ -91,7 +90,7 @@ CONVOS_ENV=${flags.env}
     const defaultEnvPath = join(convosHome, ".env");
     const outputPath = resolve(flags.output ?? defaultEnvPath);
     await mkdir(dirname(outputPath), { recursive: true });
-    await mkdir(join(convosHome, "identities"), { recursive: true });
+    await mkdir(convosHome, { recursive: true });
 
     let fileExists = false;
     try {
@@ -112,7 +111,7 @@ CONVOS_ENV=${flags.env}
       `  convos conversations create --name "My Group"  # Create a conversation`,
     );
     this.log(
-      `  convos identity list                           # See all identities`,
+      `  convos identity list                           # Show this install's identity`,
     );
   }
 }

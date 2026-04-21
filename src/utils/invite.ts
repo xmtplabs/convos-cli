@@ -37,8 +37,6 @@ root.add(
 const InvitePayload = root.lookupType("InvitePayload");
 const SignedInviteType = root.lookupType("SignedInvite");
 
-// ─── HKDF-SHA256 ───
-
 function hkdfSha256(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: number): Buffer {
   const prk = createHmac("sha256", salt).update(ikm).digest();
   let t = Buffer.alloc(0);
