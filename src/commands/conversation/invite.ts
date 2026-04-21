@@ -138,8 +138,9 @@ Invite URLs use the format:
         : "https://dev.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
-    // Display QR code unless --no-qr or --json
-    if (flags.qr && !flags.json) {
+    // Display QR code unless --no-qr or any JSON mode (--json, --fields,
+    // or CONVOS_JSON_OUTPUT); printing it would corrupt the JSON stream.
+    if (flags.qr && !this.jsonOutput) {
       this.log(""); // blank line before QR
       await new Promise<void>((resolve) => {
         qrcode.generate(inviteUrl, { small: true }, (code: string) => {

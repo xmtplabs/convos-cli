@@ -500,7 +500,7 @@ Common flags (--json, --fields, --env, etc.) are listed once at the top level ra
 Use `--verbose` to see detailed client initialization info. When combined with `--json`, verbose logs go to stderr:
 
 ```bash
-convos identity info <id> --verbose
+convos identity info --verbose
 ```
 
 ## Data Directory

@@ -186,7 +186,9 @@ If no identity exists yet, one is created automatically.`;
         : "https://dev.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
-    if (!flags.json) {
+    // Guard against any JSON mode (--json, --fields, or CONVOS_JSON_OUTPUT);
+    // printing the QR code before this.output() would corrupt the JSON stream.
+    if (!this.jsonOutput) {
       this.log("");
       await new Promise<void>((resolve) => {
         qrcode.generate(inviteUrl, { small: true }, (code: string) => {

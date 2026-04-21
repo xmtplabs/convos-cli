@@ -319,6 +319,13 @@ always-on usage).`;
         const messages = await dm.messages({ limit: 10 });
         for (const message of messages) {
           try {
+            // Track the batch high-water mark so an onRestart fired before
+            // any live-stream message arrives still has a non-zero sinceNs
+            // for catchup to work against.
+            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            if (sentAtNs > this.lastDmTimestampNs) {
+              this.lastDmTimestampNs = sentAtNs;
+            }
             const result = await this.processMessage(
               message,
               client,

@@ -69,9 +69,10 @@ Only the conversation creator (super admin) can explode.`;
 
     const isImmediate = !flags.scheduled;
     const confirmMessage = isImmediate
-      ? "This will send ExplodeSettings, remove all other members, and leave the group. " +
-        "All members will be notified; they drop the conversation locally on the MLS " +
-        "remove commit or the ExplodeSettings message."
+      ? "This will send ExplodeSettings and remove all other members from the group. " +
+        "Members drop the conversation locally on whichever arrives first: the MLS " +
+        "remove commit or the ExplodeSettings message. This install's identity is " +
+        "preserved; the CLI cannot leave the group itself (node-sdk limitation)."
       : `This will schedule the conversation to explode at ${expiresAt.toISOString()}.\n` +
         "All members will be notified. When the time arrives, clients will destroy their local data.";
 
