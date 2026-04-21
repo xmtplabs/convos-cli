@@ -80,6 +80,10 @@ This command creates:
     const envContent = `# Convos CLI Configuration
 # One XMTP inbox identity per install (ADR 011), stored in this directory.
 CONVOS_ENV=${flags.env}
+
+# Required for sending attachments larger than 1MB (image and file uploads).
+# Uncomment and set to an agent API key from the Convos backend:
+# CONVOS_API_KEY=
 `;
 
     if (flags.stdout) {
@@ -112,6 +116,12 @@ CONVOS_ENV=${flags.env}
     );
     this.log(
       `  convos identity list                           # Show this install's identity`,
+    );
+    this.log(
+      `\nTo send attachments larger than 1MB (including profile images),`,
+    );
+    this.log(
+      `set CONVOS_API_KEY in ${outputPath} to an agent API key.`,
     );
   }
 }

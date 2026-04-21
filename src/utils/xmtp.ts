@@ -21,6 +21,7 @@ import {
   resolveProfilesFromMessages,
   type ResolvedProfile,
 } from "./profileMessages.js";
+import { isExplodeSettingsMessage } from "./explodeSettings.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -430,6 +431,9 @@ const DISPLAYABLE_TYPE_IDS = new Set([
 export function isDisplayableMessage(message: DecodedMessage): boolean {
   // Filter out profile messages (silent metadata)
   if (isProfileMessage(message)) return false;
+  // ExplodeSettings is a notification payload, not chat content — callers
+  // handle it out-of-band to trigger their local cleanup flow.
+  if (isExplodeSettingsMessage(message)) return false;
 
   const ct = message.contentType;
   if (ct.authorityId !== "xmtp.org") return false;

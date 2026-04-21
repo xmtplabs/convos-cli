@@ -10,6 +10,7 @@ import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
 import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
 import { JoinRequestCodec } from "./joinRequest.js";
 import { TypingIndicatorCodec } from "./typingIndicator.js";
+import { ExplodeSettingsCodec } from "./explodeSettings.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -126,6 +127,7 @@ async function buildClient(
       new ProfileSnapshotCodec() as any,
       new JoinRequestCodec() as any,
       new TypingIndicatorCodec() as any,
+      new ExplodeSettingsCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,

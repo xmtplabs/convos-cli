@@ -19,6 +19,21 @@ export default class ProcessJoinRequests extends ConvosBaseCommand {
   private lastDmTimestampNs: bigint = 0n;
   private isCatchingUp = false;
   private isCatchupPending = false;
+  /** IDs of DM messages we've already fully processed — prevents the batch
+   *  pass and the live stream from double-firing for the same invite. */
+  private processedMessageIds: Set<string> = new Set();
+  private static readonly MAX_PROCESSED_IDS = 1000;
+
+  /** Returns true the first time we see `id`; false on duplicate. */
+  private markProcessed(id: string): boolean {
+    if (this.processedMessageIds.has(id)) return false;
+    this.processedMessageIds.add(id);
+    if (this.processedMessageIds.size > ProcessJoinRequests.MAX_PROCESSED_IDS) {
+      const oldest = this.processedMessageIds.values().next().value!;
+      this.processedMessageIds.delete(oldest);
+    }
+    return true;
+  }
 
   static description = `Process pending join requests for this install's conversations.
 
@@ -77,6 +92,7 @@ always-on usage).`;
     metadata?: Record<string, string>;
   } | undefined> {
     if (message.senderInboxId === client.inboxId) return;
+    if (!this.markProcessed(message.id)) return;
 
     let slug: string | undefined;
     let joinProfile: JoinRequestProfile | undefined;
@@ -341,9 +357,17 @@ always-on usage).`;
     }
 
     this.log("\nStreaming DM messages for join requests (Ctrl+C to stop)...\n");
+    this.streamOutput({
+      event: "stream_started",
+      timestamp: new Date().toISOString(),
+    });
 
     const stream = await client.conversations.streamAllDmMessages({
       onRestart: () => {
+        this.streamOutput({
+          event: "stream_restarted",
+          timestamp: new Date().toISOString(),
+        });
         this.scheduleCatchup(client, identity, flags.conversation);
       },
     });
@@ -356,6 +380,9 @@ always-on usage).`;
             if (sentAtNs > this.lastDmTimestampNs) {
               this.lastDmTimestampNs = sentAtNs;
             }
+            this.verboseLog(
+              `DM received: id=${message.id} from=${message.senderInboxId} contentType=${message.contentType.authorityId}/${message.contentType.typeId}`,
+            );
             const result = await this.processMessage(
               message,
               client,
@@ -370,15 +397,25 @@ always-on usage).`;
               });
             }
           } catch (error) {
-            this.log(
-              `Error processing streamed message: ${error instanceof Error ? error.message : "unknown"}`,
-            );
+            this.streamOutput({
+              event: "error",
+              message: `Error processing streamed message: ${error instanceof Error ? error.message : "unknown"}`,
+              messageId: message.id,
+              timestamp: new Date().toISOString(),
+            });
           }
         }
+        this.streamOutput({
+          event: "stream_ended",
+          reason: "iterator_exhausted",
+          timestamp: new Date().toISOString(),
+        });
       } catch (error) {
-        this.log(
-          `Stream ended: ${error instanceof Error ? error.message : "unknown"}`,
-        );
+        this.streamOutput({
+          event: "stream_ended",
+          reason: error instanceof Error ? error.message : "unknown",
+          timestamp: new Date().toISOString(),
+        });
       }
     })();
 

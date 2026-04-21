@@ -83,8 +83,10 @@ Running `convos init` creates `~/.convos/.env` with:
 | Variable                       | Description                                      |
 | ------------------------------ | ------------------------------------------------ |
 | `CONVOS_ENV`                   | Network: `local`, `dev`, or `production`         |
-| `CONVOS_API_KEY`               | Agent API key for uploads (auto-selects `convos-api` provider) |
+| `CONVOS_API_KEY`               | Agent API key — **required** for attachments >1MB and for profile images (auto-selects `convos-api` provider) |
 | `CONVOS_UPLOAD_PROVIDER`       | Upload provider override (`convos-api`, `pinata`, `s3`) |
+
+Without `CONVOS_API_KEY` (or another `CONVOS_UPLOAD_PROVIDER`), `conversation send-attachment` fails for files over 1MB and `conversation update-profile --image` cannot encrypt and upload the image.
 
 The singleton identity for this install lives at `~/.convos/identity.json`. XMTP databases live at `~/.convos/db/<env>/main.db3`.
 

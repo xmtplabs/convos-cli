@@ -87,6 +87,16 @@ export {
   type TypingIndicatorContent,
 } from "./utils/typingIndicator.js";
 
+// Explode settings content type
+export {
+  ExplodeSettingsCodec,
+  ContentTypeExplodeSettings,
+  encodeExplodeSettings,
+  isExplodeSettingsMessage,
+  getExplodeSettingsContent,
+  type ExplodeSettingsContent,
+} from "./utils/explodeSettings.js";
+
 // Assistant attestation
 export {
   signAttestation,

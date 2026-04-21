@@ -25,7 +25,11 @@ import { join } from "node:path";
 import QRCode from "qrcode";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { getIdentityAndClient } from "../../utils/client.js";
-import { encodeExplodeSettings } from "../../utils/explodeSettings.js";
+import {
+  encodeExplodeSettings,
+  getExplodeSettingsContent,
+  isExplodeSettingsMessage,
+} from "../../utils/explodeSettings.js";
 import type { Identity } from "../../utils/identities.js";
 import {
   createInviteSlug,
@@ -665,6 +669,20 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         try {
           for await (const message of stream) {
             if (message.senderInboxId === client.inboxId) continue;
+
+            if (isExplodeSettingsMessage(message)) {
+              const explode = getExplodeSettingsContent(message);
+              if (explode) {
+                this.emit({
+                  event: "explode_notice",
+                  conversationId: conversation.id,
+                  senderInboxId: message.senderInboxId,
+                  expiresAt: explode.expiresAt,
+                  sentAt: message.sentAt.toISOString(),
+                });
+              }
+              continue;
+            }
 
             if (isTypingIndicatorMessage(message)) {
               const typingContent = getTypingIndicatorContent(message);

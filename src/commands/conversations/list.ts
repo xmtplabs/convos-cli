@@ -8,19 +8,27 @@ import { createIdentityStore } from "../../utils/identities.js";
 export default class ConversationsList extends ConvosBaseCommand {
   static description = `List all Convos conversations.
 
-Lists every group and DM this install's singleton XMTP inbox
-participates in (per ADR 011).
+Lists every group this install's singleton XMTP inbox participates in
+(per ADR 011).
+
+Inactive conversations (the install has been removed, or the group
+exploded from another client) are hidden by default. Pass --include-inactive
+to see them.
 
 Use --sync to fetch the latest state from the network first.`;
 
   static examples = [
     {
       command: "<%= config.bin %> <%= command.id %>",
-      description: "List all conversations",
+      description: "List active groups",
     },
     {
       command: "<%= config.bin %> <%= command.id %> --sync",
       description: "Sync from network then list",
+    },
+    {
+      command: "<%= config.bin %> <%= command.id %> --include-inactive",
+      description: "Include conversations this install is no longer a member of",
     },
     {
       command: "<%= config.bin %> <%= command.id %> --json",
@@ -36,6 +44,11 @@ Use --sync to fetch the latest state from the network first.`;
     }),
     "include-dms": Flags.boolean({
       description: "Include DMs in the output (default: groups only)",
+      default: false,
+    }),
+    "include-inactive": Flags.boolean({
+      description:
+        "Include conversations where isActive=false (default: hide exploded / removed groups)",
       default: false,
     }),
   };
@@ -59,11 +72,14 @@ Use --sync to fetch the latest state from the network first.`;
       await client.conversations.sync();
     }
 
-    const conversations = await client.conversations.list(
+    const allConversations = await client.conversations.list(
       flags["include-dms"]
         ? undefined
         : { conversationType: ConversationType.Group },
     );
+    const conversations = flags["include-inactive"]
+      ? allConversations
+      : allConversations.filter((c) => c.isActive);
 
     if (conversations.length === 0) {
       this.output({
