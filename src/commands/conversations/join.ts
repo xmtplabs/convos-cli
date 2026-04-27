@@ -5,7 +5,12 @@ import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
 import { parseAppData, parseAppDataForWrite } from "../../utils/metadata.js";
-import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
+import {
+  sendProfileUpdate,
+  MemberKind,
+  parseMetadataFlags,
+  type ProfileMetadata,
+} from "../../utils/profileMessages.js";
 import {
   JoinRequestCodec,
   type JoinRequestContent,
@@ -127,37 +132,9 @@ slug as query parameter 'i'.`;
     const config = this.getConvosConfig();
     const store = createIdentityStore(this.getConvosHome());
 
-    // Parse metadata flags into typed ProfileMetadata + flat string map for JoinRequest
-    let parsedMetadata: ProfileMetadata | undefined;
-    let joinMetadata: Record<string, string> | undefined;
-    if (flags.metadata && flags.metadata.length > 0) {
-      parsedMetadata = {};
-      joinMetadata = {};
-      for (const entry of flags.metadata) {
-        const eqIdx = entry.indexOf("=");
-        if (eqIdx === -1) {
-          this.error(`Invalid metadata format: "${entry}". Expected key=value`);
-        }
-        const key = entry.slice(0, eqIdx);
-        const rawValue = entry.slice(eqIdx + 1);
-
-        if (!key) {
-          this.error(`Empty metadata key in "${entry}"`);
-        }
-
-        // Flat string map for JoinRequest
-        joinMetadata[key] = rawValue;
-
-        // Auto-type the value for ProfileMetadata: bool → number → string
-        if (rawValue === "true" || rawValue === "false") {
-          parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
-        } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
-          parsedMetadata[key] = { type: "number", value: Number(rawValue) };
-        } else {
-          parsedMetadata[key] = { type: "string", value: rawValue };
-        }
-      }
-    }
+    const meta = parseMetadataFlags(flags.metadata, (msg) => this.error(msg));
+    const parsedMetadata = meta?.parsedMetadata;
+    const joinMetadata = meta?.joinMetadata;
 
     // Step 1: Parse invite
     const invite = parseInvite(args.invite);
