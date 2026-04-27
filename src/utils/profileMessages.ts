@@ -724,6 +724,9 @@ export async function sendProfileUpdate(
  * Returns both shapes used downstream:
  *   - `parsedMetadata`: typed `ProfileMetadata` for ProfileUpdate messages.
  *     Auto-typed: "true"/"false" → bool, numeric → number, else string.
+ *     Whitespace-only or whitespace-padded values stay strings — `Number(" ")`
+ *     coerces to `0`, so we require the value to equal its trimmed form
+ *     before treating it as numeric.
  *   - `joinMetadata`: flat `Record<string, string>` for JoinRequest payloads.
  *
  * `onError` should terminate execution (e.g. oclif's `this.error`). It's
@@ -755,7 +758,11 @@ export function parseMetadataFlags(
 
     if (rawValue === "true" || rawValue === "false") {
       parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
-    } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
+    } else if (
+      rawValue !== "" &&
+      rawValue.trim() === rawValue &&
+      !isNaN(Number(rawValue))
+    ) {
       parsedMetadata[key] = { type: "number", value: Number(rawValue) };
     } else {
       parsedMetadata[key] = { type: "string", value: rawValue };

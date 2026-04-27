@@ -727,6 +727,15 @@ describe("parseMetadataFlags", () => {
     expect(result?.parsedMetadata.empty).toEqual({ type: "string", value: "" });
   });
 
+  it("treats whitespace values as strings, not numbers", () => {
+    // Number("   ") === 0, so we explicitly guard against whitespace coercion.
+    const whitespace = parseMetadataFlags(["note=   "], fail);
+    expect(whitespace?.parsedMetadata.note).toEqual({ type: "string", value: "   " });
+
+    const padded = parseMetadataFlags(["count= 42 "], fail);
+    expect(padded?.parsedMetadata.count).toEqual({ type: "string", value: " 42 " });
+  });
+
   it("rejects entries without '='", () => {
     expect(() => parseMetadataFlags(["bareword"], fail)).toThrow(/Expected key=value/);
   });

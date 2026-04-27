@@ -3,7 +3,13 @@ import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { createClientForIdentity } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
-import { sendProfileUpdate, MemberKind, type ProfileMetadataValue, type ProfileMetadata, type EncryptedProfileImageRef } from "../../utils/profileMessages.js";
+import {
+  sendProfileUpdate,
+  MemberKind,
+  parseMetadataFlags,
+  type ProfileMetadata,
+  type EncryptedProfileImageRef,
+} from "../../utils/profileMessages.js";
 import { encryptAndUploadProfileImage } from "../../utils/imageEncryption.js";
 import { getUploadProvider } from "../../utils/upload.js";
 
@@ -73,32 +79,8 @@ a legacy fallback). Profile messages are the primary source of truth.`;
       this.error("At least one of --name, --image, or --metadata must be provided");
     }
 
-    // Parse metadata flags into typed ProfileMetadata
-    let parsedMetadata: ProfileMetadata | undefined;
-    if (flags.metadata && flags.metadata.length > 0) {
-      parsedMetadata = {};
-      for (const entry of flags.metadata) {
-        const eqIdx = entry.indexOf("=");
-        if (eqIdx === -1) {
-          this.error(`Invalid metadata format: "${entry}". Expected key=value`);
-        }
-        const key = entry.slice(0, eqIdx);
-        const rawValue = entry.slice(eqIdx + 1);
-
-        if (!key) {
-          this.error(`Empty metadata key in "${entry}"`);
-        }
-
-        // Auto-type the value: bool → number → string
-        if (rawValue === "true" || rawValue === "false") {
-          parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
-        } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
-          parsedMetadata[key] = { type: "number", value: Number(rawValue) };
-        } else {
-          parsedMetadata[key] = { type: "string", value: rawValue };
-        }
-      }
-    }
+    const parsedMetadata = parseMetadataFlags(flags.metadata, (msg) => this.error(msg))
+      ?.parsedMetadata;
 
     const identity = store.getByConversationId(args.id);
     if (!identity) {
