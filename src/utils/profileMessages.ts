@@ -717,3 +717,50 @@ export async function sendProfileUpdate(
   const encoded = encodeProfileUpdate(update);
   await group.send(encoded);
 }
+
+/**
+ * Parse repeatable `--metadata key=value` CLI flags.
+ *
+ * Returns both shapes used downstream:
+ *   - `parsedMetadata`: typed `ProfileMetadata` for ProfileUpdate messages.
+ *     Auto-typed: "true"/"false" → bool, numeric → number, else string.
+ *   - `joinMetadata`: flat `Record<string, string>` for JoinRequest payloads.
+ *
+ * `onError` should terminate execution (e.g. oclif's `this.error`). It's
+ * typed `(msg: string) => never` so TypeScript treats invalid input as a
+ * non-returning code path.
+ */
+export function parseMetadataFlags(
+  entries: readonly string[] | undefined,
+  onError: (msg: string) => never,
+): { parsedMetadata: ProfileMetadata; joinMetadata: Record<string, string> } | undefined {
+  if (!entries || entries.length === 0) return undefined;
+
+  const parsedMetadata: ProfileMetadata = {};
+  const joinMetadata: Record<string, string> = {};
+
+  for (const entry of entries) {
+    const eqIdx = entry.indexOf("=");
+    if (eqIdx === -1) {
+      onError(`Invalid metadata format: "${entry}". Expected key=value`);
+    }
+    const key = entry.slice(0, eqIdx);
+    const rawValue = entry.slice(eqIdx + 1);
+
+    if (!key) {
+      onError(`Empty metadata key in "${entry}"`);
+    }
+
+    joinMetadata[key] = rawValue;
+
+    if (rawValue === "true" || rawValue === "false") {
+      parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
+    } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
+      parsedMetadata[key] = { type: "number", value: Number(rawValue) };
+    } else {
+      parsedMetadata[key] = { type: "string", value: rawValue };
+    }
+  }
+
+  return { parsedMetadata, joinMetadata };
+}

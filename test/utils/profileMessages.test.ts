@@ -10,6 +10,7 @@ import {
   isProfileUpdateMessage,
   isProfileSnapshotMessage,
   isProfileMessage,
+  parseMetadataFlags,
   type ProfileUpdateContent,
   type ProfileSnapshotContent,
   type ProfileMetadata,
@@ -674,5 +675,75 @@ describe("ProfileMetadata", () => {
     expect(decoded.profiles[1].metadata?.role).toEqual({ type: "string", value: "member" });
     expect(decoded.profiles[1].metadata?.active).toEqual({ type: "bool", value: true });
     expect(decoded.profiles[2].metadata).toBeUndefined();
+  });
+});
+
+describe("parseMetadataFlags", () => {
+  const fail = (msg: string): never => {
+    throw new Error(msg);
+  };
+
+  it("returns undefined for empty/missing input", () => {
+    expect(parseMetadataFlags(undefined, fail)).toBeUndefined();
+    expect(parseMetadataFlags([], fail)).toBeUndefined();
+  });
+
+  it("parses string values", () => {
+    const result = parseMetadataFlags(["role=agent"], fail);
+    expect(result?.parsedMetadata).toEqual({
+      role: { type: "string", value: "agent" },
+    });
+    expect(result?.joinMetadata).toEqual({ role: "agent" });
+  });
+
+  it("auto-types booleans", () => {
+    const result = parseMetadataFlags(["enabled=true", "blocked=false"], fail);
+    expect(result?.parsedMetadata).toEqual({
+      enabled: { type: "bool", value: true },
+      blocked: { type: "bool", value: false },
+    });
+    expect(result?.joinMetadata).toEqual({ enabled: "true", blocked: "false" });
+  });
+
+  it("auto-types numbers", () => {
+    const result = parseMetadataFlags(["count=42", "ratio=3.14", "neg=-5"], fail);
+    expect(result?.parsedMetadata).toEqual({
+      count: { type: "number", value: 42 },
+      ratio: { type: "number", value: 3.14 },
+      neg: { type: "number", value: -5 },
+    });
+  });
+
+  it("preserves '=' in values", () => {
+    const result = parseMetadataFlags(["url=https://x.com?a=1&b=2"], fail);
+    expect(result?.parsedMetadata.url).toEqual({
+      type: "string",
+      value: "https://x.com?a=1&b=2",
+    });
+  });
+
+  it("treats empty value as string", () => {
+    const result = parseMetadataFlags(["empty="], fail);
+    expect(result?.parsedMetadata.empty).toEqual({ type: "string", value: "" });
+  });
+
+  it("rejects entries without '='", () => {
+    expect(() => parseMetadataFlags(["bareword"], fail)).toThrow(/Expected key=value/);
+  });
+
+  it("rejects empty keys", () => {
+    expect(() => parseMetadataFlags(["=value"], fail)).toThrow(/Empty metadata key/);
+  });
+
+  it("merges multiple entries", () => {
+    const result = parseMetadataFlags(
+      ["instanceId=abc", "version=2", "verified=true"],
+      fail,
+    );
+    expect(Object.keys(result?.parsedMetadata ?? {})).toEqual([
+      "instanceId",
+      "version",
+      "verified",
+    ]);
   });
 });
