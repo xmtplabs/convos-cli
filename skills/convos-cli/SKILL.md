@@ -799,7 +799,7 @@ Action names and argument shapes are **not** carried on the CLI side — they're
 
 #### Capability Resolution
 
-iOS uses a unified subject/provider model that lets cloud-OAuth providers (Composio-linked services like Google Calendar, Strava, Fitbit) satisfy the same capability requests that route to device frameworks. Two new wire codecs landed in [convos-ios#771](https://github.com/xmtplabs/convos-ios/pull/771) — `convos.org/capability_request:1.0` and `convos.org/capability_request_result:1.0` — both registered on every CLI client and filtered out of the chat stream alongside the existing connection codecs. The wider routing layer (resolver dispatching `ConnectionInvocation` by subject, the `profile.metadata["capabilities"]` manifest) is rolling out incrementally; the wire-level pieces an agent needs to actively use today are the two codecs documented in this section.
+iOS uses a unified subject/provider model that lets cloud-OAuth providers (Composio-linked services like Google Calendar, Strava, Fitbit) satisfy the same capability requests that route to device frameworks. Two new wire codecs landed in [convos-ios#771](https://github.com/xmtplabs/convos-ios/pull/771) — `convos.org/capability_request:1.0` and `convos.org/capability_request_result:1.0` — both registered on every CLI client and filtered out of the chat stream alongside the existing connection codecs. The wider routing layer (resolver dispatching `ConnectionInvocation` by subject, the `profile.metadata["connections"]` manifest) is rolling out incrementally; the wire-level pieces an agent needs to actively use today are the two codecs documented in this section.
 
 ##### Subjects vs. kinds
 
@@ -873,14 +873,16 @@ Fallback strings:
 - `denied`: `"Declined <subject> access"`
 - `cancelled`: `"Cancelled <subject> access request"`
 
-##### `profile.metadata["capabilities"]` manifest (in flight)
+##### `profile.metadata["connections"]` manifest (in flight)
 
-A unified per-sender manifest, published on every `ProfileUpdate`, listing every provider available to the sender plus per-verb `resolved` flags so agents can plan tool calls without speculative probing. The wire codec for capability requests has shipped (above), but the manifest writer is still rolling out — the CLI will start surfacing it through `profile.metadata` once iOS commits to the shape. See the [PRD](https://github.com/xmtplabs/convos-ios/blob/jarod/convos-connections-squashed/docs/plans/capability-resolution.md#runtime-capabilities-manifest) for the planned structure.
+A unified per-sender manifest, published on every `ProfileUpdate` under the `connections` key, listing every provider available to the sender plus per-verb `resolved` flags so agents can plan tool calls without speculative probing. The wire codec for capability requests has shipped (above), but the manifest writer is still rolling out — the CLI will start surfacing it through `profile.metadata` once iOS commits to the shape. See the [PRD](https://github.com/xmtplabs/convos-ios/blob/jarod/convos-connections-squashed/docs/plans/capability-resolution.md#runtime-capabilities-manifest) for the planned structure.
+
+Note the key reuse: the original CloudConnections design (PR #719) was going to publish a separate OAuth-only `connections` payload, but that's been folded into the unified shape — when this lands, every capabilities-aware iOS build emits one manifest under `connections` covering both device sources and cloud providers, not two parallel keys.
 
 ##### What this changes for agents
 
 - **Pre-emptive consent.** Instead of firing a write invocation and getting `capability_not_enabled` back, an agent can post a `capability_request` first; the user's pick persists per `(subject, conversation, capability)`, so subsequent invocations on the same `ConnectionKind` (until the manifest's subject-routing migration completes) land cleanly.
-- **Probe-driven discovery is still load-bearing for now.** Until the `metadata["capabilities"]` manifest ships, the "polite agent" pattern under "Discovering Enabled Capabilities" remains the right way to learn what's enabled. Sending a `capability_request` is a complement, not a replacement — use it when you know up front you'll need a capability and want to surface the picker before the user is mid-conversation.
+- **Probe-driven discovery is still load-bearing for now.** Until the `metadata["connections"]` manifest ships, the "polite agent" pattern under "Discovering Enabled Capabilities" remains the right way to learn what's enabled. Sending a `capability_request` is a complement, not a replacement — use it when you know up front you'll need a capability and want to surface the picker before the user is mid-conversation.
 - **Federated reads aggregate.** When fitness reads resolve to multiple providers, the device fans the read out and returns one combined payload with a `partialFailures` array if any provider errored. Agents handling fitness data should expect that shape rather than assuming a single-source result.
 - **Provider unlink is silent.** When the user unlinks a cloud provider, resolutions referencing it are pruned — single-element rows delete (next invocation re-prompts), multi-element rows shrink. No teardown message hits the wire.
 
