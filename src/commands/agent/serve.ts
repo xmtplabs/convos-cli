@@ -93,8 +93,26 @@ import {
 import {
   CapabilityRequestCodec,
   CAPABILITY_REQUEST_SUPPORTED_VERSION,
+  getCapabilityRequestContent,
+  isCapabilityRequestMessage,
   type CapabilityRequest,
 } from "../../utils/capabilityRequest.js";
+import {
+  getCapabilityRequestResultContent,
+  isCapabilityRequestResultMessage,
+} from "../../utils/capabilityRequestResult.js";
+import {
+  getConnectionPayloadContent,
+  isConnectionPayloadMessage,
+} from "../../utils/connectionPayload.js";
+import {
+  getConnectionInvocationContent,
+  isConnectionInvocationMessage,
+} from "../../utils/connectionInvocation.js";
+import {
+  getConnectionInvocationResultContent,
+  isConnectionInvocationResultMessage,
+} from "../../utils/connectionInvocationResult.js";
 import {
   ALL_CAPABILITY_SUBJECTS,
   type CapabilitySubject,
@@ -295,6 +313,188 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
   private emitError(message: string, details?: Record<string, unknown>): void {
     this.emit({ event: "error", message, ...details });
+  }
+
+  /**
+   * Route a message carrying a `convos.org` content type that the chat
+   * stream filters out (`shouldPush=false`) into a structured stdout
+   * event. Returns true if the message was a known Convos content type
+   * (handled or attempted-and-malformed); the caller should not fall
+   * through to the generic `message` path.
+   *
+   * Shared between the live stream and the catchup path so reconnects
+   * don't drop connection/capability traffic on the floor. Dedupes
+   * across the two paths via `trackMessageId` and advances
+   * `lastMessageTimestampNs` so a subsequent catchup query won't
+   * re-fetch the same message.
+   */
+  private routeConvosContentType(
+    message: DecodedMessage,
+    conversation: Group,
+    catchup: boolean,
+  ): boolean {
+    if (isTypingIndicatorMessage(message)) {
+      // Typing indicators are ephemeral — only emit on the live stream.
+      // Replaying them on catchup would surface stale "is typing" state.
+      // Also skip dedupe / watermark so the recent-ids cache isn't
+      // churned by high-volume typing traffic.
+      if (!catchup) {
+        const typingContent = getTypingIndicatorContent(message);
+        if (typingContent) {
+          this.emit({
+            event: "typing",
+            senderInboxId: message.senderInboxId,
+            isTyping: typingContent.isTyping,
+            conversationId: conversation.id,
+            timestamp: message.sentAt.toISOString(),
+          });
+        }
+      }
+      return true;
+    }
+
+    // For non-ephemeral types: dedupe across live ↔ catchup, then
+    // advance the watermark so subsequent catchup queries skip this id.
+    const handled = (() => {
+      if (isExplodeSettingsMessage(message)) return "explode" as const;
+      if (isConnectionPayloadMessage(message)) return "connection_payload" as const;
+      if (isConnectionInvocationMessage(message)) return "connection_invocation" as const;
+      if (isConnectionInvocationResultMessage(message)) return "connection_result" as const;
+      if (isCapabilityRequestMessage(message)) return "capability_request" as const;
+      if (isCapabilityRequestResultMessage(message)) return "capability_result" as const;
+      return undefined;
+    })();
+    if (!handled) return false;
+
+    if (!this.trackMessageId(message.id)) return true;
+    const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+    if (sentAtNs > this.lastMessageTimestampNs) {
+      this.lastMessageTimestampNs = sentAtNs;
+    }
+
+    if (handled === "explode") {
+      const explode = getExplodeSettingsContent(message);
+      if (explode) {
+        this.emit({
+          event: "explode_notice",
+          conversationId: conversation.id,
+          senderInboxId: message.senderInboxId,
+          expiresAt: explode.expiresAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_payload") {
+      const payload = getConnectionPayloadContent(message);
+      if (payload) {
+        this.emit({
+          event: "connection_payload",
+          id: message.id,
+          envelopeId: payload.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          source: payload.source,
+          schemaVersion: payload.schemaVersion,
+          capturedAt: payload.capturedAt,
+          body: payload.body,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_invocation") {
+      const invocation = getConnectionInvocationContent(message);
+      if (invocation) {
+        this.emit({
+          event: "connection_invocation",
+          id: message.id,
+          envelopeId: invocation.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          invocationId: invocation.invocationId,
+          kind: invocation.kind,
+          schemaVersion: invocation.schemaVersion,
+          action: invocation.action,
+          issuedAt: invocation.issuedAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_result") {
+      const result = getConnectionInvocationResultContent(message);
+      if (result) {
+        this.emit({
+          event: "connection_result",
+          id: message.id,
+          envelopeId: result.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          invocationId: result.invocationId,
+          kind: result.kind,
+          actionName: result.actionName,
+          status: result.status,
+          schemaVersion: result.schemaVersion,
+          result: result.result,
+          ...(result.errorMessage && { errorMessage: result.errorMessage }),
+          completedAt: result.completedAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "capability_request") {
+      const request = getCapabilityRequestContent(message);
+      if (request) {
+        this.emit({
+          event: "capability_request",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: request.version,
+          requestId: request.requestId,
+          subject: request.subject,
+          capability: request.capability,
+          rationale: request.rationale,
+          ...(request.preferredProviders && { preferredProviders: request.preferredProviders }),
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "capability_result") {
+      const result = getCapabilityRequestResultContent(message);
+      if (result) {
+        this.emit({
+          event: "capability_result",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: result.version,
+          requestId: result.requestId,
+          status: result.status,
+          subject: result.subject,
+          capability: result.capability,
+          providers: result.providers,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    return false;
   }
 
   private trackMessageId(id: string): boolean {
@@ -656,6 +856,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
       for (const message of missed) {
         if (message.senderInboxId === client.inboxId) continue;
+        if (this.routeConvosContentType(message, conversation, true)) continue;
         if (!isDisplayableMessage(message)) continue;
         if (!this.trackMessageId(message.id)) continue;
 
@@ -712,33 +913,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           for await (const message of stream) {
             if (message.senderInboxId === client.inboxId) continue;
 
-            if (isExplodeSettingsMessage(message)) {
-              const explode = getExplodeSettingsContent(message);
-              if (explode) {
-                this.emit({
-                  event: "explode_notice",
-                  conversationId: conversation.id,
-                  senderInboxId: message.senderInboxId,
-                  expiresAt: explode.expiresAt,
-                  sentAt: message.sentAt.toISOString(),
-                });
-              }
-              continue;
-            }
-
-            if (isTypingIndicatorMessage(message)) {
-              const typingContent = getTypingIndicatorContent(message);
-              if (typingContent) {
-                this.emit({
-                  event: "typing",
-                  senderInboxId: message.senderInboxId,
-                  isTyping: typingContent.isTyping,
-                  conversationId: conversation.id,
-                  timestamp: message.sentAt.toISOString(),
-                });
-              }
-              continue;
-            }
+            if (this.routeConvosContentType(message, conversation, false)) continue;
 
             if (!isDisplayableMessage(message)) continue;
             if (!this.trackMessageId(message.id)) continue;

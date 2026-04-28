@@ -873,3 +873,245 @@ describe("handleCommand capability-request", () => {
     expect(events.at(-1)!.message).toMatch(/preferredProviders/);
   });
 });
+
+// ─── routeConvosContentType: inbound silent-codec → structured event ───
+
+describe("routeConvosContentType", () => {
+  const conv = (id = "conv-123") => ({ id }) as any;
+  const sentAt = new Date("2026-04-28T12:00:00.000Z");
+
+  function mockDecoded(typeId: string, content: any, overrides: any = {}) {
+    return {
+      id: `msg-${typeId}-${Math.random().toString(36).slice(2, 8)}`,
+      senderInboxId: "other",
+      contentType: { authorityId: "convos.org", typeId, versionMajor: 1, versionMinor: 0 },
+      content,
+      sentAt,
+      ...overrides,
+    } as any;
+  }
+
+  it("emits connection_payload for ConnectionPayload, with envelope and source", () => {
+    const { agent, events } = createTestAgent();
+    const payload = {
+      id: "11111111-1111-1111-1111-111111111111",
+      schemaVersion: 1,
+      source: "calendar",
+      capturedAt: 721_692_800,
+      body: { type: "calendar", data: { summary: "2 events today" } },
+    };
+    const message = mockDecoded("connection_payload", payload);
+
+    const handled = agent.routeConvosContentType(message, conv(), false);
+
+    expect(handled).toBe(true);
+    const evt = events.find((e) => e.event === "connection_payload");
+    expect(evt).toMatchObject({
+      event: "connection_payload",
+      id: message.id,
+      envelopeId: payload.id,
+      senderInboxId: "other",
+      conversationId: "conv-123",
+      source: "calendar",
+      schemaVersion: 1,
+      capturedAt: 721_692_800,
+      body: payload.body,
+      sentAt: sentAt.toISOString(),
+    });
+    expect(evt!.catchup).toBeUndefined();
+  });
+
+  it("emits connection_invocation for an inbound ConnectionInvocation", () => {
+    const { agent, events } = createTestAgent();
+    const invocation = {
+      id: "AABBCCDD-EEFF-1122-3344-556677889900",
+      schemaVersion: 1,
+      invocationId: "agent-1-001",
+      kind: "calendar",
+      action: { name: "create_event", arguments: {} },
+      issuedAt: 0,
+    };
+    const message = mockDecoded("connection_invocation", invocation);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "connection_invocation");
+    expect(evt).toMatchObject({
+      event: "connection_invocation",
+      invocationId: "agent-1-001",
+      kind: "calendar",
+      action: invocation.action,
+    });
+  });
+
+  it("emits connection_result with errorMessage when present", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      id: "DDEEFF00-1122-3344-5566-778899AABBCC",
+      schemaVersion: 1,
+      invocationId: "agent-1-001",
+      kind: "calendar",
+      actionName: "create_event",
+      status: "execution_failed",
+      result: {},
+      errorMessage: "EventKit returned: …",
+      completedAt: 0,
+    };
+    const message = mockDecoded("connection_invocation_result", result);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "connection_result");
+    expect(evt).toMatchObject({
+      event: "connection_result",
+      invocationId: "agent-1-001",
+      status: "execution_failed",
+      errorMessage: "EventKit returned: …",
+    });
+  });
+
+  it("omits errorMessage on a successful result", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      id: "DDEEFF00-1122-3344-5566-778899AABBCC",
+      schemaVersion: 1,
+      invocationId: "ok-1",
+      kind: "calendar",
+      actionName: "create_event",
+      status: "success",
+      result: { eventId: { type: "string", value: "evt-1" } },
+      completedAt: 0,
+    };
+    const message = mockDecoded("connection_invocation_result", result);
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "connection_result");
+    expect(evt!.errorMessage).toBeUndefined();
+    expect(evt!.result).toEqual({ eventId: { type: "string", value: "evt-1" } });
+  });
+
+  it("emits capability_request, including the preferredProviders hint", () => {
+    const { agent, events } = createTestAgent();
+    const request = {
+      version: 1,
+      requestId: "req-1",
+      subject: "fitness",
+      capability: "read",
+      rationale: "Summarize training",
+      preferredProviders: ["composio.strava", "composio.fitbit"],
+    };
+    const message = mockDecoded("capability_request", request);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "capability_request");
+    expect(evt).toMatchObject({
+      event: "capability_request",
+      requestId: "req-1",
+      subject: "fitness",
+      capability: "read",
+      rationale: "Summarize training",
+      preferredProviders: ["composio.strava", "composio.fitbit"],
+    });
+  });
+
+  it("emits capability_result echoing the persisted providers", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      version: 1,
+      requestId: "req-1",
+      status: "approved",
+      subject: "calendar",
+      capability: "read",
+      providers: ["device.calendar"],
+    };
+    const message = mockDecoded("capability_request_result", result);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "capability_result");
+    expect(evt).toMatchObject({
+      event: "capability_result",
+      requestId: "req-1",
+      status: "approved",
+      providers: ["device.calendar"],
+    });
+  });
+
+  it("flags catchup events with catchup: true", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("connection_payload", {
+      id: "11111111-1111-1111-1111-111111111112",
+      schemaVersion: 1,
+      source: "calendar",
+      capturedAt: 0,
+      body: { type: "calendar", data: { summary: "x" } },
+    });
+
+    agent.routeConvosContentType(message, conv(), true);
+    expect(events[0]!.catchup).toBe(true);
+  });
+
+  it("dedupes across live ↔ catchup so a message id only emits once", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("connection_payload", {
+      id: "11111111-1111-1111-1111-111111111113",
+      schemaVersion: 1,
+      source: "calendar",
+      capturedAt: 0,
+      body: { type: "calendar", data: { summary: "x" } },
+    });
+
+    agent.routeConvosContentType(message, conv(), false);
+    agent.routeConvosContentType(message, conv(), true);
+
+    expect(events.filter((e) => e.event === "connection_payload")).toHaveLength(1);
+  });
+
+  it("advances lastMessageTimestampNs so subsequent catchup queries skip the same message", () => {
+    const { agent } = createTestAgent();
+    const message = mockDecoded("capability_request_result", {
+      version: 1,
+      requestId: "req-1",
+      status: "approved",
+      subject: "calendar",
+      capability: "read",
+      providers: ["device.calendar"],
+    });
+
+    agent.routeConvosContentType(message, conv(), false);
+
+    expect(agent.lastMessageTimestampNs).toBe(BigInt(sentAt.getTime()) * 1_000_000n);
+  });
+
+  it("emits typing on the live stream but skips it on catchup", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("typing_indicator", { isTyping: true });
+
+    agent.routeConvosContentType(message, conv(), false);
+    expect(events.find((e) => e.event === "typing")).toBeDefined();
+
+    events.length = 0;
+    agent.routeConvosContentType(message, conv(), true);
+    expect(events.find((e) => e.event === "typing")).toBeUndefined();
+  });
+
+  it("emits explode_notice and tags catchup runs", () => {
+    const { agent, events } = createTestAgent();
+    const expiresAt = "2026-05-01T00:00:00.000Z";
+    const message = mockDecoded("explode_settings", { expiresAt });
+
+    agent.routeConvosContentType(message, conv(), true);
+    const evt = events.find((e) => e.event === "explode_notice");
+    expect(evt).toMatchObject({ event: "explode_notice", expiresAt, catchup: true });
+  });
+
+  it("returns false for content types it doesn't know about", () => {
+    const { agent } = createTestAgent();
+    const message = {
+      id: "msg-text",
+      senderInboxId: "other",
+      contentType: { authorityId: "xmtp.org", typeId: "text", versionMajor: 1, versionMinor: 0 },
+      content: "hello",
+      sentAt,
+    } as any;
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(false);
+  });
+});
