@@ -748,6 +748,45 @@ agent                                       iOS device
 
 The agent picks the `invocationId` and uses it to correlate the reply. The device echoes the same `invocationId` on the result so multiple in-flight invocations don't get confused. If the agent's invocation references a `kind` that isn't enabled for the conversation, the device replies with `status: "capability_not_enabled"` rather than executing.
 
+#### Discovering Enabled Capabilities
+
+There is no capability-advertisement content type — agents discover what's available by observing payloads and probing invocations.
+
+**Capabilities are a private per-conversation gate on the device, with four independent dimensions:**
+
+| Capability raw | Meaning |
+| -------------- | ------- |
+| `read` | The source may publish `ConnectionPayload` messages into this conversation |
+| `write_create` | Actions that create a new record (e.g. `create_event`, `create_calendar`, `create_contact`) |
+| `write_update` | Actions that modify an existing record (e.g. `update_event`) |
+| `write_delete` | Actions that destroy a record (e.g. `delete_event`) |
+
+Each `ActionSchema` declares which capability it consumes — `create_event` and `create_calendar` both require `calendar.write_create`; `update_event` requires `calendar.write_update`; `delete_event` requires `calendar.write_delete`. A user can enable any subset (for example, read + create but not delete).
+
+**Read capability is announced implicitly.** When the user enables `(kind, read, conversation)`, iOS's source starts publishing `ConnectionPayload` messages of that source into the conversation. The first inbound payload with `source: "calendar"` is the agent's proof that calendar reads are enabled here. Stop seeing payloads for a while? Don't infer revocation from silence — the source may simply have nothing new to report. The user revoking read does not generate a teardown message; the agent just stops receiving payloads.
+
+**Write capabilities are discovered by probing.** Send the invocation and read back the status:
+
+| Result status | Agent action |
+| ------------- | ------------ |
+| `success` | Enabled and executed; consume `result` |
+| `capability_not_enabled` | Capability is off — ask the user in chat to enable it. The `errorMessage` carries the specific capability raw value, so you can be precise ("please enable calendar create") |
+| `unknown_action` | Either the action name is wrong, or this iOS build doesn't expose this `(kind, action)` pair (e.g. older app version), or the invocation's `schemaVersion` is newer than the device knows. Treat as unsupported on this device. |
+| `authorization_denied` | Always-confirm is on and the user said no this time. Don't retry the same invocation without user prompting. |
+| `requires_confirmation` | Always-confirm is on but the device couldn't surface the prompt (app backgrounded, no handler). Retry later, or ask the user to open Convos. |
+| `capability_revoked` | Was enabled at gate-check, off at execution. Treat the same as `capability_not_enabled`. |
+| `execution_failed` | Capability was on but the underlying iOS framework errored. `errorMessage` carries the detail; report verbatim, do not auto-retry. |
+
+**Action schemas don't travel over the wire.** `ConnectionsManager.actionSchemas(for:)` is in-process on iOS — agents must know the schema for an action ahead of time. The canonical source is each iOS `<Kind>ActionSchemas.swift` (e.g. `CalendarActionSchemas.swift`); this skill keeps a documented snapshot for the kinds users care about, starting with Calendar below.
+
+**Pattern for a polite agent:**
+
+1. On joining a conversation, listen for `ConnectionPayload` messages to learn which `kind`s the user has enabled for reads.
+2. When the agent has a write it wants to do, just send the invocation. Don't ask for permission first — the device's gate is the source of truth.
+3. If the result is `capability_not_enabled`, send a chat message naming the specific capability and how to enable it ("I'd like to add an event to your calendar — turn on Calendar → Create in Convos when you're ready"), then back off until you see a related payload (rough proxy for the user having opened the connection settings).
+4. If the result is `unknown_action`, log it but don't pester the user — their iOS build can't run that action regardless.
+5. Do not store an internal "is enabled" cache for longer than a single transaction; the user can toggle it off in Settings without notice. The wire is the cache.
+
 Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink`. Agents must know the schema for the action they're invoking ahead of time.
 
 Other kinds expose actions in the same shape — short examples from the iOS package:
