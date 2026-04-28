@@ -355,6 +355,26 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       return true;
     }
 
+    // Read receipts are high-frequency ephemeral signals — like typing,
+    // only the latest matters. Skip on catchup so reconnects don't replay
+    // every receipt that fired while we were offline; agents that want
+    // historical read state can query `last-read-times`.
+    if (
+      message.contentType.authorityId === "xmtp.org" &&
+      message.contentType.typeId === "read_receipt"
+    ) {
+      if (!catchup) {
+        this.emit({
+          event: "read_receipt",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          sentAt: message.sentAt.toISOString(),
+        });
+      }
+      return true;
+    }
+
     // For non-ephemeral types: dedupe across live ↔ catchup, then
     // advance the watermark so subsequent catchup queries skip this id.
     const handled = (() => {

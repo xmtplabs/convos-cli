@@ -1185,4 +1185,44 @@ describe("routeConvosContentType", () => {
     const evt = events.find((e) => e.event === "profile_update");
     expect(evt!.name).toBe("");
   });
+
+  function readReceiptMessage(overrides: any = {}) {
+    return {
+      id: `msg-rr-${Math.random().toString(36).slice(2, 8)}`,
+      senderInboxId: "other",
+      contentType: { authorityId: "xmtp.org", typeId: "read_receipt", versionMajor: 1, versionMinor: 0 },
+      content: {},
+      sentAt,
+      ...overrides,
+    } as any;
+  }
+
+  it("emits read_receipt for inbound xmtp.org/read_receipt", () => {
+    const { agent, events } = createTestAgent();
+    const message = readReceiptMessage();
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "read_receipt");
+    expect(evt).toMatchObject({
+      event: "read_receipt",
+      id: message.id,
+      senderInboxId: "other",
+      conversationId: "conv-123",
+      sentAt: sentAt.toISOString(),
+    });
+  });
+
+  it("skips read_receipt on catchup but still consumes it", () => {
+    const { agent, events } = createTestAgent();
+    const message = readReceiptMessage();
+
+    expect(agent.routeConvosContentType(message, conv(), true)).toBe(true);
+    expect(events.find((e) => e.event === "read_receipt")).toBeUndefined();
+  });
+
+  it("does not advance the watermark for read_receipt traffic", () => {
+    const { agent } = createTestAgent();
+    agent.routeConvosContentType(readReceiptMessage(), conv(), false);
+    expect(agent.lastMessageTimestampNs).toBe(0n);
+  });
 });
