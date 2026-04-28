@@ -7,7 +7,12 @@ import { getIdentityAndClient } from "../../utils/client.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { serializeAppData } from "../../utils/metadata.js";
 import { emojiForIdentifier } from "../../utils/emoji.js";
-import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
+import {
+  sendProfileUpdate,
+  MemberKind,
+  parseMetadataFlags,
+  type ProfileMetadata,
+} from "../../utils/profileMessages.js";
 import { randomAlphanumeric } from "../../utils/random.js";
 
 export default class ConversationsCreate extends ConvosBaseCommand {
@@ -39,6 +44,11 @@ If no identity exists yet, one is created automatically.`;
         '<%= config.bin %> <%= command.id %> --name "Bot" --attestation <sig> --attestation-ts <iso8601> --attestation-kid <kid>',
       description: "Create with pre-signed attestation metadata",
     },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> --name "Bot" --metadata instanceId=abc123 --metadata version=2',
+      description: "Create with custom profile metadata",
+    },
   ];
 
   static flags = {
@@ -68,6 +78,14 @@ If no identity exists yet, one is created automatically.`;
       description: "Profile image URL to use in this conversation",
       helpValue: "<url>",
     }),
+    metadata: Flags.string({
+      description:
+        "Set a metadata field on the creator profile (key=value). " +
+        'Value is auto-typed: "true"/"false" → bool, numeric → number, else string. ' +
+        "Repeat for multiple fields.",
+      helpValue: "<key=value>",
+      multiple: true,
+    }),
     attestation: Flags.string({
       description: "Base64url-encoded Ed25519 attestation signature",
       helpValue: "<signature>",
@@ -93,6 +111,9 @@ If no identity exists yet, one is created automatically.`;
       config,
       this.getConvosHome(),
     );
+
+    const parsedMetadata = parseMetadataFlags(flags.metadata, (msg) => this.error(msg))
+      ?.parsedMetadata;
 
     const permissionsMap: Record<string, GroupPermissionsOptions> = {
       "all-members": GroupPermissionsOptions.Default,
@@ -148,19 +169,21 @@ If no identity exists yet, one is created automatically.`;
         }
       }
 
-      let attestationMeta: ProfileMetadata | undefined;
+      // Merge --metadata flags with attestation metadata if all three flags are present
+      let allMetadata = parsedMetadata;
       if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
-        attestationMeta = {
+        const attestationMeta: ProfileMetadata = {
           attestation: { type: "string", value: flags.attestation },
           attestation_ts: { type: "string", value: flags["attestation-ts"] },
           attestation_kid: { type: "string", value: flags["attestation-kid"] },
         };
+        allMetadata = { ...(allMetadata ?? {}), ...attestationMeta };
       }
 
       await sendProfileUpdate(group, {
         ...(profileName && { name: profileName }),
         ...(encryptedImage && { encryptedImage }),
-        ...(attestationMeta && { metadata: attestationMeta }),
+        ...(allMetadata && Object.keys(allMetadata).length > 0 && { metadata: allMetadata }),
         memberKind: MemberKind.Agent,
       });
     } catch {

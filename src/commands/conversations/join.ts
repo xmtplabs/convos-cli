@@ -4,7 +4,12 @@ import { ConvosBaseCommand } from "../../baseCommand.js";
 import { getIdentityAndClient } from "../../utils/client.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
-import { sendProfileUpdate, MemberKind, type ProfileMetadata } from "../../utils/profileMessages.js";
+import {
+  sendProfileUpdate,
+  MemberKind,
+  parseMetadataFlags,
+  type ProfileMetadata,
+} from "../../utils/profileMessages.js";
 import {
   JoinRequestCodec,
   type JoinRequestContent,
@@ -117,34 +122,9 @@ slug as query parameter 'i'.`;
     const { args, flags } = await this.parse(ConversationsJoin);
     const config = this.getConvosConfig();
 
-    let parsedMetadata: ProfileMetadata | undefined;
-    let joinMetadata: Record<string, string> | undefined;
-    if (flags.metadata && flags.metadata.length > 0) {
-      parsedMetadata = {};
-      joinMetadata = {};
-      for (const entry of flags.metadata) {
-        const eqIdx = entry.indexOf("=");
-        if (eqIdx === -1) {
-          this.error(`Invalid metadata format: "${entry}". Expected key=value`);
-        }
-        const key = entry.slice(0, eqIdx);
-        const rawValue = entry.slice(eqIdx + 1);
-
-        if (!key) {
-          this.error(`Empty metadata key in "${entry}"`);
-        }
-
-        joinMetadata[key] = rawValue;
-
-        if (rawValue === "true" || rawValue === "false") {
-          parsedMetadata[key] = { type: "bool", value: rawValue === "true" };
-        } else if (rawValue !== "" && !isNaN(Number(rawValue))) {
-          parsedMetadata[key] = { type: "number", value: Number(rawValue) };
-        } else {
-          parsedMetadata[key] = { type: "string", value: rawValue };
-        }
-      }
-    }
+    const meta = parseMetadataFlags(flags.metadata, (msg) => this.error(msg));
+    const parsedMetadata = meta?.parsedMetadata;
+    const joinMetadata = meta?.joinMetadata;
 
     const invite = parseInvite(args.invite);
 
