@@ -789,6 +789,92 @@ Each `ActionSchema` declares which capability it consumes — `create_event` and
 
 Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink`. Agents must know the schema for the action they're invoking ahead of time.
 
+#### Capability Resolution (forthcoming)
+
+iOS is migrating to a unified subject/provider model that lets cloud-OAuth providers (Composio-linked services like Google Calendar, Strava, Fitbit) satisfy the same capability requests that today route only to device frameworks. The Swift type surface landed in [convos-ios#771](https://github.com/xmtplabs/convos-ios/pull/771) (foundation only — no behavior change), and follow-up PRs will add the wire codecs and the routing layer. **Nothing on the CLI wire has changed yet** — the three codecs documented above are still the entire surface area. Document this section as forward planning.
+
+##### Subjects vs. kinds
+
+`ConnectionKind` (the wire field on `ConnectionInvocation` and `ConnectionPayload` today) describes a **device** data source. `CapabilitySubject` (the upcoming routing key) describes what an agent is asking for, agnostic of device vs. cloud. They're deliberately separate enums:
+
+| `ConnectionKind` (wire today) | `CapabilitySubject` (upcoming) | Notes |
+| ----------------------------- | ------------------------------ | ----- |
+| `health` | `fitness` | Renamed user-facing; the same Apple Health `DataSource` becomes one provider for the `fitness` subject |
+| `home_kit` | `home` | Renamed user-facing |
+| `screen_time` | `screen_time` | Same |
+| `calendar` / `contacts` / `location` / `photos` / `music` | identical | |
+| `motion` | _(no equivalent)_ | Motion is device-only telemetry; doesn't surface as a user-facing subject |
+| _(no equivalent)_ | `tasks`, `mail` | Subjects without a device counterpart yet |
+
+When the wire migration ships, `ConnectionInvocation` will gain an optional `subject` field. During the transition `kind == "calendar"` implies `subject == "calendar"`; once routing is fully subject-based, `kind` becomes device-specific and `subject` is the source of truth. The CLI will be updated then; for now keep emitting `kind` as documented.
+
+##### Providers and the registry
+
+A `CapabilityProvider` is a concrete way to satisfy a subject. Provider IDs are dotted strings:
+
+- `device.calendar`, `device.contacts`, `device.health`, … (registered by `ConnectionsManager` at startup, one per `ConnectionKind`)
+- `composio.google_calendar`, `composio.strava`, `composio.fitbit`, … (registered by the cloud-OAuth subsystem on link, removed on unlink)
+
+Each provider declares a `Set<ConnectionCapability>` describing which verbs it supports — a read-only Strava provider just publishes `[read]`. A user can have several providers linked for the same subject (Apple Calendar + Google Calendar + Outlook), so the resolver picks one (or many, for federating reads) per `(subject, conversation, capability)`.
+
+##### Resolution and read federation
+
+A resolution row binds `(subject, conversationId, capability)` to a `Set<ProviderID>`. The cardinality matrix from the PRD:
+
+| `subject.allowsReadFederation` | Capability | Allowed set size |
+| ------------------------------ | ---------- | ---------------- |
+| `false` (default) | `read` | exactly 1 |
+| `false` | any write | exactly 1 |
+| `true` | `read` | ≥ 1 |
+| `true` | any write | exactly 1 (writes never federate) |
+
+Only `fitness` opts in to read federation in v1 — Strava + Fitbit + Apple Health summed across a week is the natural agent ask. Every other subject (calendar, contacts, photos, music, location, home, screen_time, mail, tasks) is single-provider for every verb. The default is conservative because flipping a subject to `true` later is non-breaking; the reverse is breaking.
+
+For federating subjects, each verb is independent: read can resolve to `{Strava, Fitbit}` while `write_create` is `{Strava}`.
+
+##### What's coming on the wire
+
+These shapes are committed in the PRD but not yet implemented on iOS. Treat as planning only:
+
+**`convos.org/capability_request:1.0`** — agent → user, "may I have this capability?"
+
+```jsonc
+{
+  "requestId": "agent-1-cap-001",
+  "subject": "calendar",                        // CapabilitySubject raw
+  "capability": "read",                         // ConnectionCapability raw
+  "rationale": "To summarize your week",        // shown verbatim on the picker
+  "preferredProviders": ["device.calendar"]     // optional agent hint
+}
+```
+
+**`convos.org/capability_request_result:1.0`** — user → agent, picker outcome.
+
+```jsonc
+{
+  "requestId": "agent-1-cap-001",
+  "status": "approved",                         // "approved" | "denied" | "cancelled"
+  "subject": "calendar",
+  "capability": "read",
+  "providers": ["device.calendar"]              // size 1 or ≥ 1 for federating reads
+}
+```
+
+**`profile.metadata["capabilities"]`** — unified manifest published on each `ProfileUpdate`. Lists every provider available to the sender with `linked`/`available`/`resolved.<verb>` flags so the agent can plan tool calls without speculative probing. See the [PRD](https://github.com/xmtplabs/convos-ios/blob/jarod/convos-connections-squashed/docs/plans/capability-resolution.md#runtime-capabilities-manifest) for the full shape; the CLI will surface this through `profile.metadata` once iOS ships it.
+
+##### What this changes for agents (eventually)
+
+- **No more probe-driven discovery.** Once the manifest ships, agents read `metadata["capabilities"]` to learn which providers are linked and which verbs are resolved for the current conversation. The "polite agent" pattern under "Discovering Enabled Capabilities" still works as a fallback for agents talking to older iOS builds, but it's no longer load-bearing.
+- **Pre-emptive consent via `capability_request`.** Instead of firing a write invocation and getting `capability_not_enabled`, an agent can post a `capability_request` first to surface the picker; the user's choice persists per `(subject, conversation, capability)` so subsequent invocations land cleanly.
+- **Federated reads aggregate.** When fitness reads resolve to multiple providers, the device fans the read out and returns one combined payload with a `partialFailures` array if any provider errored. Agents handling fitness data should expect that shape and not assume single-source results.
+- **Provider unlink is silent.** When the user unlinks a cloud provider, resolutions referencing it are pruned — single-element rows delete (next invocation re-prompts), multi-element rows shrink. No teardown message hits the wire.
+
+When the wire codecs land (next iOS PR in the stack), this skill will gain a corresponding `Sending a Capability Request from the CLI` section and the CLI will register two new codecs.
+
+---
+
+#### Action Schema Reference
+
 Other kinds expose actions in the same shape — short examples from the iOS package:
 
 - Contacts: `create_contact(givenName, familyName, email, phone, …)`
