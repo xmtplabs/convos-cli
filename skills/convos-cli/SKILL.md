@@ -748,13 +748,80 @@ agent                                       iOS device
 
 The agent picks the `invocationId` and uses it to correlate the reply. The device echoes the same `invocationId` on the result so multiple in-flight invocations don't get confused. If the agent's invocation references a `kind` that isn't enabled for the conversation, the device replies with `status: "capability_not_enabled"` rather than executing.
 
-Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink` (e.g. `create_event`, `log_water`, `save_image`). Agents must know the schema for the action they're invoking ahead of time. Examples from the iOS package:
+Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink`. Agents must know the schema for the action they're invoking ahead of time.
 
-- Calendar: `create_event(title, startDate, endDate, timeZone, isAllDay, …)`
+Other kinds expose actions in the same shape — short examples from the iOS package:
+
 - Contacts: `create_contact(givenName, familyName, email, phone, …)`
 - Health: `log_water(amount, unit)`, `log_workout(activityType, startDate, endDate, …)`
 - Photos: `save_image(url, …)`
 - Music: `play(title, artist, …)`
+
+##### Calendar action schemas
+
+The Calendar `DataSink` exposes four actions. Required inputs in **bold**; outputs are returned in `ConnectionInvocationResult.result` on `status: "success"`.
+
+**`create_event`** — write a new event.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`title`** | `string` | |
+| **`startDate`** | `iso8601` | RFC 3339 with offset, e.g. `2026-05-01T15:00:00-07:00` |
+| **`endDate`** | `iso8601` | RFC 3339 with offset |
+| **`timeZone`** | `string` | IANA identifier, e.g. `America/Los_Angeles` |
+| `isAllDay` | `bool` | Defaults to false |
+| `location` | `string` | Free-form |
+| `notes` | `string` | |
+| `calendarId` | `string` | Target calendar identifier. Omit to use the user's default calendar |
+| `calendarTitle` | `string` | Target calendar title; collisions return `execution_failed` |
+
+Outputs: `eventId` (string), `calendarId` (string — identifier of the calendar the event was written to).
+
+**`update_event`** — patch an existing event. All inputs except `eventId` are optional; pass only the fields you're changing.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`eventId`** | `string` | Identifier returned from a prior `create_event` |
+| `title` | `string` | |
+| `startDate` | `iso8601` | RFC 3339 with offset |
+| `endDate` | `iso8601` | RFC 3339 with offset |
+| `timeZone` | `string` | Required if `startDate` or `endDate` is supplied |
+| `location` | `string` | |
+| `notes` | `string` | |
+| `span` | `enum` | `thisEvent` or `futureEvents`. Defaults to `futureEvents` |
+
+Outputs: `eventId` (string).
+
+**`delete_event`** — remove an event.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`eventId`** | `string` | |
+| `span` | `enum` | `thisEvent` or `futureEvents`. Defaults to `futureEvents` |
+
+Outputs: none (empty `result` map on success).
+
+**`create_calendar`** — create a new calendar that subsequent `create_event` invocations can target via the returned `calendarId`.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`title`** | `string` | Display name of the new calendar |
+| `color` | `string` | Hex color, e.g. `"#FF8800"` or `"#FF8800AA"`. Falls back to the source's default |
+| `sourceType` | `enum` | `iCloud` or `local`. Defaults to iCloud if available, falling back to local |
+
+Outputs: `calendarId` (string — `EKCalendar.calendarIdentifier`).
+
+Chained example — provision a per-conversation calendar then write into it:
+
+```jsonl
+{"type":"connection-invoke","kind":"calendar","action":"create_calendar","invocationId":"req-create-cal","arguments":{"title":{"type":"string","value":"Team Standups"},"color":{"type":"string","value":"#FF8800"},"sourceType":{"type":"enum","value":"iCloud"}}}
+```
+
+After the device returns `{"status":"success", "result":{"calendarId":{"type":"string","value":"<cal-id>"}}}`, plug that `calendarId` into `create_event`:
+
+```jsonl
+{"type":"connection-invoke","kind":"calendar","action":"create_event","invocationId":"req-evt-1","arguments":{"title":{"type":"string","value":"Daily standup"},"startDate":{"type":"iso8601","value":"2026-05-04T09:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-04T09:15:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"},"calendarId":{"type":"string","value":"<cal-id>"}}}
+```
 
 #### ConnectionPayload
 
