@@ -725,3 +725,151 @@ describe("handleCommand connection-invoke", () => {
     expect(events.at(-1)!.message).toMatch(/Invalid 'issuedAt'/);
   });
 });
+
+// ─── handleCommand: capability-request ───
+
+describe("handleCommand capability-request", () => {
+  it("encodes and sends a CapabilityRequest with the expected wire shape", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-cap-1") });
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "calendar",
+        capability: "read",
+        rationale: "To summarize your week",
+        requestId: "req-cap-1",
+        preferredProviders: ["device.calendar"],
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).toHaveBeenCalledTimes(1);
+    const encoded = group.send.mock.calls[0][0];
+    expect(encoded.type).toEqual({
+      authorityId: "convos.org",
+      typeId: "capability_request",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const payload = JSON.parse(new TextDecoder().decode(encoded.content));
+    expect(payload).toEqual({
+      version: 1,
+      requestId: "req-cap-1",
+      subject: "calendar",
+      capability: "read",
+      rationale: "To summarize your week",
+      preferredProviders: ["device.calendar"],
+    });
+
+    const sent = events.find((e) => e.event === "sent" && e.type === "capability-request");
+    expect(sent).toBeDefined();
+    expect(sent!.id).toBe("msg-cap-1");
+    expect(sent!.requestId).toBe("req-cap-1");
+  });
+
+  it("auto-generates a requestId when none is supplied", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-cap-2") });
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "fitness",
+        capability: "read",
+        rationale: "To summarize training",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    const sent = events.find((e) => e.event === "sent");
+    expect(sent!.requestId).toMatch(/^agent-[0-9a-f]{8}$/);
+  });
+
+  it("rejects unknown subjects", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "telepathy",
+        capability: "read",
+        rationale: "x",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.event).toBe("error");
+    expect(events.at(-1)!.message).toMatch(/'subject' must be one of/);
+  });
+
+  it("rejects unknown capabilities", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "calendar",
+        capability: "write_admin",
+        rationale: "x",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/'capability' must be one of/);
+  });
+
+  it("requires a non-empty rationale", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "calendar",
+        capability: "read",
+        rationale: "",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/non-empty 'rationale'/);
+  });
+
+  it("rejects malformed preferredProviders", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "fitness",
+        capability: "read",
+        rationale: "x",
+        preferredProviders: ["composio.strava", 7],
+      } as unknown as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/preferredProviders/);
+  });
+});

@@ -175,6 +175,11 @@ convos conversation send-typing-indicator <conversation-id> --stop
 convos conversation send-invocation <conversation-id> \
   --kind calendar --action create_event \
   --arguments '{"title":{"type":"string","value":"Team sync"}}'
+
+# request a capability up front (agent → user picker; reply via CapabilityRequestResult)
+convos conversation send-capability-request <conversation-id> \
+  --subject calendar --capability read \
+  --rationale "To summarize your week"
 ```
 
 ### Send Attachments
@@ -569,6 +574,8 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"explode","scheduled":"2025-03-01T00:00:00Z"}
 {"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"isAllDay":{"type":"bool","value":false}}}
 {"type":"connection-invoke","kind":"contacts","action":"create_contact","invocationId":"req-42","arguments":{}}
+{"type":"capability-request","subject":"calendar","capability":"read","rationale":"To summarize your week"}
+{"type":"capability-request","subject":"fitness","capability":"read","rationale":"To summarize training","preferredProviders":["composio.strava","composio.fitbit"]}
 {"type":"stop"}
 ```
 
@@ -585,11 +592,12 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |
 | `connection-invoke` | `kind`, `action` | `arguments` (object, default `{}`), `invocationId` (default: `agent-<8-hex>`), `issuedAt` (ISO8601, default: now) |
+| `capability-request` | `subject`, `capability`, `rationale` | `requestId` (default: `agent-<8-hex>`), `preferredProviders` (string array, max 16) |
 | `stop` | — | — |
 
 Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
 
-**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`; the result arrives as a regular message but does NOT surface through the agent's `message` event (the codec is silent), so agent code that needs to wait on a result must hook into the message stream via the library helpers.
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`; the result arrives as a regular message but does NOT surface through the agent's `message` event (the codec is silent), so agent code that needs to wait on a result must hook into the message stream via the library helpers. **capability-request** is the same shape for capability resolution: agent posts a request naming a `(subject, capability)` pair plus a human rationale, and the device replies asynchronously with a `CapabilityRequestResult` (`approved` / `denied` / `cancelled`) carrying the providers the user picked. Same silence rule applies — consume via `getCapabilityRequestResultContent()`.
 
 ### How It Works
 
@@ -789,9 +797,9 @@ Each `ActionSchema` declares which capability it consumes — `create_event` and
 
 Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink`. Agents must know the schema for the action they're invoking ahead of time.
 
-#### Capability Resolution (forthcoming)
+#### Capability Resolution
 
-iOS is migrating to a unified subject/provider model that lets cloud-OAuth providers (Composio-linked services like Google Calendar, Strava, Fitbit) satisfy the same capability requests that today route only to device frameworks. The Swift type surface landed in [convos-ios#771](https://github.com/xmtplabs/convos-ios/pull/771) (foundation only — no behavior change), and follow-up PRs will add the wire codecs and the routing layer. **Nothing on the CLI wire has changed yet** — the three codecs documented above are still the entire surface area. Document this section as forward planning.
+iOS uses a unified subject/provider model that lets cloud-OAuth providers (Composio-linked services like Google Calendar, Strava, Fitbit) satisfy the same capability requests that route to device frameworks. Two new wire codecs landed in [convos-ios#771](https://github.com/xmtplabs/convos-ios/pull/771) — `convos.org/capability_request:1.0` and `convos.org/capability_request_result:1.0` — both registered on every CLI client and filtered out of the chat stream alongside the existing connection codecs. The wider routing layer (resolver dispatching `ConnectionInvocation` by subject, the `profile.metadata["capabilities"]` manifest) is rolling out incrementally; the wire-level pieces an agent needs to actively use today are the two codecs documented in this section.
 
 ##### Subjects vs. kinds
 
@@ -806,7 +814,7 @@ iOS is migrating to a unified subject/provider model that lets cloud-OAuth provi
 | `motion` | _(no equivalent)_ | Motion is device-only telemetry; doesn't surface as a user-facing subject |
 | _(no equivalent)_ | `tasks`, `mail` | Subjects without a device counterpart yet |
 
-When the wire migration ships, `ConnectionInvocation` will gain an optional `subject` field. During the transition `kind == "calendar"` implies `subject == "calendar"`; once routing is fully subject-based, `kind` becomes device-specific and `subject` is the source of truth. The CLI will be updated then; for now keep emitting `kind` as documented.
+When the routing migration ships, `ConnectionInvocation` will gain an optional `subject` field. During the transition `kind == "calendar"` implies `subject == "calendar"`; once routing is fully subject-based, `kind` becomes device-specific and `subject` is the source of truth. The CLI will be updated then; for now `ConnectionInvocation` still uses `kind` as documented above. `CapabilityRequest` already routes by subject because it never had a `kind` field to migrate.
 
 ##### Providers and the registry
 
@@ -832,44 +840,88 @@ Only `fitness` opts in to read federation in v1 — Strava + Fitbit + Apple Heal
 
 For federating subjects, each verb is independent: read can resolve to `{Strava, Fitbit}` while `write_create` is `{Strava}`.
 
-##### What's coming on the wire
+##### Wire shape: `convos.org/capability_request:1.0`
 
-These shapes are committed in the PRD but not yet implemented on iOS. Treat as planning only:
+Agent → user, "may I have this capability?". JSON-encoded.
 
-**`convos.org/capability_request:1.0`** — agent → user, "may I have this capability?"
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `version` | `int` | Currently `1`. Decoders reject anything higher to keep hostile or future senders from smuggling fields the picker can't render. |
+| `requestId` | `string` | Caller-chosen correlation key. Echoed back on the result. |
+| `subject` | `CapabilitySubject` raw | `calendar`, `fitness`, `home`, etc. — the user-facing routing key. |
+| `capability` | `ConnectionCapability` raw | `read`, `write_create`, `write_update`, or `write_delete`. |
+| `rationale` | `string` | Shown verbatim on the picker card. **Truncated at 500 chars** on encode and decode — going over the cap doesn't fail, but the user only sees the prefix. |
+| `preferredProviders` | `string[]` (optional) | Agent hint — provider IDs the resolver should default to (e.g. `["device.calendar"]` or `["composio.strava", "composio.fitbit"]`). **Truncated at 16 entries.** Resolver may override if the hint isn't applicable (provider unlinked, doesn't match the verb's federation rule, etc.). |
 
-```jsonc
-{
-  "requestId": "agent-1-cap-001",
-  "subject": "calendar",                        // CapabilitySubject raw
-  "capability": "read",                         // ConnectionCapability raw
-  "rationale": "To summarize your week",        // shown verbatim on the picker
-  "preferredProviders": ["device.calendar"]     // optional agent hint
-}
-```
+Fallback string (rendered when a client doesn't have the codec): `"The assistant is requesting access to your <subject>"` — subject lowercased.
 
-**`convos.org/capability_request_result:1.0`** — user → agent, picker outcome.
+##### Wire shape: `convos.org/capability_request_result:1.0`
 
-```jsonc
-{
-  "requestId": "agent-1-cap-001",
-  "status": "approved",                         // "approved" | "denied" | "cancelled"
-  "subject": "calendar",
-  "capability": "read",
-  "providers": ["device.calendar"]              // size 1 or ≥ 1 for federating reads
-}
-```
+Device → agent picker outcome. Always emitted, even on cancel/deny, so the agent can correlate by `requestId` and stop waiting.
 
-**`profile.metadata["capabilities"]`** — unified manifest published on each `ProfileUpdate`. Lists every provider available to the sender with `linked`/`available`/`resolved.<verb>` flags so the agent can plan tool calls without speculative probing. See the [PRD](https://github.com/xmtplabs/convos-ios/blob/jarod/convos-connections-squashed/docs/plans/capability-resolution.md#runtime-capabilities-manifest) for the full shape; the CLI will surface this through `profile.metadata` once iOS ships it.
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `version` | `int` | Currently `1`. |
+| `requestId` | `string` | Echoes the request's `requestId`. |
+| `status` | `string` | `approved` \| `denied` \| `cancelled`. |
+| `subject` / `capability` | as above | |
+| `providers` | `string[]` | Empty for `denied` / `cancelled`. For `approved`, size 1 for non-federating subjects and write verbs, ≥ 1 for federating-subject reads. **Truncated at 16 entries.** Reflects what the resolver actually persisted — agents that supplied a `preferredProviders` hint should compare against this to confirm whether their hint was honored. |
 
-##### What this changes for agents (eventually)
+Fallback strings:
 
-- **No more probe-driven discovery.** Once the manifest ships, agents read `metadata["capabilities"]` to learn which providers are linked and which verbs are resolved for the current conversation. The "polite agent" pattern under "Discovering Enabled Capabilities" still works as a fallback for agents talking to older iOS builds, but it's no longer load-bearing.
-- **Pre-emptive consent via `capability_request`.** Instead of firing a write invocation and getting `capability_not_enabled`, an agent can post a `capability_request` first to surface the picker; the user's choice persists per `(subject, conversation, capability)` so subsequent invocations land cleanly.
-- **Federated reads aggregate.** When fitness reads resolve to multiple providers, the device fans the read out and returns one combined payload with a `partialFailures` array if any provider errored. Agents handling fitness data should expect that shape and not assume single-source results.
+- `approved`: `"Approved <subject> access"`
+- `denied`: `"Declined <subject> access"`
+- `cancelled`: `"Cancelled <subject> access request"`
+
+##### `profile.metadata["capabilities"]` manifest (in flight)
+
+A unified per-sender manifest, published on every `ProfileUpdate`, listing every provider available to the sender plus per-verb `resolved` flags so agents can plan tool calls without speculative probing. The wire codec for capability requests has shipped (above), but the manifest writer is still rolling out — the CLI will start surfacing it through `profile.metadata` once iOS commits to the shape. See the [PRD](https://github.com/xmtplabs/convos-ios/blob/jarod/convos-connections-squashed/docs/plans/capability-resolution.md#runtime-capabilities-manifest) for the planned structure.
+
+##### What this changes for agents
+
+- **Pre-emptive consent.** Instead of firing a write invocation and getting `capability_not_enabled` back, an agent can post a `capability_request` first; the user's pick persists per `(subject, conversation, capability)`, so subsequent invocations on the same `ConnectionKind` (until the manifest's subject-routing migration completes) land cleanly.
+- **Probe-driven discovery is still load-bearing for now.** Until the `metadata["capabilities"]` manifest ships, the "polite agent" pattern under "Discovering Enabled Capabilities" remains the right way to learn what's enabled. Sending a `capability_request` is a complement, not a replacement — use it when you know up front you'll need a capability and want to surface the picker before the user is mid-conversation.
+- **Federated reads aggregate.** When fitness reads resolve to multiple providers, the device fans the read out and returns one combined payload with a `partialFailures` array if any provider errored. Agents handling fitness data should expect that shape rather than assuming a single-source result.
 - **Provider unlink is silent.** When the user unlinks a cloud provider, resolutions referencing it are pruned — single-element rows delete (next invocation re-prompts), multi-element rows shrink. No teardown message hits the wire.
 
-When the wire codecs land (next iOS PR in the stack), this skill will gain a corresponding `Sending a Capability Request from the CLI` section and the CLI will register two new codecs.
+##### Sending a CapabilityRequest from the CLI
+
+```bash
+# request calendar reads
+convos conversation send-capability-request <conversation-id> \
+  --subject calendar --capability read \
+  --rationale "To summarize your week"
+
+# request fitness reads with a federation hint (only fitness allows multi-provider reads)
+convos conversation send-capability-request <conversation-id> \
+  --subject fitness --capability read \
+  --rationale "To summarize training" \
+  --preferred-providers composio.strava,composio.fitbit
+
+# request a write capability with a pinned correlation id
+convos conversation send-capability-request <conversation-id> \
+  --subject contacts --capability write_create \
+  --rationale "To save the lead you mentioned" \
+  --request-id req-42 --json
+```
+
+`--subject` and `--capability` are validated against the documented enum sets; `--rationale` is required and gets truncated at 500 chars on encode (matches the iOS cap). `--preferred-providers` takes a comma-separated list of provider IDs and is capped at 16 entries. `--request-id` defaults to a random `cli-<8-hex>` token; pin it when you need to correlate the eventual `CapabilityRequestResult` deterministically.
+
+##### Sending a CapabilityRequest from `agent serve`
+
+The agent stdin protocol exposes the same path under `capability-request`:
+
+```jsonl
+{"type":"capability-request","subject":"calendar","capability":"read","rationale":"To summarize your week"}
+{"type":"capability-request","subject":"fitness","capability":"read","rationale":"To summarize training","preferredProviders":["composio.strava","composio.fitbit"]}
+{"type":"capability-request","subject":"contacts","capability":"write_create","rationale":"Saving your lead","requestId":"req-42"}
+```
+
+| Required | Optional |
+| -------- | -------- |
+| `subject`, `capability`, `rationale` | `requestId` (default: `agent-<8-hex>`), `preferredProviders` (string array) |
+
+The agent emits a `sent` event of `type: "capability-request"` carrying both the message `id` and the `requestId`. The eventual `CapabilityRequestResult` arrives as a regular message but is filtered from the chat stream (codec is silent), so agent code that wants to react to it must consume `getCapabilityRequestResultContent(message)` from a stream loop, the same way it would for `ConnectionInvocationResult`.
 
 ---
 

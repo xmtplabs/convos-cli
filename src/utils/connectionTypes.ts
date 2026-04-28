@@ -128,6 +128,36 @@ export function assertArgumentValue(
   }
 }
 
+// ─── ConnectionCapability ───
+
+/**
+ * Verbs an action can require, orthogonal to its `ConnectionKind`. A user
+ * grants capabilities per `(kind, conversation)` independently — a
+ * read-only Strava cloud provider declares `[read]`; a calendar device
+ * sink declares all four. Used as the discriminator for capability
+ * resolution and as the wire-level field on `CapabilityRequest`.
+ *
+ * Raw values match `ConnectionCapability` on iOS — `read` plus three
+ * snake_case write verbs.
+ */
+export type ConnectionCapability =
+  | "read"
+  | "write_create"
+  | "write_update"
+  | "write_delete";
+
+export const ALL_CONNECTION_CAPABILITIES: readonly ConnectionCapability[] = [
+  "read",
+  "write_create",
+  "write_update",
+  "write_delete",
+] as const;
+
+/** True for every capability except `read`. */
+export function isWriteCapability(capability: ConnectionCapability): boolean {
+  return capability !== "read";
+}
+
 // ─── InvocationStatus ───
 
 /**

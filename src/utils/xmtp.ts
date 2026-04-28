@@ -25,6 +25,8 @@ import { isExplodeSettingsMessage } from "./explodeSettings.js";
 import { isConnectionPayloadMessage } from "./connectionPayload.js";
 import { isConnectionInvocationMessage } from "./connectionInvocation.js";
 import { isConnectionInvocationResultMessage } from "./connectionInvocationResult.js";
+import { isCapabilityRequestMessage } from "./capabilityRequest.js";
+import { isCapabilityRequestResultMessage } from "./capabilityRequestResult.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -442,6 +444,9 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
   if (isConnectionPayloadMessage(message)) return false;
   if (isConnectionInvocationMessage(message)) return false;
   if (isConnectionInvocationResultMessage(message)) return false;
+  // Capability resolution — also silent; the picker / agent code consumes these.
+  if (isCapabilityRequestMessage(message)) return false;
+  if (isCapabilityRequestResultMessage(message)) return false;
 
   const ct = message.contentType;
   if (ct.authorityId !== "xmtp.org") return false;

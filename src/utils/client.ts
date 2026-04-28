@@ -14,6 +14,8 @@ import { ExplodeSettingsCodec } from "./explodeSettings.js";
 import { ConnectionPayloadCodec } from "./connectionPayload.js";
 import { ConnectionInvocationCodec } from "./connectionInvocation.js";
 import { ConnectionInvocationResultCodec } from "./connectionInvocationResult.js";
+import { CapabilityRequestCodec } from "./capabilityRequest.js";
+import { CapabilityRequestResultCodec } from "./capabilityRequestResult.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -134,6 +136,8 @@ async function buildClient(
       new ConnectionPayloadCodec() as any,
       new ConnectionInvocationCodec() as any,
       new ConnectionInvocationResultCodec() as any,
+      new CapabilityRequestCodec() as any,
+      new CapabilityRequestResultCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,

@@ -82,12 +82,23 @@ import {
   type ConnectionInvocation,
 } from "../../utils/connectionInvocation.js";
 import {
+  ALL_CONNECTION_CAPABILITIES,
   ALL_CONNECTION_KINDS,
   assertArgumentValue,
   dateToSwiftReference,
   type ArgumentValue,
+  type ConnectionCapability,
   type ConnectionKind,
 } from "../../utils/connectionTypes.js";
+import {
+  CapabilityRequestCodec,
+  CAPABILITY_REQUEST_SUPPORTED_VERSION,
+  type CapabilityRequest,
+} from "../../utils/capabilityRequest.js";
+import {
+  ALL_CAPABILITY_SUBJECTS,
+  type CapabilitySubject,
+} from "../../utils/capabilityTypes.js";
 
 interface SendCommand { type: "send"; text: string; replyTo?: string; }
 interface ReactCommand { type: "react"; messageId: string; emoji: string; action?: "add" | "remove"; }
@@ -123,6 +134,14 @@ interface ConnectionInvokeCommand {
   invocationId?: string;
   issuedAt?: string;
 }
+interface CapabilityRequestCommand {
+  type: "capability-request";
+  subject: string;
+  capability: string;
+  rationale: string;
+  requestId?: string;
+  preferredProviders?: string[];
+}
 interface StopCommand { type: "stop"; }
 
 export type AgentCommand =
@@ -138,6 +157,7 @@ export type AgentCommand =
   | ReadReceiptCommand
   | TypingCommand
   | ConnectionInvokeCommand
+  | CapabilityRequestCommand
   | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
@@ -1318,6 +1338,75 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             kind: invocation.kind,
             action: invocation.action.name,
             issuedAt: issuedAtDate.toISOString(),
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "capability-request": {
+          if (!cmd.subject) {
+            this.emitError("capability-request command requires 'subject' field");
+            return;
+          }
+          if (!ALL_CAPABILITY_SUBJECTS.includes(cmd.subject as CapabilitySubject)) {
+            this.emitError(
+              `capability-request 'subject' must be one of: ${ALL_CAPABILITY_SUBJECTS.join(", ")}`,
+              { subject: cmd.subject },
+            );
+            return;
+          }
+          if (!cmd.capability) {
+            this.emitError("capability-request command requires 'capability' field");
+            return;
+          }
+          if (!ALL_CONNECTION_CAPABILITIES.includes(cmd.capability as ConnectionCapability)) {
+            this.emitError(
+              `capability-request 'capability' must be one of: ${ALL_CONNECTION_CAPABILITIES.join(", ")}`,
+              { capability: cmd.capability },
+            );
+            return;
+          }
+          if (typeof cmd.rationale !== "string" || cmd.rationale.length === 0) {
+            this.emitError("capability-request command requires non-empty 'rationale' field");
+            return;
+          }
+          let preferredProviders: string[] | undefined;
+          if (cmd.preferredProviders !== undefined) {
+            if (!Array.isArray(cmd.preferredProviders)) {
+              this.emitError("capability-request 'preferredProviders' must be an array of strings");
+              return;
+            }
+            for (const id of cmd.preferredProviders) {
+              if (typeof id !== "string") {
+                this.emitError("capability-request 'preferredProviders' entries must be strings");
+                return;
+              }
+            }
+            preferredProviders = cmd.preferredProviders;
+          }
+
+          const request: CapabilityRequest = {
+            version: CAPABILITY_REQUEST_SUPPORTED_VERSION,
+            requestId: cmd.requestId ?? `agent-${randomUUID().slice(0, 8)}`,
+            subject: cmd.subject as CapabilitySubject,
+            capability: cmd.capability as ConnectionCapability,
+            rationale: cmd.rationale,
+            ...(preferredProviders && { preferredProviders }),
+          };
+
+          const codec = new CapabilityRequestCodec();
+          const encoded = codec.encode(request);
+          const requestMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: requestMessageId,
+            type: "capability-request",
+            requestId: request.requestId,
+            subject: request.subject,
+            capability: request.capability,
+            ...(request.preferredProviders && { preferredProviders: request.preferredProviders }),
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });
