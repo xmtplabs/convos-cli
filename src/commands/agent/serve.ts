@@ -42,6 +42,8 @@ import { getMimeType } from "../../utils/mime.js";
 import { parseAppData, parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import { emojiForIdentifier } from "../../utils/emoji.js";
 import {
+  getProfileUpdateContent,
+  isProfileUpdateMessage,
   sendProfileSnapshot,
   sendProfileUpdate,
   resolveProfilesFromMessages,
@@ -357,6 +359,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     // advance the watermark so subsequent catchup queries skip this id.
     const handled = (() => {
       if (isExplodeSettingsMessage(message)) return "explode" as const;
+      if (isProfileUpdateMessage(message)) return "profile_update" as const;
       if (isConnectionPayloadMessage(message)) return "connection_payload" as const;
       if (isConnectionInvocationMessage(message)) return "connection_invocation" as const;
       if (isConnectionInvocationResultMessage(message)) return "connection_result" as const;
@@ -380,6 +383,25 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           conversationId: conversation.id,
           senderInboxId: message.senderInboxId,
           expiresAt: explode.expiresAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "profile_update") {
+      const update = getProfileUpdateContent(message);
+      if (update) {
+        this.emit({
+          event: "profile_update",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          ...(update.name !== undefined && { name: update.name }),
+          ...(update.encryptedImage && { encryptedImage: update.encryptedImage }),
+          ...(update.memberKind !== undefined && { memberKind: update.memberKind }),
+          ...(update.metadata && Object.keys(update.metadata).length > 0 && { metadata: update.metadata }),
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });

@@ -506,7 +506,7 @@ export class ProfileSnapshotCodec implements ContentCodec<ProfileSnapshotContent
  * When no codec is registered, `message.content` is the raw
  * EncodedContent and we decode it ourselves.
  */
-function getProfileUpdateContent(message: DecodedMessage): ProfileUpdateContent | undefined {
+export function getProfileUpdateContent(message: DecodedMessage): ProfileUpdateContent | undefined {
   const content = message.content;
   if (!content || typeof content !== "object") return undefined;
 

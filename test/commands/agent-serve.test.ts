@@ -1114,4 +1114,75 @@ describe("routeConvosContentType", () => {
 
     expect(agent.routeConvosContentType(message, conv(), false)).toBe(false);
   });
+
+  it("emits profile_update with the changed fields and skips unset ones", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", {
+      name: "Alice (she/her)",
+      memberKind: 1,
+      metadata: {
+        timezone: { type: "string", value: "America/Los_Angeles" },
+      },
+    });
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt).toMatchObject({
+      event: "profile_update",
+      id: message.id,
+      senderInboxId: "other",
+      conversationId: "conv-123",
+      name: "Alice (she/her)",
+      memberKind: 1,
+      metadata: {
+        timezone: { type: "string", value: "America/Los_Angeles" },
+      },
+      sentAt: sentAt.toISOString(),
+    });
+    expect(evt!.encryptedImage).toBeUndefined();
+  });
+
+  it("profile_update with only encryptedImage carries just that field", () => {
+    const { agent, events } = createTestAgent();
+    const encryptedImage = {
+      url: "https://example.com/blob",
+      salt: "AAAA",
+      nonce: "BBBB",
+    };
+    const message = mockDecoded("profile_update", { encryptedImage });
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt).toMatchObject({ encryptedImage });
+    expect(evt!.name).toBeUndefined();
+    expect(evt!.metadata).toBeUndefined();
+    expect(evt!.memberKind).toBeUndefined();
+  });
+
+  it("profile_update with empty metadata object omits the metadata field", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", { name: "Bob", metadata: {} });
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt!.name).toBe("Bob");
+    expect(evt!.metadata).toBeUndefined();
+  });
+
+  it("profile_update flags catchup runs", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", { name: "Carol" });
+
+    agent.routeConvosContentType(message, conv(), true);
+    expect(events[0]!.catchup).toBe(true);
+  });
+
+  it("clearing a name (empty string) is preserved on profile_update", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", { name: "" });
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt!.name).toBe("");
+  });
 });
