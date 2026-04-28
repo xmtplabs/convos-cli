@@ -685,6 +685,222 @@ Join requests use a structured content type instead of plain text:
 
 The CLI sets `memberKind: "agent"` by default on all join requests so the creator knows a bot is joining. For backward compatibility, the CLI sends both the JoinRequestContent message and a plain text slug — older clients that don't understand the new content type will read the text fallback. When processing incoming join requests, the CLI tries JoinRequestContent first, then falls back to plain text.
 
+### ConvosConnections (Device Data Sources & Sinks)
+
+ConvosConnections lets an iOS user wire native device frameworks (HealthKit, Calendar, Contacts, Location, Photos, Music, HomeKit, Screen Time, Motion) into a conversation, so an agent in the same group can both **receive sensor data** from the device and **request writes back** to it. The wire-level handshake is three custom XMTP content codecs, all under `convos.org`. The CLI registers them on every client, so encoded messages decode into structured objects automatically rather than landing as opaque bytes. All three are silent (`shouldPush = false`) — they do **not** appear in the chat stream and do not generate notifications. Agents must reach in via the dedicated helpers (see below) instead of expecting them to surface through `agent serve`'s `message` events.
+
+#### Content Types
+
+| Content Type | Direction | Role | Fallback |
+| ------------ | --------- | ---- | -------- |
+| `convos.org/connection_payload:1.0` | device → agent | Sensor reading from a device data source | `payload.body.data.summary` |
+| `convos.org/connection_invocation:1.0` | agent → device | Request the device to execute a named action | `Action requested: <name>` |
+| `convos.org/connection_invocation_result:1.0` | device → agent | Reply to an invocation, always emitted (success or error) | `<actionName>: <status>` |
+
+All three encode their content as JSON. The TypeScript types (`ConnectionPayload`, `ConnectionInvocation`, `ConnectionInvocationResult`) ship from `@xmtp/convos-cli/utils/connectionPayload`, `.../connectionInvocation`, and `.../connectionInvocationResult`. Shared enums and the `ArgumentValue` tagged union live in `.../connectionTypes`.
+
+#### ConnectionKind
+
+`kind` (and `source` on payloads) identifies the device data source. Raw values are snake_case for compound names:
+
+| Raw value | Source |
+| --------- | ------ |
+| `health` | HealthKit |
+| `calendar` | EventKit calendars |
+| `contacts` | Contacts framework |
+| `location` | CoreLocation visits / region monitoring |
+| `photos` | PhotoKit |
+| `music` | MusicKit / MPMusicPlayerController |
+| `home_kit` | HomeKit |
+| `screen_time` | Screen Time / FamilyControls |
+| `motion` | CoreMotion activity classifier |
+
+Forward compatibility: a `ConnectionPayload` body uses a `{type, data}` discriminator. If iOS ships a new source the CLI doesn't recognize, the message still round-trips — `payload.body.type` is the new raw string and `payload.body.data` is the un-typed JSON object.
+
+#### Invocation Flow
+
+```
+agent                                       iOS device
+  |                                              |
+  |  ConnectionInvocation                        |
+  |    invocationId: "agent-1-001"               |
+  |    kind: "calendar"                          |
+  |    action: { name, arguments }               |
+  |--------------------------------------------->|
+  |                                              | (gates via per-conversation
+  |                                              |  enablement; may prompt user)
+  |                                              |
+  |              ConnectionInvocationResult      |
+  |                invocationId: "agent-1-001"   |
+  |                status: "success" | ...       |
+  |                result: { ... } | {}          |
+  |<---------------------------------------------|
+```
+
+The agent picks the `invocationId` and uses it to correlate the reply. The device echoes the same `invocationId` on the result so multiple in-flight invocations don't get confused. If the agent's invocation references a `kind` that isn't enabled for the conversation, the device replies with `status: "capability_not_enabled"` rather than executing.
+
+Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink` (e.g. `create_event`, `log_water`, `save_image`). Agents must know the schema for the action they're invoking ahead of time. Examples from the iOS package:
+
+- Calendar: `create_event(title, startDate, endDate, timeZone, isAllDay, …)`
+- Contacts: `create_contact(givenName, familyName, email, phone, …)`
+- Health: `log_water(amount, unit)`, `log_workout(activityType, startDate, endDate, …)`
+- Photos: `save_image(url, …)`
+- Music: `play(title, artist, …)`
+
+#### ConnectionPayload
+
+```ts
+interface ConnectionPayload {
+  id: string;                    // uppercase UUID
+  schemaVersion: number;         // currently 1
+  source: ConnectionKind;
+  capturedAt: number;            // Swift reference date seconds (see Wire Format)
+  body: {
+    type: ConnectionKind | string;  // unknown future kinds round-trip as string
+    data: unknown;               // source-specific shape; usually has a `summary` field
+  };
+}
+```
+
+Use `summarizeConnectionPayload(payload)` for a human-readable line — it pulls `body.data.summary` when present and falls back to `Unknown payload (<type>)`.
+
+#### ConnectionInvocation
+
+```ts
+interface ConnectionInvocation {
+  id: string;                    // uppercase UUID (envelope ID)
+  schemaVersion: number;         // currently 1
+  invocationId: string;          // agent-chosen correlation key (echoed on the result)
+  kind: ConnectionKind;
+  action: {
+    name: string;                // e.g. "create_event"
+    arguments: Record<string, ArgumentValue>;
+  };
+  issuedAt: number;              // Swift reference date seconds
+}
+```
+
+#### ConnectionInvocationResult
+
+```ts
+interface ConnectionInvocationResult {
+  id: string;                    // uppercase UUID (envelope ID)
+  schemaVersion: number;         // currently 1
+  invocationId: string;          // matches the request
+  kind: ConnectionKind;
+  actionName: string;
+  status: InvocationStatus;
+  result: Record<string, ArgumentValue>;  // populated only on `success`
+  errorMessage?: string;         // present on non-success when iOS surfaces a message
+  completedAt: number;           // Swift reference date seconds
+}
+```
+
+`InvocationStatus` (raw values, snake_case):
+
+| Status | Meaning |
+| ------ | ------- |
+| `success` | Action executed; `result` carries the outputs |
+| `capability_not_enabled` | The user has not enabled this `kind` for this conversation |
+| `capability_revoked` | The user previously enabled and has since revoked |
+| `requires_confirmation` | The action requires interactive confirmation that hasn't happened |
+| `authorization_denied` | The OS framework denied the underlying authorization (e.g. HealthKit permission) |
+| `execution_failed` | The action ran but the framework returned an error (see `errorMessage`) |
+| `unknown_action` | The device build doesn't recognize this action name for this kind |
+
+#### ArgumentValue
+
+Both `action.arguments` and `result` use a tagged-union value type so each parameter carries its declared type alongside the value. Wire form is `{"type": <tag>, "value": …}`:
+
+| Tag | Value type | Notes |
+| --- | ---------- | ----- |
+| `string` | `string` | |
+| `bool` | `boolean` | |
+| `int` | `number` | Integer; producers should not send fractional values |
+| `double` | `number` | Floating-point |
+| `date` | `number` | Swift reference date seconds |
+| `iso8601` | `string` | Pre-formatted ISO 8601 datetime — preferred over `date` when the value comes from user input or the wire |
+| `enum` | `string` | Constrained to the action schema's `allowed` list |
+| `array` | `ArgumentValue[]` | Recursive |
+| `null` | `null` | |
+
+The CLI validates the tag and value type on encode and decode and throws on the first mismatch — agents constructing invocations get a clear error if they pass `{type: "int", value: "1"}` or `{type: "uint64", …}`.
+
+Pick `iso8601` over `date` when the value is a calendar moment (event start, deadline) — it round-trips human-readably and is what the iOS calendar/photos action schemas expect. Use `date` only when the value is a wall-clock instant produced by the device itself.
+
+#### Wire Format Notes
+
+These are mostly invisible — the codecs handle them — but matter when constructing payloads from raw JSON or comparing against captures from another tool:
+
+- **Dates** are encoded as `Double` seconds since the **Swift reference date** (2001-01-01 00:00:00 UTC), not the Unix epoch. The CLI exposes `dateToSwiftReference(date)` and `swiftReferenceToDate(seconds)` from `@xmtp/convos-cli/utils/connectionTypes`. Don't use `Date.now() / 1000` — that produces a Unix timestamp and iOS will decode it as ~50 years in the future.
+- **UUIDs** are uppercase hex with dashes (`AABBCCDD-EEFF-1122-3344-556677889900`), matching Swift's default `UUID` encoding. Lowercase will decode but echoes back uppercase.
+- **Enum raw values** are lowercase or snake_case — never camelCase.
+- **`shouldPush` is false** for all three codecs. They are intentionally invisible to the chat stream and the push-notification pipeline. `isDisplayableMessage` filters them out; `agent serve` does not emit `message` events for them.
+
+#### Consuming Connection Messages from an Agent
+
+The CLI does not currently ship a `convos connection invoke` command — agents use the library helpers directly. Each codec module exports an `is…Message` predicate, a `get…Content` extractor, the codec class itself, and the content-type constant:
+
+```ts
+import {
+  ConnectionInvocationCodec,
+  isConnectionInvocationMessage,
+  getConnectionInvocationContent,
+} from "@xmtp/convos-cli/utils/connectionInvocation";
+import {
+  isConnectionPayloadMessage,
+  getConnectionPayloadContent,
+  summarizeConnectionPayload,
+} from "@xmtp/convos-cli/utils/connectionPayload";
+import {
+  isConnectionInvocationResultMessage,
+  getConnectionInvocationResultContent,
+} from "@xmtp/convos-cli/utils/connectionInvocationResult";
+import {
+  dateToSwiftReference,
+  type ArgumentValue,
+} from "@xmtp/convos-cli/utils/connectionTypes";
+import { randomUUID } from "node:crypto";
+
+// Read: route incoming messages to the right handler.
+for await (const message of stream) {
+  if (isConnectionPayloadMessage(message)) {
+    const payload = getConnectionPayloadContent(message);
+    if (payload) console.log(summarizeConnectionPayload(payload));
+    continue;
+  }
+  if (isConnectionInvocationResultMessage(message)) {
+    const result = getConnectionInvocationResultContent(message);
+    // correlate result.invocationId against an in-flight request table
+    continue;
+  }
+  // ... handle text, attachments, etc.
+}
+
+// Write: send a calendar create_event invocation.
+const invocation = {
+  id: randomUUID().toUpperCase(),
+  schemaVersion: 1,
+  invocationId: "agent-1-001",
+  kind: "calendar" as const,
+  action: {
+    name: "create_event",
+    arguments: {
+      title: { type: "string", value: "Team sync" },
+      startDate: { type: "iso8601", value: "2026-05-01T15:00:00-07:00" },
+      endDate: { type: "iso8601", value: "2026-05-01T16:00:00-07:00" },
+      timeZone: { type: "string", value: "America/Los_Angeles" },
+      isAllDay: { type: "bool", value: false },
+    } satisfies Record<string, ArgumentValue>,
+  },
+  issuedAt: dateToSwiftReference(new Date()),
+};
+const codec = new ConnectionInvocationCodec();
+await conversation.send(invocation, codec.contentType);
+```
+
+Until a `convos connection` topic lands, sending invocations from a shell pipeline isn't supported — embed the library and use the codec directly. The agent stdin protocol's `send`/`attach`/etc. commands cover text, reactions, and attachments only; they do not accept arbitrary content types.
+
 ### Consent States
 
 | State | Meaning |
