@@ -22,6 +22,9 @@ import {
   type ResolvedProfile,
 } from "./profileMessages.js";
 import { isExplodeSettingsMessage } from "./explodeSettings.js";
+import { isConnectionPayloadMessage } from "./connectionPayload.js";
+import { isConnectionInvocationMessage } from "./connectionInvocation.js";
+import { isConnectionInvocationResultMessage } from "./connectionInvocationResult.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -434,6 +437,11 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
   // ExplodeSettings is a notification payload, not chat content — callers
   // handle it out-of-band to trigger their local cleanup flow.
   if (isExplodeSettingsMessage(message)) return false;
+  // ConvosConnections device/agent traffic — silent (shouldPush=false),
+  // routed via dedicated handlers, not the chat stream.
+  if (isConnectionPayloadMessage(message)) return false;
+  if (isConnectionInvocationMessage(message)) return false;
+  if (isConnectionInvocationResultMessage(message)) return false;
 
   const ct = message.contentType;
   if (ct.authorityId !== "xmtp.org") return false;

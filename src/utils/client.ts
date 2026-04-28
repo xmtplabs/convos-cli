@@ -11,6 +11,9 @@ import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
 import { JoinRequestCodec } from "./joinRequest.js";
 import { TypingIndicatorCodec } from "./typingIndicator.js";
 import { ExplodeSettingsCodec } from "./explodeSettings.js";
+import { ConnectionPayloadCodec } from "./connectionPayload.js";
+import { ConnectionInvocationCodec } from "./connectionInvocation.js";
+import { ConnectionInvocationResultCodec } from "./connectionInvocationResult.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -128,6 +131,9 @@ async function buildClient(
       new JoinRequestCodec() as any,
       new TypingIndicatorCodec() as any,
       new ExplodeSettingsCodec() as any,
+      new ConnectionPayloadCodec() as any,
+      new ConnectionInvocationCodec() as any,
+      new ConnectionInvocationResultCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,
