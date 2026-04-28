@@ -169,6 +169,12 @@ convos conversation send-typing-indicator <conversation-id>
 
 # stop typing indicator
 convos conversation send-typing-indicator <conversation-id> --stop
+
+# send a ConvosConnections invocation (agent → device write request)
+# (full flag docs and the response side: see ConvosConnections under Important Concepts)
+convos conversation send-invocation <conversation-id> \
+  --kind calendar --action create_event \
+  --arguments '{"title":{"type":"string","value":"Team sync"}}'
 ```
 
 ### Send Attachments
@@ -561,6 +567,8 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"unlock"}
 {"type":"explode"}
 {"type":"explode","scheduled":"2025-03-01T00:00:00Z"}
+{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"isAllDay":{"type":"bool","value":false}}}
+{"type":"connection-invoke","kind":"contacts","action":"create_contact","invocationId":"req-42","arguments":{}}
 {"type":"stop"}
 ```
 
@@ -576,11 +584,12 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `lock` | — | — |
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |
+| `connection-invoke` | `kind`, `action` | `arguments` (object, default `{}`), `invocationId` (default: `agent-<8-hex>`), `issuedAt` (ISO8601, default: now) |
 | `stop` | — | — |
 
 Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
 
-**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members.
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`; the result arrives as a regular message but does NOT surface through the agent's `message` event (the codec is silent), so agent code that needs to wait on a result must hook into the message stream via the library helpers.
 
 ### How It Works
 
@@ -837,9 +846,42 @@ These are mostly invisible — the codecs handle them — but matter when constr
 - **Enum raw values** are lowercase or snake_case — never camelCase.
 - **`shouldPush` is false** for all three codecs. They are intentionally invisible to the chat stream and the push-notification pipeline. `isDisplayableMessage` filters them out; `agent serve` does not emit `message` events for them.
 
+#### Sending an Invocation from the CLI
+
+```bash
+# raw JSON arguments
+convos conversation send-invocation <conversation-id> \
+  --kind calendar \
+  --action create_event \
+  --arguments '{"title":{"type":"string","value":"Team sync"},"isAllDay":{"type":"bool","value":false}}'
+
+# arguments from a file (handy for non-trivial payloads)
+convos conversation send-invocation <conversation-id> \
+  --kind health --action log_water --arguments-file ./water.json
+
+# pin a known invocationId for correlating the eventual result
+convos conversation send-invocation <conversation-id> \
+  --kind contacts --action create_contact \
+  --invocation-id req-42 \
+  --arguments '{}' \
+  --json
+```
+
+`--kind` must be one of the nine `ConnectionKind` raw values. `--arguments` (or `--arguments-file`) is required — pass `'{}'` for an action with no parameters. Each value is validated as an `ArgumentValue` tagged object before the message is sent; a malformed tag (`{type:"uint64",…}`) or a value-type mismatch (`{type:"int",value:"1"}`) errors out without sending. `--invocation-id` defaults to a random `cli-<8-hex>` token; pin it when you need to correlate the eventual result deterministically. The output JSON includes both the envelope `id` (per-message UUID) and the caller-correlation `invocationId`.
+
+The CLI does **not** expose a corresponding `send-payload` or `send-result` command — those are device-originated and only iOS produces them in production.
+
+#### Sending an Invocation from `agent serve`
+
+The agent stdin protocol exposes the same path under the `connection-invoke` command type — see the Agent Mode section's Commands table. The wire-level outcome is identical to `send-invocation`; the agent emits a `sent` event with `type: "connection-invoke"`, the message `id`, and both `invocationId` and `envelopeId` for correlation.
+
+```jsonl
+{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"isAllDay":{"type":"bool","value":false}}}
+```
+
 #### Consuming Connection Messages from an Agent
 
-The CLI does not currently ship a `convos connection invoke` command — agents use the library helpers directly. Each codec module exports an `is…Message` predicate, a `get…Content` extractor, the codec class itself, and the content-type constant:
+`agent serve`'s `message` event filters out all three connection content types because their codecs declare `shouldPush=false`. Agent code that needs to react to incoming `ConnectionPayload` or `ConnectionInvocationResult` messages must build its own loop on top of `conversation.streamMessages()` (or `conversation.messages()`) and use the library helpers to detect and decode them:
 
 ```ts
 import {
@@ -899,7 +941,7 @@ const codec = new ConnectionInvocationCodec();
 await conversation.send(invocation, codec.contentType);
 ```
 
-Until a `convos connection` topic lands, sending invocations from a shell pipeline isn't supported — embed the library and use the codec directly. The agent stdin protocol's `send`/`attach`/etc. commands cover text, reactions, and attachments only; they do not accept arbitrary content types.
+Pure-shell agents that don't want to embed the library can still react to incoming connection messages by piping `convos conversation messages <conversation-id> --json --sync` through `jq` and filtering on `contentType.typeId == "connection_payload"` etc., but the structured library path is the supported one for anything beyond logging.
 
 ### Consent States
 

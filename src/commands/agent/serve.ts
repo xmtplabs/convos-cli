@@ -75,6 +75,19 @@ import {
   TypingIndicatorCodec,
   type TypingIndicatorContent,
 } from "../../utils/typingIndicator.js";
+import { randomUUID } from "node:crypto";
+import {
+  ConnectionInvocationCodec,
+  CONNECTION_INVOCATION_CURRENT_SCHEMA_VERSION,
+  type ConnectionInvocation,
+} from "../../utils/connectionInvocation.js";
+import {
+  ALL_CONNECTION_KINDS,
+  assertArgumentValue,
+  dateToSwiftReference,
+  type ArgumentValue,
+  type ConnectionKind,
+} from "../../utils/connectionTypes.js";
 
 interface SendCommand { type: "send"; text: string; replyTo?: string; }
 interface ReactCommand { type: "react"; messageId: string; emoji: string; action?: "add" | "remove"; }
@@ -102,6 +115,14 @@ interface UpdateProfileCommand {
 }
 interface ReadReceiptCommand { type: "read-receipt"; }
 interface TypingCommand { type: "typing"; isTyping?: boolean; }
+interface ConnectionInvokeCommand {
+  type: "connection-invoke";
+  kind: string;
+  action: string;
+  arguments?: Record<string, unknown>;
+  invocationId?: string;
+  issuedAt?: string;
+}
 interface StopCommand { type: "stop"; }
 
 export type AgentCommand =
@@ -116,6 +137,7 @@ export type AgentCommand =
   | ExplodeCommand
   | ReadReceiptCommand
   | TypingCommand
+  | ConnectionInvokeCommand
   | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
@@ -1220,6 +1242,82 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             id: typingMessageId,
             type: "typing",
             isTyping,
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "connection-invoke": {
+          if (!cmd.kind) {
+            this.emitError("connection-invoke command requires 'kind' field");
+            return;
+          }
+          if (!ALL_CONNECTION_KINDS.includes(cmd.kind as ConnectionKind)) {
+            this.emitError(
+              `connection-invoke 'kind' must be one of: ${ALL_CONNECTION_KINDS.join(", ")}`,
+              { kind: cmd.kind },
+            );
+            return;
+          }
+          if (!cmd.action) {
+            this.emitError("connection-invoke command requires 'action' field");
+            return;
+          }
+
+          const argumentsTyped: Record<string, ArgumentValue> = {};
+          const rawArgs = cmd.arguments ?? {};
+          if (typeof rawArgs !== "object" || Array.isArray(rawArgs)) {
+            this.emitError(
+              "connection-invoke 'arguments' must be a JSON object mapping names to ArgumentValue tagged objects",
+            );
+            return;
+          }
+          for (const [key, value] of Object.entries(rawArgs)) {
+            try {
+              assertArgumentValue(value, `arguments.${key}`);
+            } catch (error) {
+              this.emitError(
+                error instanceof Error ? error.message : `arguments.${key}: invalid`,
+              );
+              return;
+            }
+            argumentsTyped[key] = value as ArgumentValue;
+          }
+
+          let issuedAtDate: Date;
+          if (cmd.issuedAt) {
+            issuedAtDate = new Date(cmd.issuedAt);
+            if (isNaN(issuedAtDate.getTime())) {
+              this.emitError(`Invalid 'issuedAt' timestamp: ${cmd.issuedAt}`);
+              return;
+            }
+          } else {
+            issuedAtDate = new Date();
+          }
+
+          const invocation: ConnectionInvocation = {
+            id: randomUUID().toUpperCase(),
+            schemaVersion: CONNECTION_INVOCATION_CURRENT_SCHEMA_VERSION,
+            invocationId: cmd.invocationId ?? `agent-${randomUUID().slice(0, 8)}`,
+            kind: cmd.kind as ConnectionKind,
+            action: { name: cmd.action, arguments: argumentsTyped },
+            issuedAt: dateToSwiftReference(issuedAtDate),
+          };
+
+          const codec = new ConnectionInvocationCodec();
+          const encoded = codec.encode(invocation);
+          const invocationMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: invocationMessageId,
+            type: "connection-invoke",
+            invocationId: invocation.invocationId,
+            envelopeId: invocation.id,
+            kind: invocation.kind,
+            action: invocation.action.name,
+            issuedAt: issuedAtDate.toISOString(),
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });

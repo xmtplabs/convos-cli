@@ -572,3 +572,156 @@ describe("scheduleMessagesCatchup", () => {
     expect(agent.isCatchingUpMessages).toBe(false);
   });
 });
+
+// ─── handleCommand: connection-invoke ───
+
+describe("handleCommand connection-invoke", () => {
+  it("encodes and sends a ConnectionInvocation with the expected wire shape", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-7") });
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "calendar",
+        action: "create_event",
+        invocationId: "req-1",
+        arguments: {
+          title: { type: "string", value: "Team sync" },
+          isAllDay: { type: "bool", value: false },
+        },
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).toHaveBeenCalledTimes(1);
+    const encoded = group.send.mock.calls[0][0];
+    expect(encoded.type).toEqual({
+      authorityId: "convos.org",
+      typeId: "connection_invocation",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const payload = JSON.parse(new TextDecoder().decode(encoded.content));
+    expect(payload.invocationId).toBe("req-1");
+    expect(payload.kind).toBe("calendar");
+    expect(payload.action.name).toBe("create_event");
+    expect(payload.action.arguments).toEqual({
+      title: { type: "string", value: "Team sync" },
+      isAllDay: { type: "bool", value: false },
+    });
+
+    const sent = events.find((e) => e.event === "sent" && e.type === "connection-invoke");
+    expect(sent).toBeDefined();
+    expect(sent!.invocationId).toBe("req-1");
+    expect(sent!.id).toBe("msg-7");
+  });
+
+  it("auto-generates an invocationId when none is supplied", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-8") });
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "contacts",
+        action: "create_contact",
+        arguments: {},
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    const sent = events.find((e) => e.event === "sent");
+    expect(sent!.invocationId).toMatch(/^agent-[0-9a-f]{8}$/);
+  });
+
+  it("rejects unknown ConnectionKind raw values", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "telepathy",
+        action: "create_event",
+        arguments: {},
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.event).toBe("error");
+    expect(events.at(-1)!.message).toMatch(/'kind' must be one of/);
+  });
+
+  it("rejects malformed argument values without sending", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "calendar",
+        action: "create_event",
+        arguments: { bad: { type: "uint64", value: 1 } },
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.event).toBe("error");
+    expect(events.at(-1)!.message).toMatch(/unknown type tag/);
+  });
+
+  it("requires kind and action", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      { type: "connection-invoke" } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+    expect(events.at(-1)!.message).toMatch(/'kind' field/);
+
+    await agent.handleCommand(
+      { type: "connection-invoke", kind: "health" } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+    expect(events.at(-1)!.message).toMatch(/'action' field/);
+
+    expect(group.send).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid issuedAt timestamp", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "calendar",
+        action: "create_event",
+        arguments: {},
+        issuedAt: "garbage",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/Invalid 'issuedAt'/);
+  });
+});
