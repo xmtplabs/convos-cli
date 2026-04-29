@@ -48,6 +48,27 @@ describe("CapabilityRequestResultCodec", () => {
     expect(codec.decode(codec.encode(original))).toEqual(original);
   });
 
+  it("round-trips optional action schemas", () => {
+    const original = makeResult({
+      actions: [
+        {
+          name: "fetch_summary_last_24h",
+          summary: "Fetch health summary",
+          inputs: [],
+          outputs: [
+            {
+              name: "summary",
+              type: "string",
+              description: "Human-readable summary",
+              required: true,
+            },
+          ],
+        },
+      ],
+    });
+    expect(codec.decode(codec.encode(original))).toEqual(original);
+  });
+
   it("round-trips an approved federated fitness read with multiple providers", () => {
     const original = makeResult({
       subject: "fitness",
@@ -137,6 +158,26 @@ describe("CapabilityRequestResultCodec", () => {
         ),
       } as any),
     ).toThrow(/providers/);
+  });
+
+  it("rejects malformed action schemas", () => {
+    expect(() =>
+      codec.decode({
+        type: ContentTypeCapabilityRequestResult,
+        parameters: {},
+        content: new TextEncoder().encode(
+          JSON.stringify({
+            version: 1,
+            requestId: "x",
+            status: "approved",
+            subject: "calendar",
+            capability: "read",
+            providers: ["device.calendar"],
+            actions: [{ name: "create_event", summary: "x", inputs: "bad", outputs: [] }],
+          }),
+        ),
+      } as any),
+    ).toThrow(/actions|inputs/);
   });
 });
 

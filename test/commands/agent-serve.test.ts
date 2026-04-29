@@ -988,6 +988,25 @@ describe("routeConvosContentType", () => {
     expect(evt!.result).toEqual({ eventId: { type: "string", value: "evt-1" } });
   });
 
+  it("emits connection_event for granted/revoked provider changes", () => {
+    const { agent, events } = createTestAgent();
+    const event = {
+      version: 1,
+      providerId: "device.health",
+      action: "granted",
+    };
+    const message = mockDecoded("connection_event", event);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "connection_event");
+    expect(evt).toMatchObject({
+      event: "connection_event",
+      version: 1,
+      providerId: "device.health",
+      action: "granted",
+    });
+  });
+
   it("emits capability_request, including the preferredProviders hint", () => {
     const { agent, events } = createTestAgent();
     const request = {
@@ -1031,6 +1050,42 @@ describe("routeConvosContentType", () => {
       requestId: "req-1",
       status: "approved",
       providers: ["device.calendar"],
+    });
+  });
+
+  it("emits capability_result actions when approval returns available actions", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      version: 1,
+      requestId: "req-2",
+      status: "approved",
+      subject: "fitness",
+      capability: "read",
+      providers: ["device.health"],
+      actions: [
+        {
+          name: "fetch_summary_last_24h",
+          summary: "Fetch health summary",
+          inputs: [],
+          outputs: [
+            {
+              name: "summary",
+              type: "string",
+              description: "Human-readable summary",
+              required: true,
+            },
+          ],
+        },
+      ],
+    };
+    const message = mockDecoded("capability_request_result", result);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "capability_result" && e.requestId === "req-2");
+    expect(evt).toMatchObject({
+      event: "capability_result",
+      requestId: "req-2",
+      actions: result.actions,
     });
   });
 

@@ -116,6 +116,10 @@ import {
   isConnectionInvocationResultMessage,
 } from "../../utils/connectionInvocationResult.js";
 import {
+  getConnectionEventContent,
+  isConnectionEventMessage,
+} from "../../utils/connectionEvent.js";
+import {
   ALL_CAPABILITY_SUBJECTS,
   type CapabilitySubject,
 } from "../../utils/capabilityTypes.js";
@@ -383,6 +387,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       if (isConnectionPayloadMessage(message)) return "connection_payload" as const;
       if (isConnectionInvocationMessage(message)) return "connection_invocation" as const;
       if (isConnectionInvocationResultMessage(message)) return "connection_result" as const;
+      if (isConnectionEventMessage(message)) return "connection_event" as const;
       if (isCapabilityRequestMessage(message)) return "capability_request" as const;
       if (isCapabilityRequestResultMessage(message)) return "capability_result" as const;
       return undefined;
@@ -494,6 +499,24 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       return true;
     }
 
+    if (handled === "connection_event") {
+      const event = getConnectionEventContent(message);
+      if (event) {
+        this.emit({
+          event: "connection_event",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: event.version,
+          providerId: event.providerId,
+          action: event.action,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
     if (handled === "capability_request") {
       const request = getCapabilityRequestContent(message);
       if (request) {
@@ -529,6 +552,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           subject: result.subject,
           capability: result.capability,
           providers: result.providers,
+          ...(result.actions && { actions: result.actions }),
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });

@@ -45,6 +45,23 @@ export const ALL_CAPABILITY_REQUEST_RESULT_STATUSES: readonly CapabilityRequestR
   "cancelled",
 ] as const;
 
+export interface CapabilityRequestResultActionSchemaParameter {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  enumValues?: string[];
+  itemType?: string;
+  itemEnumValues?: string[];
+}
+
+export interface CapabilityRequestResultActionSchema {
+  name: string;
+  summary: string;
+  inputs: CapabilityRequestResultActionSchemaParameter[];
+  outputs: CapabilityRequestResultActionSchemaParameter[];
+}
+
 export interface CapabilityRequestResult {
   /** Schema version. Must equal `CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION` (1) for now. */
   version: number;
@@ -61,6 +78,11 @@ export interface CapabilityRequestResult {
    * to confirm whether their hint was honored.
    */
   providers: ProviderID[];
+  /**
+   * Optional action schemas surfaced by iOS when a capability approval
+   * resolves to a provider that can advertise invocable actions.
+   */
+  actions?: CapabilityRequestResultActionSchema[];
 }
 
 // ─── Codec ───
@@ -141,6 +163,67 @@ function validateCapabilityRequestResult(
       throw new Error("CapabilityRequestResult: providers entries must be strings");
     }
   }
+  if (r.actions !== undefined) {
+    if (!Array.isArray(r.actions)) {
+      throw new Error("CapabilityRequestResult: actions must be an array when present");
+    }
+    for (const action of r.actions) {
+      validateActionSchema(action);
+    }
+  }
+}
+
+function validateActionSchema(value: unknown): void {
+  if (!value || typeof value !== "object") {
+    throw new Error("CapabilityRequestResult: action schema must be an object");
+  }
+  const action = value as Partial<CapabilityRequestResultActionSchema>;
+  if (typeof action.name !== "string") {
+    throw new Error("CapabilityRequestResult: action schema missing name");
+  }
+  if (typeof action.summary !== "string") {
+    throw new Error("CapabilityRequestResult: action schema missing summary");
+  }
+  if (!Array.isArray(action.inputs)) {
+    throw new Error("CapabilityRequestResult: action schema inputs must be an array");
+  }
+  if (!Array.isArray(action.outputs)) {
+    throw new Error("CapabilityRequestResult: action schema outputs must be an array");
+  }
+  for (const input of action.inputs) validateActionParameter(input);
+  for (const output of action.outputs) validateActionParameter(output);
+}
+
+function validateActionParameter(value: unknown): void {
+  if (!value || typeof value !== "object") {
+    throw new Error("CapabilityRequestResult: action parameter must be an object");
+  }
+  const parameter = value as Partial<CapabilityRequestResultActionSchemaParameter>;
+  if (typeof parameter.name !== "string") {
+    throw new Error("CapabilityRequestResult: action parameter missing name");
+  }
+  if (typeof parameter.type !== "string") {
+    throw new Error("CapabilityRequestResult: action parameter missing type");
+  }
+  if (typeof parameter.description !== "string") {
+    throw new Error("CapabilityRequestResult: action parameter missing description");
+  }
+  if (typeof parameter.required !== "boolean") {
+    throw new Error("CapabilityRequestResult: action parameter missing required");
+  }
+  if (parameter.enumValues !== undefined) {
+    if (!Array.isArray(parameter.enumValues) || parameter.enumValues.some((v) => typeof v !== "string")) {
+      throw new Error("CapabilityRequestResult: action parameter enumValues must be a string array");
+    }
+  }
+  if (parameter.itemType !== undefined && typeof parameter.itemType !== "string") {
+    throw new Error("CapabilityRequestResult: action parameter itemType must be a string");
+  }
+  if (parameter.itemEnumValues !== undefined) {
+    if (!Array.isArray(parameter.itemEnumValues) || parameter.itemEnumValues.some((v) => typeof v !== "string")) {
+      throw new Error("CapabilityRequestResult: action parameter itemEnumValues must be a string array");
+    }
+  }
 }
 
 function sanitizeCapabilityRequestResult(
@@ -195,6 +278,7 @@ function looksLikeCapabilityRequestResult(value: unknown): boolean {
     typeof r.status === "string" &&
     typeof r.subject === "string" &&
     typeof r.capability === "string" &&
-    Array.isArray(r.providers)
+    Array.isArray(r.providers) &&
+    (r.actions === undefined || Array.isArray(r.actions))
   );
 }
