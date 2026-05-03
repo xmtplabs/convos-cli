@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.5 (2026-05-02)
+
+### Bug Fixes
+
+- **Agent serve attach mode is read-only for invite generation** — existing conversations no longer rewrite appData when invite metadata is missing or unreadable
+
+### Dependencies
+
+- **`@xmtp/node-sdk` upgraded to 6.0.0** (from 5.3.0)
+
 ## 0.4.0 (2025-03-04)
 
 ### Features
