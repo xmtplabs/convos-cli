@@ -1718,49 +1718,43 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       group = requireGroup(conv);
       conversationId = args.id;
 
+      // Generate invite unless --no-invite. In attach mode this must be read-only:
+      // never create or rewrite appData metadata on an existing conversation.
       if (!flags["no-invite"]) {
         let appData = "";
         try {
           appData = group.appData ?? "";
         } catch {
-          this.verboseWarn("Could not read conversation appData in agent attach mode; treating as empty");
+          this.verboseWarn("Could not read conversation appData in agent attach mode; skipping invite generation");
         }
         if (!appData) {
-          this.verboseLog("Conversation appData is empty in agent attach mode while generating invite");
+          this.verboseLog("Conversation appData is empty in agent attach mode; skipping invite generation");
         }
-        let metadata = parseAppData(appData);
+        const metadata = parseAppData(appData);
         inviteTag = metadata.tag;
 
         if (!inviteTag) {
-          this.verboseWarn("Conversation invite tag is empty in agent attach mode; generating a new invite tag");
-          inviteTag = randomAlphanumeric(10);
-          metadata = { ...metadata, tag: inviteTag };
-          await group.updateAppData(serializeAppData(metadata));
+          this.verboseWarn("Conversation invite tag is missing in agent attach mode; skipping invite generation to avoid rewriting appData");
+        } else {
+          inviteSlug = await createInviteSlug(
+            conversationId,
+            client.inboxId,
+            inviteTag,
+            identity.walletKey,
+            {
+              name: group.name || undefined,
+              description: group.description || undefined,
+              emoji: metadata.emoji,
+            },
+          );
+
+          const env = config.env ?? "dev";
+          const baseUrl =
+            env === "production"
+              ? "https://popup.convos.org/v2"
+              : "https://dev.convos.org/v2";
+          inviteUrl = `${baseUrl}?i=${encodeURIComponent(inviteSlug)}`;
         }
-
-        if (!metadata.emoji) {
-          metadata.emoji = emojiForIdentifier(conversationId);
-          await group.updateAppData(serializeAppData(metadata));
-        }
-
-        inviteSlug = await createInviteSlug(
-          conversationId,
-          client.inboxId,
-          inviteTag,
-          identity.walletKey,
-          {
-            name: group.name || undefined,
-            description: group.description || undefined,
-            emoji: metadata.emoji,
-          },
-        );
-
-        const env = config.env ?? "dev";
-        const baseUrl =
-          env === "production"
-            ? "https://popup.convos.org/v2"
-            : "https://dev.convos.org/v2";
-        inviteUrl = `${baseUrl}?i=${encodeURIComponent(inviteSlug)}`;
       }
     } else {
       // ─── Create new conversation ───
