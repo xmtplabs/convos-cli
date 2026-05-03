@@ -98,7 +98,7 @@
     "@oclif/plugin-not-found": "^3.2.74",
     "@oclif/plugin-warn-if-update-available": "^3.1.55",
     "@xmtp/content-type-remote-attachment": "^2.0.4",
-    "@xmtp/node-sdk": "6.0.0",
+    "@xmtp/node-sdk": "5.3.0",
     "protobufjs": "^8.0.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
