@@ -26,6 +26,10 @@ import QRCode from "qrcode";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { getIdentityAndClient } from "../../utils/client.js";
 import {
+  attestationToProfileMetadata,
+  resolveAttestationFromFlags,
+} from "../../utils/attestation.js";
+import {
   encodeExplodeSettings,
   getExplodeSettingsContent,
   isExplodeSettingsMessage,
@@ -310,6 +314,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       description: "Key ID for the attestation",
       helpValue: "<kid>",
       env: "CONVOS_ATTESTATION_KID",
+    }),
+    "attestation-private-key": Flags.string({
+      description:
+        "Path to an Ed25519 private key (PEM). When set with --attestation-kid, " +
+        "the CLI signs the attestation at startup against the resolved XMTP inbox " +
+        "id, so the same command works whether the inbox already exists locally or " +
+        "needs to be materialized first. Mutually exclusive with --attestation / --attestation-ts.",
+      helpValue: "<path>",
+      env: "CONVOS_ATTESTATION_PRIVATE_KEY",
     }),
   };
 
@@ -1836,6 +1849,30 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           inviteUrl = `${baseUrl}?i=${encodeURIComponent(inviteSlug)}`;
         }
       }
+
+      // Publish a ProfileUpdate at startup so this agent's identity (name,
+      // memberKind, attestation) is visible to other members without an
+      // out-of-band `update-profile` stdin nudge. Attach mode previously
+      // emitted nothing here, so --attestation* flags were silently ignored.
+      try {
+        const profileName = flags["profile-name"] ?? identity.profileName;
+        const attestation = await resolveAttestationFromFlags(flags, client.inboxId);
+        const attestationMetadata = attestation
+          ? (attestationToProfileMetadata(attestation) as ProfileMetadata)
+          : undefined;
+
+        if (profileName || attestationMetadata) {
+          await sendProfileUpdate(group, {
+            ...(profileName && { name: profileName }),
+            memberKind: MemberKind.Agent,
+            ...(attestationMetadata && { metadata: attestationMetadata }),
+          });
+        }
+      } catch (error) {
+        this.verboseWarn(
+          `Could not send startup ProfileUpdate (attach): ${error instanceof Error ? error.message : "unknown"}`,
+        );
+      }
     } else {
       // ─── Create new conversation ───
       const permissionsMap: Record<string, GroupPermissionsOptions> = {
@@ -1865,23 +1902,22 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
       try {
         const profileName = flags["profile-name"] ?? identity.profileName;
-
-        let attestationMetadata: ProfileMetadata | undefined;
-        if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
-          attestationMetadata = {
-            attestation: { type: "string", value: flags.attestation },
-            attestation_ts: { type: "string", value: flags["attestation-ts"] },
-            attestation_kid: { type: "string", value: flags["attestation-kid"] },
-          };
-        }
+        const attestation = await resolveAttestationFromFlags(flags, client.inboxId);
+        const attestationMetadata = attestation
+          ? (attestationToProfileMetadata(attestation) as ProfileMetadata)
+          : undefined;
 
         await sendProfileUpdate(group, {
           ...(profileName && { name: profileName }),
           memberKind: MemberKind.Agent,
           ...(attestationMetadata && { metadata: attestationMetadata }),
         });
-      } catch {
-        // Non-fatal
+      } catch (error) {
+        // Non-fatal — but surface the failure on stderr so a misconfigured
+        // attestation flag set doesn't silently produce an empty profile.
+        this.verboseWarn(
+          `Could not send startup ProfileUpdate: ${error instanceof Error ? error.message : "unknown"}`,
+        );
       }
 
       inviteSlug = await createInviteSlug(

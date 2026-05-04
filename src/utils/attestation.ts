@@ -260,3 +260,96 @@ export async function fetchJwks(url: string): Promise<Jwks> {
   }
   return (await response.json()) as Jwks;
 }
+
+// ─── Flag plumbing ───
+
+/**
+ * Common attestation-flag shape consumed by `agent serve` and
+ * `conversations join`. Either:
+ *
+ *   - all three of `attestation` / `attestation-ts` / `attestation-kid`
+ *     are pre-computed (the agent signed elsewhere, e.g. backend), OR
+ *   - `attestation-private-key` (path) + `attestation-kid` are given
+ *     and the CLI signs at runtime against the resolved inbox id.
+ *
+ * The signing path eliminates the chicken-and-egg between
+ * `identity create` (which doesn't materialize an inbox id) and
+ * `signAttestation` (which needs the inbox id). The CLI defers signing
+ * until after the XMTP client is initialized, so the inbox id is known
+ * exactly when we mint the attestation.
+ */
+export interface AttestationFlagSet {
+  attestation?: string;
+  "attestation-ts"?: string;
+  "attestation-kid"?: string;
+  "attestation-private-key"?: string;
+}
+
+/**
+ * Resolve attestation metadata from CLI flags. Returns the
+ * `{attestation, attestation_ts, attestation_kid}` triple ready to
+ * embed in ProfileUpdate metadata, or `undefined` if no attestation
+ * was requested. Throws on partial / inconsistent flag combinations
+ * so misuse fails loudly rather than silently producing an empty
+ * profile.
+ *
+ * @param flags - Parsed flag object (oclif-style)
+ * @param inboxId - Resolved XMTP inbox id of the signer (required for
+ *   the sign-on-the-fly path; ignored on the pre-computed path)
+ */
+export async function resolveAttestationFromFlags(
+  flags: AttestationFlagSet,
+  inboxId: string,
+): Promise<Attestation | undefined> {
+  const hasPrecomputed = !!(
+    flags.attestation || flags["attestation-ts"]
+  );
+  const hasPrivateKeyPath = !!flags["attestation-private-key"];
+
+  // Pre-computed path — agent signed elsewhere; we trust the values.
+  if (hasPrecomputed) {
+    if (!flags.attestation || !flags["attestation-ts"] || !flags["attestation-kid"]) {
+      throw new Error(
+        "Pre-computed attestation requires --attestation, --attestation-ts, and --attestation-kid together",
+      );
+    }
+    if (hasPrivateKeyPath) {
+      throw new Error(
+        "Cannot mix --attestation-private-key with --attestation/--attestation-ts (use one signing source)",
+      );
+    }
+    return {
+      signature: flags.attestation,
+      timestamp: flags["attestation-ts"],
+      kid: flags["attestation-kid"],
+    };
+  }
+
+  // Sign-on-the-fly path — load the PEM, sign sha256(inboxId || now).
+  if (hasPrivateKeyPath) {
+    if (!flags["attestation-kid"]) {
+      throw new Error(
+        "--attestation-private-key requires --attestation-kid",
+      );
+    }
+    const { readFile } = await import("node:fs/promises");
+    const pem = await readFile(flags["attestation-private-key"]!, "utf8");
+    return signAttestation(inboxId, pem, flags["attestation-kid"]);
+  }
+
+  return undefined;
+}
+
+/**
+ * Convert an `Attestation` triple into the snake_case keys expected on
+ * the ProfileUpdate metadata wire (matches the iOS reader).
+ */
+export function attestationToProfileMetadata(
+  attestation: Attestation,
+): Record<string, { type: "string"; value: string }> {
+  return {
+    attestation: { type: "string", value: attestation.signature },
+    attestation_ts: { type: "string", value: attestation.timestamp },
+    attestation_kid: { type: "string", value: attestation.kid },
+  };
+}

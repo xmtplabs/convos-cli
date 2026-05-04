@@ -489,10 +489,11 @@ convos attestation verify <inbox-id> \
   --jwks-file ./agents.json
 ```
 
-Agents include attestation in their profile metadata when joining:
+Agents include attestation in their profile metadata when joining or attaching. Both `agent serve` and `conversations join` accept attestation flags two ways:
+
+**Pre-computed** — pass the signed triple verbatim (typical for backend-issued attestations):
 
 ```bash
-# agent serve with attestation (typically provided by the backend)
 convos agent serve --name "Bot" \
   --attestation <sig> \
   --attestation-ts <ts> \
@@ -502,12 +503,28 @@ convos agent serve --name "Bot" \
 CONVOS_ATTESTATION=<sig> CONVOS_ATTESTATION_TS=<ts> CONVOS_ATTESTATION_KID=<kid> \
   convos agent serve --name "Bot"
 
-# join with attestation
+# join with a pre-computed attestation
 convos conversations join <slug> \
   --attestation <sig> \
   --attestation-ts <ts> \
   --attestation-kid <kid>
 ```
+
+**Sign at startup** — pass a PEM private key and a `kid`; the CLI signs `sha256(inboxId || now)` itself once the XMTP client is initialized. Use this when the inbox id isn't known up front (e.g. fresh `identity create`):
+
+```bash
+# agent serve mints the attestation against the resolved inbox id
+convos agent serve <conversation-id> \
+  --attestation-private-key ~/.convos-debug-attest.pem \
+  --attestation-kid convos-agents-test
+
+# same flow for join
+convos conversations join <slug> \
+  --attestation-private-key ~/.convos-debug-attest.pem \
+  --attestation-kid convos-agents-test
+```
+
+Pre-computed and signing flags are mutually exclusive — pass either the triple or the PEM path, not both. With either path, the agent emits a `ProfileUpdate` at startup carrying `attestation`, `attestation_ts`, `attestation_kid` in `metadata`, in both **attach** mode (`agent serve <id>`) and **create** mode (`agent serve` with no id). The signing path is the recommended way to bootstrap a fresh debug agent — `identity create` no longer needs to be a separate step before signing.
 
 ### Sync Data from Network
 
