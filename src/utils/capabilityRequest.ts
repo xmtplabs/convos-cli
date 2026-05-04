@@ -20,8 +20,12 @@ import type {
   CapabilitySubject,
   ProviderID,
 } from "./capabilityTypes.js";
-import { capabilitySubjectDisplayName } from "./capabilityTypes.js";
+import {
+  capabilitySubjectDisplayName,
+  isCapabilitySubject,
+} from "./capabilityTypes.js";
 import type { ConnectionCapability } from "./connectionTypes.js";
+import { isConnectionCapability } from "./connectionTypes.js";
 
 // ─── Content Type ───
 
@@ -68,8 +72,8 @@ export class CapabilityRequestCodec implements ContentCodec<CapabilityRequest> {
   }
 
   encode(content: CapabilityRequest): EncodedContent {
+    validateCapabilityRequest(content);
     const sanitized = sanitizeCapabilityRequest(content);
-    validateCapabilityRequest(sanitized);
     const json = JSON.stringify(sanitized);
     return {
       type: ContentTypeCapabilityRequest,
@@ -119,8 +123,12 @@ function validateCapabilityRequest(
   const r = value as Partial<CapabilityRequest>;
   if (typeof r.version !== "number") throw new Error("CapabilityRequest: missing version");
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequest: missing requestId");
-  if (typeof r.subject !== "string") throw new Error("CapabilityRequest: missing subject");
-  if (typeof r.capability !== "string") throw new Error("CapabilityRequest: missing capability");
+  if (!isCapabilitySubject(r.subject)) {
+    throw new Error(`CapabilityRequest: invalid subject ${JSON.stringify(r.subject)}`);
+  }
+  if (!isConnectionCapability(r.capability)) {
+    throw new Error(`CapabilityRequest: invalid capability ${JSON.stringify(r.capability)}`);
+  }
   if (typeof r.rationale !== "string") throw new Error("CapabilityRequest: missing rationale");
   if (r.preferredProviders !== undefined && r.preferredProviders !== null) {
     if (!Array.isArray(r.preferredProviders)) {
@@ -194,8 +202,8 @@ function looksLikeCapabilityRequest(value: unknown): boolean {
   return (
     typeof r.version === "number" &&
     typeof r.requestId === "string" &&
-    typeof r.subject === "string" &&
-    typeof r.capability === "string" &&
+    isCapabilitySubject(r.subject) &&
+    isConnectionCapability(r.capability) &&
     typeof r.rationale === "string"
   );
 }

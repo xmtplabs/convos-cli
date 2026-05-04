@@ -17,8 +17,12 @@ import type {
   CapabilitySubject,
   ProviderID,
 } from "./capabilityTypes.js";
-import { capabilitySubjectDisplayName } from "./capabilityTypes.js";
+import {
+  capabilitySubjectDisplayName,
+  isCapabilitySubject,
+} from "./capabilityTypes.js";
 import type { ConnectionCapability, ConnectionKind } from "./connectionTypes.js";
+import { isConnectionCapability } from "./connectionTypes.js";
 
 // ─── Content Type ───
 
@@ -121,8 +125,8 @@ export class CapabilityRequestResultCodec
   }
 
   encode(content: CapabilityRequestResult): EncodedContent {
+    validateCapabilityRequestResult(content);
     const sanitized = sanitizeCapabilityRequestResult(content);
-    validateCapabilityRequestResult(sanitized);
     const json = JSON.stringify(sanitized);
     return {
       type: ContentTypeCapabilityRequestResult,
@@ -195,9 +199,19 @@ function validateCapabilityRequestResult(
   const r = value as Partial<CapabilityRequestResult>;
   if (typeof r.version !== "number") throw new Error("CapabilityRequestResult: missing version");
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequestResult: missing requestId");
-  if (typeof r.status !== "string") throw new Error("CapabilityRequestResult: missing status");
-  if (typeof r.subject !== "string") throw new Error("CapabilityRequestResult: missing subject");
-  if (typeof r.capability !== "string") throw new Error("CapabilityRequestResult: missing capability");
+  if (
+    r.status !== "approved" &&
+    r.status !== "denied" &&
+    r.status !== "cancelled"
+  ) {
+    throw new Error(`CapabilityRequestResult: invalid status ${JSON.stringify(r.status)}`);
+  }
+  if (!isCapabilitySubject(r.subject)) {
+    throw new Error(`CapabilityRequestResult: invalid subject ${JSON.stringify(r.subject)}`);
+  }
+  if (!isConnectionCapability(r.capability)) {
+    throw new Error(`CapabilityRequestResult: invalid capability ${JSON.stringify(r.capability)}`);
+  }
   if (!Array.isArray(r.providers)) {
     throw new Error("CapabilityRequestResult: providers must be an array");
   }
@@ -319,9 +333,9 @@ function looksLikeCapabilityRequestResult(value: unknown): boolean {
   return (
     typeof r.version === "number" &&
     typeof r.requestId === "string" &&
-    typeof r.status === "string" &&
-    typeof r.subject === "string" &&
-    typeof r.capability === "string" &&
+    (r.status === "approved" || r.status === "denied" || r.status === "cancelled") &&
+    isCapabilitySubject(r.subject) &&
+    isConnectionCapability(r.capability) &&
     Array.isArray(r.providers) &&
     Array.isArray(r.availableActions)
   );

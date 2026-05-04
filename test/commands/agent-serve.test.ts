@@ -115,6 +115,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "mine",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
         // non-displayable (unknown authority) — should be skipped
         {
@@ -123,6 +124,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "custom.org", typeId: "binary" },
           content: {},
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
         // valid message — should be emitted
         {
@@ -131,6 +133,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "hello",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
       ]),
     });
@@ -155,6 +158,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "first",
           sentAt: t1,
+          sentAtNs: BigInt(t1.getTime()) * 1_000_000n,
         },
         {
           id: "m2",
@@ -162,6 +166,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "second",
           sentAt: t2,
+          sentAtNs: BigInt(t2.getTime()) * 1_000_000n,
         },
       ]),
     });
@@ -513,6 +518,7 @@ describe("message deduplication", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "dup",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
         {
           id: "new-msg",
@@ -520,6 +526,7 @@ describe("message deduplication", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "fresh",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
       ]),
     });
@@ -879,6 +886,7 @@ describe("handleCommand capability-request", () => {
 describe("routeConvosContentType", () => {
   const conv = (id = "conv-123") => ({ id }) as any;
   const sentAt = new Date("2026-04-28T12:00:00.000Z");
+  const sentAtNs = BigInt(sentAt.getTime()) * 1_000_000n;
 
   function mockDecoded(typeId: string, content: any, overrides: any = {}) {
     return {
@@ -887,6 +895,7 @@ describe("routeConvosContentType", () => {
       contentType: { authorityId: "convos.org", typeId, versionMajor: 1, versionMinor: 0 },
       content,
       sentAt,
+      sentAtNs,
       ...overrides,
     } as any;
   }
@@ -1160,7 +1169,7 @@ describe("routeConvosContentType", () => {
 
     agent.routeConvosContentType(message, conv(), false);
 
-    expect(agent.lastMessageTimestampNs).toBe(BigInt(sentAt.getTime()) * 1_000_000n);
+    expect(agent.lastMessageTimestampNs).toBe(sentAtNs);
   });
 
   it("emits typing on the live stream but skips it on catchup", () => {

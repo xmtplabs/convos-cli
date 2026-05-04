@@ -57,6 +57,12 @@ export function allowsReadFederation(subject: CapabilitySubject): boolean {
   return subject === "fitness";
 }
 
+/** Runtime guard for decoded payloads — raw values from the wire aren't typed. */
+export function isCapabilitySubject(value: unknown): value is CapabilitySubject {
+  return typeof value === "string"
+    && (ALL_CAPABILITY_SUBJECTS as readonly string[]).includes(value);
+}
+
 /** User-visible name for picker headers, settings rows, etc. */
 export function capabilitySubjectDisplayName(subject: CapabilitySubject): string {
   switch (subject) {

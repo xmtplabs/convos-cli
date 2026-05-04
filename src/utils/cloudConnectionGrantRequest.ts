@@ -64,8 +64,8 @@ export class CloudConnectionGrantRequestCodec
   }
 
   encode(content: CloudConnectionGrantRequest): EncodedContent {
+    validateCloudConnectionGrantRequest(content);
     const sanitized = sanitizeCloudConnectionGrantRequest(content);
-    validateCloudConnectionGrantRequest(sanitized);
     const json = JSON.stringify(sanitized);
     return {
       type: ContentTypeCloudConnectionGrantRequest,

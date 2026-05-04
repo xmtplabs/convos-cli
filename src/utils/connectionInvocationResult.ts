@@ -166,6 +166,7 @@ function looksLikeConnectionInvocationResult(value: unknown): boolean {
     typeof r.status === "string" &&
     typeof r.completedAt === "number" &&
     !!r.result &&
-    typeof r.result === "object"
+    typeof r.result === "object" &&
+    !Array.isArray(r.result)
   );
 }

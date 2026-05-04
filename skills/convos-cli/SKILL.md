@@ -815,8 +815,8 @@ Each `ActionSchema` declares which capability it consumes — `create_event` and
 | `success` | Enabled and executed; consume `result` |
 | `capability_not_enabled` | Capability is off — ask the user in chat to enable it. The `errorMessage` carries the specific capability raw value, so you can be precise ("please enable calendar create") |
 | `unknown_action` | Either the action name is wrong, or this iOS build doesn't expose this `(kind, action)` pair (e.g. older app version), or the invocation's `schemaVersion` is newer than the device knows. Treat as unsupported on this device. |
-| `authorization_denied` | Always-confirm is on and the user said no this time. Don't retry the same invocation without user prompting. |
-| `requires_confirmation` | Always-confirm is on but the device couldn't surface the prompt (app backgrounded, no handler). Retry later, or ask the user to open Convos. |
+| `authorization_denied` | The OS-level permission for the underlying framework (HealthKit, Calendar, Contacts, …) is denied. Ask the user to grant the system permission in Settings — retrying the invocation won't help until they do. |
+| `requires_confirmation` | Always-confirm is on for this `(kind, conversation, capability)` and the device needs to surface a per-invocation prompt the user hasn't acted on yet (e.g. app backgrounded, no handler attached). Retry later, or nudge the user to open Convos. |
 | `capability_revoked` | Was enabled at gate-check, off at execution. Treat the same as `capability_not_enabled`. |
 | `execution_failed` | Capability was on but the underlying iOS framework errored. `errorMessage` carries the detail; report verbatim, do not auto-retry. |
 

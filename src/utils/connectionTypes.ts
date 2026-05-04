@@ -158,6 +158,12 @@ export function isWriteCapability(capability: ConnectionCapability): boolean {
   return capability !== "read";
 }
 
+/** Runtime guard for decoded payloads — raw values from the wire aren't typed. */
+export function isConnectionCapability(value: unknown): value is ConnectionCapability {
+  return typeof value === "string"
+    && (ALL_CONNECTION_CAPABILITIES as readonly string[]).includes(value);
+}
+
 // ─── InvocationStatus ───
 
 /**

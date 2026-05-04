@@ -150,14 +150,23 @@ export function getConnectionInvocationContent(
 function looksLikeConnectionInvocation(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const inv = value as Partial<ConnectionInvocation>;
+  if (!inv.action || typeof inv.action !== "object" || Array.isArray(inv.action)) {
+    return false;
+  }
+  const action = inv.action as Partial<ConnectionAction>;
+  if (
+    !action.arguments ||
+    typeof action.arguments !== "object" ||
+    Array.isArray(action.arguments)
+  ) {
+    return false;
+  }
   return (
     typeof inv.id === "string" &&
     typeof inv.schemaVersion === "number" &&
     typeof inv.invocationId === "string" &&
     typeof inv.kind === "string" &&
     typeof inv.issuedAt === "number" &&
-    !!inv.action &&
-    typeof inv.action === "object" &&
-    typeof (inv.action as ConnectionAction).name === "string"
+    typeof action.name === "string"
   );
 }

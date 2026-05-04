@@ -22,7 +22,7 @@ import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
 import type { Identity } from "./identities.js";
-import { createIdentityStore } from "./identities.js";
+import { createIdentityStore, DEFAULT_CONVOS_HOME } from "./identities.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const pkg = JSON.parse(
@@ -60,14 +60,15 @@ export async function getClient(
   config: ConvosConfig,
   homeDir?: string,
 ): Promise<Client<any>> {
-  const store = createIdentityStore(homeDir);
+  const resolvedHome = homeDir ?? DEFAULT_CONVOS_HOME;
+  const store = createIdentityStore(resolvedHome);
   const env = config.env ?? "dev";
-  const key = cacheKey(homeDir ?? "", env);
+  const key = cacheKey(resolvedHome, env);
 
   const cached = clientCache.get(key);
   if (cached) return cached;
 
-  const promise = buildClient(store.loadOrUpsert(), config, homeDir).then(
+  const promise = buildClient(store.loadOrUpsert(), config, resolvedHome).then(
     (client) => {
       if (!store.load()?.inboxId) {
         store.update({ inboxId: client.inboxId });

@@ -412,7 +412,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     if (!handled) return false;
 
     if (!this.trackMessageId(message.id)) return true;
-    const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+    const sentAtNs = message.sentAtNs;
     if (sentAtNs > this.lastMessageTimestampNs) {
       this.lastMessageTimestampNs = sentAtNs;
     }
@@ -815,7 +815,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
           for (const message of messages) {
             try {
-              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              const sentAtNs = message.sentAtNs;
               const result = await this.processJoinMessage(
                 message,
                 client,
@@ -867,7 +867,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         try {
           for await (const message of stream) {
             try {
-              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              const sentAtNs = message.sentAtNs;
               if (sentAtNs > this.lastDmTimestampNs) {
                 this.lastDmTimestampNs = sentAtNs;
               }
@@ -963,7 +963,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         if (!isDisplayableMessage(message)) continue;
         if (!this.trackMessageId(message.id)) continue;
 
-        const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+        const sentAtNs = message.sentAtNs;
         if (sentAtNs > this.lastMessageTimestampNs) {
           this.lastMessageTimestampNs = sentAtNs;
         }
@@ -1021,7 +1021,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             if (!isDisplayableMessage(message)) continue;
             if (!this.trackMessageId(message.id)) continue;
 
-            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            const sentAtNs = message.sentAtNs;
             if (sentAtNs > this.lastMessageTimestampNs) {
               this.lastMessageTimestampNs = sentAtNs;
             }

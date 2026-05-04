@@ -256,7 +256,7 @@ always-on usage).`;
           });
           for (const message of messages) {
             try {
-              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              const sentAtNs = message.sentAtNs;
               const result = await this.processMessage(
                 message,
                 client,
@@ -322,7 +322,7 @@ always-on usage).`;
             // Track the batch high-water mark so an onRestart fired before
             // any live-stream message arrives still has a non-zero sinceNs
             // for catchup to work against.
-            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            const sentAtNs = message.sentAtNs;
             if (sentAtNs > this.lastDmTimestampNs) {
               this.lastDmTimestampNs = sentAtNs;
             }
@@ -383,7 +383,7 @@ always-on usage).`;
       try {
         for await (const message of stream) {
           try {
-            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            const sentAtNs = message.sentAtNs;
             if (sentAtNs > this.lastDmTimestampNs) {
               this.lastDmTimestampNs = sentAtNs;
             }
