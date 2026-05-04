@@ -337,6 +337,13 @@ export async function resolveAttestationFromFlags(
     return signAttestation(inboxId, pem, flags["attestation-kid"]);
   }
 
+  // Orphan check: --attestation-kid alone has no signing source.
+  if (flags["attestation-kid"]) {
+    throw new Error(
+      "--attestation-kid must be used with --attestation/--attestation-ts (pre-computed) or --attestation-private-key (sign at startup)",
+    );
+  }
+
   return undefined;
 }
 

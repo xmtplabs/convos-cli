@@ -147,11 +147,6 @@ export class CapabilityRequestResultCodec
     }
     const normalized = normalizeForDecode(parsed);
     validateCapabilityRequestResult(normalized);
-    if (normalized.version > CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION) {
-      throw new Error(
-        `Unsupported CapabilityRequestResult version ${normalized.version}`,
-      );
-    }
     return sanitizeCapabilityRequestResult(normalized);
   }
 
@@ -199,6 +194,9 @@ function validateCapabilityRequestResult(
   const r = value as Partial<CapabilityRequestResult>;
   if (typeof r.version !== "number" || !Number.isInteger(r.version) || r.version < 1) {
     throw new Error(`CapabilityRequestResult: invalid version ${JSON.stringify(r.version)}`);
+  }
+  if (r.version > CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION) {
+    throw new Error(`Unsupported CapabilityRequestResult version ${r.version}`);
   }
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequestResult: missing requestId");
   if (

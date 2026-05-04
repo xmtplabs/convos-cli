@@ -257,6 +257,15 @@ describe("attestation", () => {
       ).rejects.toThrow(/attestation-kid/);
     });
 
+    it("rejects orphaned --attestation-kid (no signing source)", async () => {
+      await expect(
+        resolveAttestationFromFlags(
+          { "attestation-kid": "k" },
+          inboxId,
+        ),
+      ).rejects.toThrow(/attestation-kid/);
+    });
+
     it("rejects mixing pre-computed and signing flags", async () => {
       await expect(
         resolveAttestationFromFlags(

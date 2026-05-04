@@ -65,11 +65,18 @@ describe("CloudConnectionGrantRequestCodec", () => {
   });
 
   it("rejects future schema versions on decode", () => {
-    const future = makeRequest({
-      version: CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION + 1,
-    });
-    const encoded = codec.encode(future);
-    expect(() => codec.decode(encoded)).toThrow(/Unsupported.*version/);
+    const futureBytes = new TextEncoder().encode(
+      JSON.stringify(
+        makeRequest({ version: CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION + 1 }),
+      ),
+    );
+    expect(() =>
+      codec.decode({
+        type: ContentTypeCloudConnectionGrantRequest,
+        parameters: {},
+        content: futureBytes,
+      } as any),
+    ).toThrow(/Unsupported.*version/);
   });
 
   it("rejects empty content during decode", () => {

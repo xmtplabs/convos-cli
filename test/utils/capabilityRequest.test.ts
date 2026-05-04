@@ -84,11 +84,18 @@ describe("CapabilityRequestCodec", () => {
   });
 
   it("rejects future schema versions on decode", () => {
-    const future = makeRequest({
-      version: CAPABILITY_REQUEST_SUPPORTED_VERSION + 1,
-    });
-    const encoded = codec.encode(future);
-    expect(() => codec.decode(encoded)).toThrow(/Unsupported.*version/);
+    // Encode is gated by the same validator now, so we construct the raw
+    // future-version bytes directly rather than going through codec.encode().
+    const futureBytes = new TextEncoder().encode(
+      JSON.stringify(makeRequest({ version: CAPABILITY_REQUEST_SUPPORTED_VERSION + 1 })),
+    );
+    expect(() =>
+      codec.decode({
+        type: ContentTypeCapabilityRequest,
+        parameters: {},
+        content: futureBytes,
+      } as any),
+    ).toThrow(/Unsupported.*version/);
   });
 
   it("falls back to a subject-aware string", () => {

@@ -56,9 +56,6 @@ export class ConnectionEventCodec implements ContentCodec<ConnectionEvent> {
       throw new Error("Invalid JSON format for ConnectionEvent");
     }
     validateConnectionEvent(parsed);
-    if (parsed.version > CONNECTION_EVENT_SUPPORTED_VERSION) {
-      throw new Error(`Unsupported ConnectionEvent version ${parsed.version}`);
-    }
     return parsed;
   }
 
@@ -78,6 +75,9 @@ function validateConnectionEvent(value: unknown): asserts value is ConnectionEve
   const event = value as Partial<ConnectionEvent>;
   if (typeof event.version !== "number" || !Number.isInteger(event.version) || event.version < 1) {
     throw new Error(`ConnectionEvent: invalid version ${JSON.stringify(event.version)}`);
+  }
+  if (event.version > CONNECTION_EVENT_SUPPORTED_VERSION) {
+    throw new Error(`Unsupported ConnectionEvent version ${event.version}`);
   }
   if (typeof event.providerId !== "string") throw new Error("ConnectionEvent: missing providerId");
   if (event.action !== "granted" && event.action !== "revoked") {

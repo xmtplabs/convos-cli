@@ -146,11 +146,18 @@ describe("CapabilityRequestResultCodec", () => {
   });
 
   it("rejects future schema versions on decode", () => {
-    const future = makeResult({
-      version: CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION + 1,
-    });
-    const encoded = codec.encode(future);
-    expect(() => codec.decode(encoded)).toThrow(/Unsupported.*version/);
+    const futureBytes = new TextEncoder().encode(
+      JSON.stringify(
+        makeResult({ version: CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION + 1 }),
+      ),
+    );
+    expect(() =>
+      codec.decode({
+        type: ContentTypeCapabilityRequestResult,
+        parameters: {},
+        content: futureBytes,
+      } as any),
+    ).toThrow(/Unsupported.*version/);
   });
 
   it("rejects empty content during decode", () => {

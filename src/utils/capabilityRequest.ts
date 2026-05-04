@@ -93,11 +93,6 @@ export class CapabilityRequestCodec implements ContentCodec<CapabilityRequest> {
       throw new Error("Invalid JSON format for CapabilityRequest");
     }
     validateCapabilityRequest(parsed);
-    if (parsed.version > CAPABILITY_REQUEST_SUPPORTED_VERSION) {
-      throw new Error(
-        `Unsupported CapabilityRequest version ${parsed.version}`,
-      );
-    }
     return sanitizeCapabilityRequest(parsed);
   }
 
@@ -123,6 +118,9 @@ function validateCapabilityRequest(
   const r = value as Partial<CapabilityRequest>;
   if (typeof r.version !== "number" || !Number.isInteger(r.version) || r.version < 1) {
     throw new Error(`CapabilityRequest: invalid version ${JSON.stringify(r.version)}`);
+  }
+  if (r.version > CAPABILITY_REQUEST_SUPPORTED_VERSION) {
+    throw new Error(`Unsupported CapabilityRequest version ${r.version}`);
   }
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequest: missing requestId");
   if (!isCapabilitySubject(r.subject)) {

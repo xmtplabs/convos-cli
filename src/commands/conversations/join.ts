@@ -289,6 +289,12 @@ slug as query parameter 'i'.`;
       // Non-fatal: tag verification is a safety check, don't block joining
     }
 
+    // Resolved ahead of the try-block so the output below reflects what was
+    // actually sent on the ProfileUpdate (including identity defaults), not
+    // just the literal flag values.
+    const profileName = flags["profile-name"] ?? identity.profileName;
+    const profileImage = flags["profile-image"] ?? identity.profileImageUrl;
+
     // Send ProfileUpdate message (primary profile source).
     // Always send to set memberKind: Agent (and name/image/metadata if provided).
     try {
@@ -296,8 +302,6 @@ slug as query parameter 'i'.`;
       const conv = await client.conversations.getConversationById(conversationId);
       if (conv && isGroup(conv)) {
         await conv.sync();
-        const profileName = flags["profile-name"] ?? identity.profileName;
-        const profileImage = flags["profile-image"] ?? identity.profileImageUrl;
 
         let encryptedImage: import("../../utils/profileMessages.js").EncryptedProfileImageRef | undefined;
         if (profileImage) {
@@ -353,8 +357,8 @@ slug as query parameter 'i'.`;
       inboxId: client.inboxId,
       tag: invite.tag,
       conversationName: invite.name ?? null,
-      profileName: flags["profile-name"] ?? null,
-      profileImage: flags["profile-image"] ?? null,
+      profileName: profileName ?? null,
+      profileImage: profileImage ?? null,
       ...(joinMetadata && { metadata: joinMetadata }),
     });
   }

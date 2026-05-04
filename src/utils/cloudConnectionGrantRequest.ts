@@ -85,11 +85,6 @@ export class CloudConnectionGrantRequestCodec
       throw new Error("Invalid JSON format for CloudConnectionGrantRequest");
     }
     validateCloudConnectionGrantRequest(parsed);
-    if (parsed.version > CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION) {
-      throw new Error(
-        `Unsupported CloudConnectionGrantRequest version ${parsed.version}`,
-      );
-    }
     return sanitizeCloudConnectionGrantRequest(parsed);
   }
 
@@ -115,6 +110,9 @@ function validateCloudConnectionGrantRequest(
     throw new Error(
       `CloudConnectionGrantRequest: invalid version ${JSON.stringify(r.version)}`,
     );
+  }
+  if (r.version > CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION) {
+    throw new Error(`Unsupported CloudConnectionGrantRequest version ${r.version}`);
   }
   if (typeof r.service !== "string") {
     throw new Error("CloudConnectionGrantRequest: missing service");
