@@ -28,6 +28,7 @@ import { isConnectionInvocationResultMessage } from "./connectionInvocationResul
 import { isConnectionEventMessage } from "./connectionEvent.js";
 import { isCapabilityRequestMessage } from "./capabilityRequest.js";
 import { isCapabilityRequestResultMessage } from "./capabilityRequestResult.js";
+import { isCloudConnectionGrantRequestMessage } from "./cloudConnectionGrantRequest.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -449,6 +450,8 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
   // Capability resolution — also silent; the picker / agent code consumes these.
   if (isCapabilityRequestMessage(message)) return false;
   if (isCapabilityRequestResultMessage(message)) return false;
+  // Cloud OAuth grant prompt — surfaces as a card on iOS, never as chat text.
+  if (isCloudConnectionGrantRequestMessage(message)) return false;
 
   const ct = message.contentType;
   if (ct.authorityId !== "xmtp.org") return false;

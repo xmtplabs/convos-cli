@@ -120,6 +120,13 @@ import {
   isConnectionEventMessage,
 } from "../../utils/connectionEvent.js";
 import {
+  CloudConnectionGrantRequestCodec,
+  CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION,
+  getCloudConnectionGrantRequestContent,
+  isCloudConnectionGrantRequestMessage,
+  type CloudConnectionGrantRequest,
+} from "../../utils/cloudConnectionGrantRequest.js";
+import {
   ALL_CAPABILITY_SUBJECTS,
   type CapabilitySubject,
 } from "../../utils/capabilityTypes.js";
@@ -166,6 +173,14 @@ interface CapabilityRequestCommand {
   requestId?: string;
   preferredProviders?: string[];
 }
+interface CloudConnectionGrantRequestCommand {
+  type: "cloud-connection-grant-request";
+  service: string;
+  targetInboxId: string;
+  reason: string;
+  /** Defaults to the agent's own inbox ID when omitted. */
+  requestedByInboxId?: string;
+}
 interface StopCommand { type: "stop"; }
 
 export type AgentCommand =
@@ -182,6 +197,7 @@ export type AgentCommand =
   | TypingCommand
   | ConnectionInvokeCommand
   | CapabilityRequestCommand
+  | CloudConnectionGrantRequestCommand
   | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
@@ -388,6 +404,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       if (isConnectionInvocationMessage(message)) return "connection_invocation" as const;
       if (isConnectionInvocationResultMessage(message)) return "connection_result" as const;
       if (isConnectionEventMessage(message)) return "connection_event" as const;
+      if (isCloudConnectionGrantRequestMessage(message)) return "cloud_connection_grant_request" as const;
       if (isCapabilityRequestMessage(message)) return "capability_request" as const;
       if (isCapabilityRequestResultMessage(message)) return "capability_result" as const;
       return undefined;
@@ -517,6 +534,26 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       return true;
     }
 
+    if (handled === "cloud_connection_grant_request") {
+      const request = getCloudConnectionGrantRequestContent(message);
+      if (request) {
+        this.emit({
+          event: "cloud_connection_grant_request",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: request.version,
+          service: request.service,
+          requestedByInboxId: request.requestedByInboxId,
+          targetInboxId: request.targetInboxId,
+          reason: request.reason,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
     if (handled === "capability_request") {
       const request = getCapabilityRequestContent(message);
       if (request) {
@@ -552,7 +589,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           subject: result.subject,
           capability: result.capability,
           providers: result.providers,
-          ...(result.actions && { actions: result.actions }),
+          availableActions: result.availableActions,
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });
@@ -1648,6 +1685,49 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             subject: request.subject,
             capability: request.capability,
             ...(request.preferredProviders && { preferredProviders: request.preferredProviders }),
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "cloud-connection-grant-request": {
+          if (typeof cmd.service !== "string" || cmd.service.length === 0) {
+            this.emitError("cloud-connection-grant-request command requires non-empty 'service' field");
+            return;
+          }
+          if (typeof cmd.targetInboxId !== "string" || cmd.targetInboxId.length === 0) {
+            this.emitError("cloud-connection-grant-request command requires non-empty 'targetInboxId' field");
+            return;
+          }
+          if (typeof cmd.reason !== "string" || cmd.reason.length === 0) {
+            this.emitError("cloud-connection-grant-request command requires non-empty 'reason' field");
+            return;
+          }
+          if (cmd.requestedByInboxId !== undefined && typeof cmd.requestedByInboxId !== "string") {
+            this.emitError("cloud-connection-grant-request 'requestedByInboxId' must be a string");
+            return;
+          }
+
+          const request: CloudConnectionGrantRequest = {
+            version: CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION,
+            service: cmd.service,
+            requestedByInboxId: cmd.requestedByInboxId ?? client.inboxId,
+            targetInboxId: cmd.targetInboxId,
+            reason: cmd.reason,
+          };
+
+          const codec = new CloudConnectionGrantRequestCodec();
+          const encoded = codec.encode(request);
+          const grantMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: grantMessageId,
+            type: "cloud-connection-grant-request",
+            service: request.service,
+            requestedByInboxId: request.requestedByInboxId,
+            targetInboxId: request.targetInboxId,
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });

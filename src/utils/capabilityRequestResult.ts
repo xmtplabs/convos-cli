@@ -18,7 +18,7 @@ import type {
   ProviderID,
 } from "./capabilityTypes.js";
 import { capabilitySubjectDisplayName } from "./capabilityTypes.js";
-import type { ConnectionCapability } from "./connectionTypes.js";
+import type { ConnectionCapability, ConnectionKind } from "./connectionTypes.js";
 
 // ─── Content Type ───
 
@@ -35,6 +35,9 @@ export const CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION = 1;
 /** Cap on the providers array. Anything longer is truncated on encode and decode. */
 export const CAPABILITY_REQUEST_RESULT_MAX_PROVIDERS = 16;
 
+/** Cap on the availableActions array. Anything longer is truncated on encode and decode. */
+export const CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS = 64;
+
 // ─── Types ───
 
 export type CapabilityRequestResultStatus = "approved" | "denied" | "cancelled";
@@ -45,21 +48,40 @@ export const ALL_CAPABILITY_REQUEST_RESULT_STATUSES: readonly CapabilityRequestR
   "cancelled",
 ] as const;
 
-export interface CapabilityRequestResultActionSchemaParameter {
+/**
+ * Single I/O parameter on an `AvailableAction` schema. Keys mirror the
+ * iOS `CapabilityRequestResult.Parameter` (note `isRequired`, not
+ * `required`).
+ */
+export interface AvailableActionParameter {
   name: string;
+  /**
+   * Schema type as a free-form string. iOS encodes whatever string the
+   * source `ActionSchema.parameter.type` produced (e.g. `"string"`,
+   * `"int"`, `"date"`, `"array<string>"`). The CLI doesn't constrain
+   * the value; consumers should treat it as a hint.
+   */
   type: string;
   description: string;
-  required: boolean;
-  enumValues?: string[];
-  itemType?: string;
-  itemEnumValues?: string[];
+  isRequired: boolean;
 }
 
-export interface CapabilityRequestResultActionSchema {
-  name: string;
+/**
+ * Action schema entry returned alongside an approved capability so the
+ * agent knows what verbs it can invoke without round-tripping a probe.
+ *
+ * Mirrors iOS `CapabilityRequestResult.AvailableAction`:
+ *   { providerId, kind, actionName, summary, inputs, outputs }.
+ */
+export interface AvailableAction {
+  /** Routes this action to a specific provider in the resolution. */
+  providerId: ProviderID;
+  /** Device kind that owns the action. Cloud providers reuse this for routing. */
+  kind: ConnectionKind;
+  actionName: string;
   summary: string;
-  inputs: CapabilityRequestResultActionSchemaParameter[];
-  outputs: CapabilityRequestResultActionSchemaParameter[];
+  inputs: AvailableActionParameter[];
+  outputs: AvailableActionParameter[];
 }
 
 export interface CapabilityRequestResult {
@@ -79,10 +101,14 @@ export interface CapabilityRequestResult {
    */
   providers: ProviderID[];
   /**
-   * Optional action schemas surfaced by iOS when a capability approval
-   * resolves to a provider that can advertise invocable actions.
+   * Action schemas compatible with the approved capability, filtered to
+   * the providers above. Empty for `denied` / `cancelled`. Truncated to
+   * `CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS` on encode/decode.
+   *
+   * Always emitted as an array on the wire (iOS encodes empty arrays);
+   * decoders also accept missing keys for forward-compat.
    */
-  actions?: CapabilityRequestResultActionSchema[];
+  availableActions: AvailableAction[];
 }
 
 // ─── Codec ───
@@ -115,13 +141,14 @@ export class CapabilityRequestResultCodec
     } catch {
       throw new Error("Invalid JSON format for CapabilityRequestResult");
     }
-    validateCapabilityRequestResult(parsed);
-    if (parsed.version > CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION) {
+    const normalized = normalizeForDecode(parsed);
+    validateCapabilityRequestResult(normalized);
+    if (normalized.version > CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION) {
       throw new Error(
-        `Unsupported CapabilityRequestResult version ${parsed.version}`,
+        `Unsupported CapabilityRequestResult version ${normalized.version}`,
       );
     }
-    return sanitizeCapabilityRequestResult(parsed);
+    return sanitizeCapabilityRequestResult(normalized);
   }
 
   fallback(content: CapabilityRequestResult): string | undefined {
@@ -143,6 +170,22 @@ export class CapabilityRequestResultCodec
 
 // ─── Helpers ───
 
+/**
+ * Default missing array fields to `[]` so a sender that omits empty
+ * arrays still validates. Validation runs on the normalized object.
+ */
+function normalizeForDecode(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const obj = value as Record<string, unknown>;
+  if (obj.providers === undefined || obj.providers === null) {
+    obj.providers = [];
+  }
+  if (obj.availableActions === undefined || obj.availableActions === null) {
+    obj.availableActions = [];
+  }
+  return obj;
+}
+
 function validateCapabilityRequestResult(
   value: unknown,
 ): asserts value is CapabilityRequestResult {
@@ -163,66 +206,59 @@ function validateCapabilityRequestResult(
       throw new Error("CapabilityRequestResult: providers entries must be strings");
     }
   }
-  if (r.actions !== undefined) {
-    if (!Array.isArray(r.actions)) {
-      throw new Error("CapabilityRequestResult: actions must be an array when present");
-    }
-    for (const action of r.actions) {
-      validateActionSchema(action);
-    }
+  if (!Array.isArray(r.availableActions)) {
+    throw new Error("CapabilityRequestResult: availableActions must be an array");
+  }
+  for (const action of r.availableActions) {
+    validateAvailableAction(action);
   }
 }
 
-function validateActionSchema(value: unknown): void {
+function validateAvailableAction(value: unknown): asserts value is AvailableAction {
   if (!value || typeof value !== "object") {
-    throw new Error("CapabilityRequestResult: action schema must be an object");
+    throw new Error("CapabilityRequestResult: availableAction must be an object");
   }
-  const action = value as Partial<CapabilityRequestResultActionSchema>;
-  if (typeof action.name !== "string") {
-    throw new Error("CapabilityRequestResult: action schema missing name");
+  const action = value as Partial<AvailableAction>;
+  if (typeof action.providerId !== "string") {
+    throw new Error("CapabilityRequestResult: availableAction missing providerId");
+  }
+  if (typeof action.kind !== "string") {
+    throw new Error("CapabilityRequestResult: availableAction missing kind");
+  }
+  if (typeof action.actionName !== "string") {
+    throw new Error("CapabilityRequestResult: availableAction missing actionName");
   }
   if (typeof action.summary !== "string") {
-    throw new Error("CapabilityRequestResult: action schema missing summary");
+    throw new Error("CapabilityRequestResult: availableAction missing summary");
   }
   if (!Array.isArray(action.inputs)) {
-    throw new Error("CapabilityRequestResult: action schema inputs must be an array");
+    throw new Error("CapabilityRequestResult: availableAction inputs must be an array");
   }
   if (!Array.isArray(action.outputs)) {
-    throw new Error("CapabilityRequestResult: action schema outputs must be an array");
+    throw new Error("CapabilityRequestResult: availableAction outputs must be an array");
   }
-  for (const input of action.inputs) validateActionParameter(input);
-  for (const output of action.outputs) validateActionParameter(output);
+  for (const input of action.inputs) validateAvailableActionParameter(input);
+  for (const output of action.outputs) validateAvailableActionParameter(output);
 }
 
-function validateActionParameter(value: unknown): void {
+function validateAvailableActionParameter(
+  value: unknown,
+): asserts value is AvailableActionParameter {
   if (!value || typeof value !== "object") {
-    throw new Error("CapabilityRequestResult: action parameter must be an object");
+    throw new Error("CapabilityRequestResult: availableAction parameter must be an object");
   }
-  const parameter = value as Partial<CapabilityRequestResultActionSchemaParameter>;
+  const parameter = value as Partial<AvailableActionParameter>;
   if (typeof parameter.name !== "string") {
-    throw new Error("CapabilityRequestResult: action parameter missing name");
+    throw new Error("CapabilityRequestResult: availableAction parameter missing name");
   }
   if (typeof parameter.type !== "string") {
-    throw new Error("CapabilityRequestResult: action parameter missing type");
+    throw new Error("CapabilityRequestResult: availableAction parameter missing type");
   }
   if (typeof parameter.description !== "string") {
-    throw new Error("CapabilityRequestResult: action parameter missing description");
+    throw new Error("CapabilityRequestResult: availableAction parameter missing description");
   }
-  if (typeof parameter.required !== "boolean") {
-    throw new Error("CapabilityRequestResult: action parameter missing required");
-  }
-  if (parameter.enumValues !== undefined) {
-    if (!Array.isArray(parameter.enumValues) || parameter.enumValues.some((v) => typeof v !== "string")) {
-      throw new Error("CapabilityRequestResult: action parameter enumValues must be a string array");
-    }
-  }
-  if (parameter.itemType !== undefined && typeof parameter.itemType !== "string") {
-    throw new Error("CapabilityRequestResult: action parameter itemType must be a string");
-  }
-  if (parameter.itemEnumValues !== undefined) {
-    if (!Array.isArray(parameter.itemEnumValues) || parameter.itemEnumValues.some((v) => typeof v !== "string")) {
-      throw new Error("CapabilityRequestResult: action parameter itemEnumValues must be a string array");
-    }
+  if (typeof parameter.isRequired !== "boolean") {
+    throw new Error("CapabilityRequestResult: availableAction parameter missing isRequired");
   }
 }
 
@@ -233,7 +269,14 @@ function sanitizeCapabilityRequestResult(
     value.providers.length > CAPABILITY_REQUEST_RESULT_MAX_PROVIDERS
       ? value.providers.slice(0, CAPABILITY_REQUEST_RESULT_MAX_PROVIDERS)
       : value.providers;
-  return { ...value, providers };
+  const availableActions =
+    value.availableActions.length > CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS
+      ? value.availableActions.slice(
+          0,
+          CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS,
+        )
+      : value.availableActions;
+  return { ...value, providers, availableActions };
 }
 
 export function isCapabilityRequestResultMessage(message: DecodedMessage): boolean {
@@ -258,8 +301,9 @@ export function getCapabilityRequestResultContent(
     try {
       const json = new TextDecoder().decode((content as { content: Uint8Array }).content);
       const parsed = JSON.parse(json) as unknown;
-      if (looksLikeCapabilityRequestResult(parsed)) {
-        return parsed as CapabilityRequestResult;
+      const normalized = normalizeForDecode(parsed);
+      if (looksLikeCapabilityRequestResult(normalized)) {
+        return normalized as CapabilityRequestResult;
       }
     } catch {
       return undefined;
@@ -279,6 +323,6 @@ function looksLikeCapabilityRequestResult(value: unknown): boolean {
     typeof r.subject === "string" &&
     typeof r.capability === "string" &&
     Array.isArray(r.providers) &&
-    (r.actions === undefined || Array.isArray(r.actions))
+    Array.isArray(r.availableActions)
   );
 }

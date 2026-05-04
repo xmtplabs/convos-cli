@@ -17,6 +17,7 @@ import { ConnectionInvocationResultCodec } from "./connectionInvocationResult.js
 import { ConnectionEventCodec } from "./connectionEvent.js";
 import { CapabilityRequestCodec } from "./capabilityRequest.js";
 import { CapabilityRequestResultCodec } from "./capabilityRequestResult.js";
+import { CloudConnectionGrantRequestCodec } from "./cloudConnectionGrantRequest.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -140,6 +141,7 @@ async function buildClient(
       new ConnectionEventCodec() as any,
       new CapabilityRequestCodec() as any,
       new CapabilityRequestResultCodec() as any,
+      new CloudConnectionGrantRequestCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,

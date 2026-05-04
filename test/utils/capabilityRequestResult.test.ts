@@ -5,8 +5,10 @@ import {
   ContentTypeCapabilityRequestResult,
   CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION,
   CAPABILITY_REQUEST_RESULT_MAX_PROVIDERS,
+  CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS,
   getCapabilityRequestResultContent,
   isCapabilityRequestResultMessage,
+  type AvailableAction,
   type CapabilityRequestResult,
   type CapabilityRequestResultStatus,
 } from "../../src/utils/capabilityRequestResult.js";
@@ -27,6 +29,23 @@ function makeResult(
     subject: "calendar",
     capability: "read",
     providers: ["device.calendar"],
+    availableActions: [],
+    ...overrides,
+  };
+}
+
+function makeAction(overrides: Partial<AvailableAction> = {}): AvailableAction {
+  return {
+    providerId: "device.calendar",
+    kind: "calendar",
+    actionName: "create_event",
+    summary: "Create a calendar event",
+    inputs: [
+      { name: "title", type: "string", description: "Event title", isRequired: true },
+    ],
+    outputs: [
+      { name: "eventId", type: "string", description: "Calendar event ID", isRequired: true },
+    ],
     ...overrides,
   };
 }
@@ -48,22 +67,19 @@ describe("CapabilityRequestResultCodec", () => {
     expect(codec.decode(codec.encode(original))).toEqual(original);
   });
 
-  it("round-trips optional action schemas", () => {
+  it("round-trips availableActions with full provider/kind/actionName/parameter shape", () => {
     const original = makeResult({
-      actions: [
-        {
-          name: "fetch_summary_last_24h",
+      availableActions: [
+        makeAction({
+          actionName: "fetch_summary_last_24h",
           summary: "Fetch health summary",
+          providerId: "device.health",
+          kind: "health",
           inputs: [],
           outputs: [
-            {
-              name: "summary",
-              type: "string",
-              description: "Human-readable summary",
-              required: true,
-            },
+            { name: "summary", type: "string", description: "Human-readable summary", isRequired: true },
           ],
-        },
+        }),
       ],
     });
     expect(codec.decode(codec.encode(original))).toEqual(original);
@@ -118,6 +134,17 @@ describe("CapabilityRequestResultCodec", () => {
     expect(decoded.providers).toHaveLength(CAPABILITY_REQUEST_RESULT_MAX_PROVIDERS);
   });
 
+  it("truncates availableActions at the documented cap", () => {
+    const bloated = Array.from(
+      { length: CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS + 5 },
+      (_, i) => makeAction({ actionName: `action_${i}` }),
+    );
+    const decoded = codec.decode(codec.encode(makeResult({ availableActions: bloated })));
+    expect(decoded.availableActions).toHaveLength(
+      CAPABILITY_REQUEST_RESULT_MAX_AVAILABLE_ACTIONS,
+    );
+  });
+
   it("rejects future schema versions on decode", () => {
     const future = makeResult({
       version: CAPABILITY_REQUEST_RESULT_SUPPORTED_VERSION + 1,
@@ -142,7 +169,8 @@ describe("CapabilityRequestResultCodec", () => {
     ).toThrow(/Invalid JSON/);
   });
 
-  it("rejects results missing the providers array", () => {
+  it("rejects results where providers is not an array", () => {
+    // iOS encodes `providers` as a JSON array; a string here is malformed.
     expect(() =>
       codec.decode({
         type: ContentTypeCapabilityRequestResult,
@@ -154,13 +182,33 @@ describe("CapabilityRequestResultCodec", () => {
             status: "approved",
             subject: "calendar",
             capability: "read",
+            providers: "device.calendar",
+            availableActions: [],
           }),
         ),
       } as any),
     ).toThrow(/providers/);
   });
 
-  it("rejects malformed action schemas", () => {
+  it("treats missing providers and availableActions as empty (forward-compat with iOS decodeIfPresent)", () => {
+    const decoded = codec.decode({
+      type: ContentTypeCapabilityRequestResult,
+      parameters: {},
+      content: new TextEncoder().encode(
+        JSON.stringify({
+          version: 1,
+          requestId: "x",
+          status: "approved",
+          subject: "calendar",
+          capability: "read",
+        }),
+      ),
+    } as any);
+    expect(decoded.providers).toEqual([]);
+    expect(decoded.availableActions).toEqual([]);
+  });
+
+  it("rejects malformed availableAction parameters", () => {
     expect(() =>
       codec.decode({
         type: ContentTypeCapabilityRequestResult,
@@ -173,11 +221,53 @@ describe("CapabilityRequestResultCodec", () => {
             subject: "calendar",
             capability: "read",
             providers: ["device.calendar"],
-            actions: [{ name: "create_event", summary: "x", inputs: "bad", outputs: [] }],
+            availableActions: [
+              {
+                providerId: "device.calendar",
+                kind: "calendar",
+                actionName: "create_event",
+                summary: "x",
+                inputs: "bad",
+                outputs: [],
+              },
+            ],
           }),
         ),
       } as any),
-    ).toThrow(/actions|inputs/);
+    ).toThrow(/availableAction|inputs/);
+  });
+
+  it("rejects availableAction parameters using the legacy `required` key", () => {
+    // iOS PR #771 renamed `required` → `isRequired`. Senders still using the
+    // old key must fail loudly so we don't silently mistype the parameter.
+    expect(() =>
+      codec.decode({
+        type: ContentTypeCapabilityRequestResult,
+        parameters: {},
+        content: new TextEncoder().encode(
+          JSON.stringify({
+            version: 1,
+            requestId: "x",
+            status: "approved",
+            subject: "calendar",
+            capability: "read",
+            providers: ["device.calendar"],
+            availableActions: [
+              {
+                providerId: "device.calendar",
+                kind: "calendar",
+                actionName: "create_event",
+                summary: "x",
+                inputs: [
+                  { name: "title", type: "string", description: "x", required: true },
+                ],
+                outputs: [],
+              },
+            ],
+          }),
+        ),
+      } as any),
+    ).toThrow(/isRequired/);
   });
 });
 

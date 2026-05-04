@@ -1007,6 +1007,29 @@ describe("routeConvosContentType", () => {
     });
   });
 
+  it("emits cloud_connection_grant_request when an OAuth grant is requested", () => {
+    const { agent, events } = createTestAgent();
+    const request = {
+      version: 1,
+      service: "strava",
+      requestedByInboxId: "inbox-agent",
+      targetInboxId: "inbox-user",
+      reason: "To summarize this week's training",
+    };
+    const message = mockDecoded("connection_grant_request", request);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "cloud_connection_grant_request");
+    expect(evt).toMatchObject({
+      event: "cloud_connection_grant_request",
+      version: 1,
+      service: "strava",
+      requestedByInboxId: "inbox-agent",
+      targetInboxId: "inbox-user",
+      reason: "To summarize this week's training",
+    });
+  });
+
   it("emits capability_request, including the preferredProviders hint", () => {
     const { agent, events } = createTestAgent();
     const request = {
@@ -1040,6 +1063,7 @@ describe("routeConvosContentType", () => {
       subject: "calendar",
       capability: "read",
       providers: ["device.calendar"],
+      availableActions: [],
     };
     const message = mockDecoded("capability_request_result", result);
 
@@ -1050,10 +1074,11 @@ describe("routeConvosContentType", () => {
       requestId: "req-1",
       status: "approved",
       providers: ["device.calendar"],
+      availableActions: [],
     });
   });
 
-  it("emits capability_result actions when approval returns available actions", () => {
+  it("emits capability_result availableActions when approval returns them", () => {
     const { agent, events } = createTestAgent();
     const result = {
       version: 1,
@@ -1062,9 +1087,11 @@ describe("routeConvosContentType", () => {
       subject: "fitness",
       capability: "read",
       providers: ["device.health"],
-      actions: [
+      availableActions: [
         {
-          name: "fetch_summary_last_24h",
+          providerId: "device.health",
+          kind: "health",
+          actionName: "fetch_summary_last_24h",
           summary: "Fetch health summary",
           inputs: [],
           outputs: [
@@ -1072,7 +1099,7 @@ describe("routeConvosContentType", () => {
               name: "summary",
               type: "string",
               description: "Human-readable summary",
-              required: true,
+              isRequired: true,
             },
           ],
         },
@@ -1085,7 +1112,7 @@ describe("routeConvosContentType", () => {
     expect(evt).toMatchObject({
       event: "capability_result",
       requestId: "req-2",
-      actions: result.actions,
+      availableActions: result.availableActions,
     });
   });
 
@@ -1128,6 +1155,7 @@ describe("routeConvosContentType", () => {
       subject: "calendar",
       capability: "read",
       providers: ["device.calendar"],
+      availableActions: [],
     });
 
     agent.routeConvosContentType(message, conv(), false);

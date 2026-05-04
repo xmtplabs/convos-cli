@@ -560,7 +560,8 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | `connection_result` | A `ConnectionInvocationResult` arrived (device → agent reply to a write) | `id`, `envelopeId`, `senderInboxId`, `conversationId`, `invocationId`, `kind`, `actionName`, `status`, `schemaVersion`, `result`, `errorMessage` (optional, present on non-success), `completedAt`, `sentAt`, `catchup` (optional) |
 | `capability_request` | A `CapabilityRequest` arrived (rare — agent-to-agent) | `id`, `senderInboxId`, `conversationId`, `version`, `requestId`, `subject`, `capability`, `rationale`, `preferredProviders` (optional), `sentAt`, `catchup` (optional) |
 | `connection_event` | A `ConnectionEvent` arrived (user/device → agent grant change notification) | `id`, `senderInboxId`, `conversationId`, `version`, `providerId`, `action` (`granted`/`revoked`), `sentAt`, `catchup` (optional) |
-| `capability_result` | A `CapabilityRequestResult` arrived (user → agent picker outcome) | `id`, `senderInboxId`, `conversationId`, `version`, `requestId`, `status`, `subject`, `capability`, `providers`, `actions` (optional), `sentAt`, `catchup` (optional) |
+| `cloud_connection_grant_request` | A `CloudConnectionGrantRequest` arrived (agent → device OAuth link prompt) | `id`, `senderInboxId`, `conversationId`, `version`, `service`, `requestedByInboxId`, `targetInboxId`, `reason`, `sentAt`, `catchup` (optional) |
+| `capability_result` | A `CapabilityRequestResult` arrived (user → agent picker outcome) | `id`, `senderInboxId`, `conversationId`, `version`, `requestId`, `status`, `subject`, `capability`, `providers`, `availableActions`, `sentAt`, `catchup` (optional) |
 | `sent` | Message sent confirmation (replies to a stdin command) | `id`, `type`, plus type-specific fields (e.g. `text`, `replyTo`, `invocationId`, `requestId`, `expiresAt`, …) |
 | `heartbeat` | Periodic health check | `conversationId`, `activeStreams`, `timestamp` |
 | `error` | Error occurred | `message`, plus optional context fields |
@@ -592,6 +593,7 @@ Events with `catchup: true` were fetched during stream reconnection (missed whil
 {"type":"connection-invoke","kind":"contacts","action":"create_contact","invocationId":"req-42","arguments":{}}
 {"type":"capability-request","subject":"calendar","capability":"read","rationale":"To summarize your week"}
 {"type":"capability-request","subject":"fitness","capability":"read","rationale":"To summarize training","preferredProviders":["composio.strava","composio.fitbit"]}
+{"type":"cloud-connection-grant-request","service":"strava","targetInboxId":"<user-inbox-id>","reason":"To summarize this week's training"}
 {"type":"stop"}
 ```
 
@@ -609,11 +611,12 @@ Events with `catchup: true` were fetched during stream reconnection (missed whil
 | `explode` | — | `scheduled` (ISO8601 date) |
 | `connection-invoke` | `kind`, `action` | `arguments` (object, default `{}`), `invocationId` (default: `agent-<8-hex>`), `issuedAt` (ISO8601, default: now) |
 | `capability-request` | `subject`, `capability`, `rationale` | `requestId` (default: `agent-<8-hex>`), `preferredProviders` (string array, max 16) |
+| `cloud-connection-grant-request` | `service`, `targetInboxId`, `reason` | `requestedByInboxId` (defaults to the agent's own `inboxId`) |
 | `stop` | — | — |
 
 Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
 
-**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`. The reply does not surface as a `message` event (the codec is silent and filtered from the chat stream); it surfaces as a dedicated `connection_result` event on stdout, so agents can correlate by reading lines and matching `invocationId`. **capability-request** is the same shape for capability resolution: agent posts a request naming a `(subject, capability)` pair plus a human rationale, and the device replies asynchronously with a `CapabilityRequestResult` (`approved` / `denied` / `cancelled`) — surfaced as a `capability_result` event with the persisted `providers` array and, on newer iOS builds, optional `actions` describing invocable provider actions.
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`. The reply does not surface as a `message` event (the codec is silent and filtered from the chat stream); it surfaces as a dedicated `connection_result` event on stdout, so agents can correlate by reading lines and matching `invocationId`. **capability-request** is the same shape for capability resolution: agent posts a request naming a `(subject, capability)` pair plus a human rationale, and the device replies asynchronously with a `CapabilityRequestResult` (`approved` / `denied` / `cancelled`) — surfaced as a `capability_result` event with the persisted `providers` array and an `availableActions` array describing invocable provider actions. **cloud-connection-grant-request** is a one-way OAuth link prompt: agent names a cloud `service` (`strava`, `google_calendar`, …), a `targetInboxId`, and a `reason`; the receiving device renders a link card and runs OAuth itself. There is no on-wire reply — agents that need to know whether the link succeeded should watch for the next `profile_update` and re-read `metadata["connections"]`.
 
 ### How It Works
 
@@ -898,26 +901,25 @@ Device → agent picker outcome. Always emitted, even on cancel/deny, so the age
 | `status` | `string` | `approved` \| `denied` \| `cancelled`. |
 | `subject` / `capability` | as above | |
 | `providers` | `string[]` | Empty for `denied` / `cancelled`. For `approved`, size 1 for non-federating subjects and write verbs, ≥ 1 for federating-subject reads. **Truncated at 16 entries.** Reflects what the resolver actually persisted — agents that supplied a `preferredProviders` hint should compare against this to confirm whether their hint was honored. |
-| `actions` | `ActionSchema[]` (optional) | Present on newer iOS builds when the approved provider can advertise invocable actions. Use this as the device-provided source of truth for valid action names, argument shapes, and result fields. |
+| `availableActions` | `AvailableAction[]` | Empty for `denied` / `cancelled`. For `approved`, lists the action schemas the resolved providers can fulfill. Use this as the device-provided source of truth for valid action names, argument shapes, and result fields. **Truncated at 64 entries.** |
 
-`ActionSchema` entries in a capability result use this JSON shape:
+`AvailableAction` entries in a capability result use this JSON shape:
 
 ```ts
-interface CapabilityRequestResultActionSchemaParameter {
+interface AvailableActionParameter {
   name: string;
-  type: string;                 // e.g. string, bool, int, double, iso8601, enum, array
+  type: string;          // free-form schema type (e.g. "string", "int", "iso8601")
   description: string;
-  required: boolean;
-  enumValues?: string[];        // present when type === "enum"
-  itemType?: string;            // present when type === "array"
-  itemEnumValues?: string[];    // present when itemType === "enum"
+  isRequired: boolean;
 }
 
-interface CapabilityRequestResultActionSchema {
-  name: string;
+interface AvailableAction {
+  providerId: string;    // e.g. "device.calendar", "composio.strava"
+  kind: string;          // ConnectionKind raw value, e.g. "calendar", "health"
+  actionName: string;
   summary: string;
-  inputs: CapabilityRequestResultActionSchemaParameter[];
-  outputs: CapabilityRequestResultActionSchemaParameter[];
+  inputs: AvailableActionParameter[];
+  outputs: AvailableActionParameter[];
 }
 ```
 
@@ -926,6 +928,38 @@ Fallback strings:
 - `approved`: `"Approved <subject> access"`
 - `denied`: `"Declined <subject> access"`
 - `cancelled`: `"Cancelled <subject> access request"`
+
+##### Wire shape: `convos.org/connection_grant_request:1.0`
+
+A separate but adjacent codec used to ask the receiving device to **link a cloud (OAuth) provider** like Strava or Google Calendar. The device performs the OAuth flow itself and writes the resulting grant into the `connections` manifest — there is **no on-wire reply codec**. Agents that want to know whether the link succeeded should watch the next `profile_update` and re-read the manifest.
+
+Unlike `capability_request`, this isn't gated by the picker — it's a "please link this account" prompt. Use it when you know the user needs a specific cloud provider linked (e.g. agent prerequisite for a Strava-backed analysis) before issuing any `capability_request` against that subject.
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `version` | `int` | Currently `1`. |
+| `service` | `string` | Cloud service identifier (e.g. `"strava"`, `"google_calendar"`). The receiving device renders a service-specific link card based on this. |
+| `requestedByInboxId` | `string` | Inbox ID of the agent requesting the link. |
+| `targetInboxId` | `string` | Inbox ID of the user expected to complete the OAuth flow. |
+| `reason` | `string` | Free-form human-readable rationale; rendered verbatim on the link card. **Truncated at 500 chars** symmetrically on encode and decode. |
+
+Fallback string: `"The assistant asked to connect <service>"`. The codec is silent (`shouldPush=false`) and surfaces on `agent serve` as a `cloud_connection_grant_request` event rather than as chat content.
+
+CLI surface:
+
+```bash
+# ask the user to link Strava
+convos conversation send-cloud-connection-grant-request <conversation-id> \
+  --service strava \
+  --target-inbox-id <user-inbox-id> \
+  --reason "To summarize this week's training"
+```
+
+Agent stdin equivalent (omits `requestedByInboxId` to default to the agent's own inbox):
+
+```jsonl
+{"type":"cloud-connection-grant-request","service":"strava","targetInboxId":"<user-inbox-id>","reason":"To summarize this week's training"}
+```
 
 ##### `profile.metadata["connections"]` manifest (in flight)
 
@@ -936,7 +970,7 @@ Note the key reuse: the original CloudConnections design (PR #719) was going to 
 ##### What this changes for agents
 
 - **Pre-emptive consent.** Instead of firing a write invocation and getting `capability_not_enabled` back, an agent can post a `capability_request` first; the user's pick persists per `(subject, conversation, capability)`, so subsequent invocations on the same `ConnectionKind` (until the manifest's subject-routing migration completes) land cleanly.
-- **Action discovery now piggybacks on approval.** On newer iOS builds, an approved `CapabilityRequestResult` may include `actions`, a device-provided action schema list for the resolved provider. Prefer this over stale hard-coded knowledge when present — it tells you exactly which action names, inputs, and outputs this device build supports right now.
+- **Action discovery now piggybacks on approval.** Approved `CapabilityRequestResult` messages carry `availableActions` — a device-provided action schema list for the resolved providers. Prefer this over stale hard-coded knowledge — it tells you exactly which action names, inputs, and outputs this device build supports right now.
 - **Probe-driven discovery is still load-bearing for now.** Until the `metadata["connections"]` manifest ships, the "polite agent" pattern under "Discovering Enabled Capabilities" remains the right way to learn what's enabled. Sending a `capability_request` is a complement, not a replacement — use it when you know up front you'll need a capability and want to surface the picker before the user is mid-conversation.
 - **Federated reads aggregate.** When fitness reads resolve to multiple providers, the device fans the read out and returns one combined payload with a `partialFailures` array if any provider errored. Agents handling fitness data should expect that shape rather than assuming a single-source result.
 - **Provider unlink is silent.** When the user unlinks a cloud provider, resolutions referencing it are pruned — single-element rows delete (next invocation re-prompts), multi-element rows shrink. No teardown message hits the wire.
@@ -966,12 +1000,12 @@ convos conversation send-capability-request <conversation-id> \
 
 ##### Sending a CapabilityRequest from `agent serve`
 
-If the approval comes back with `actions`, the stdout `capability_result` event will include them verbatim. Typical flow:
+If the approval comes back with non-empty `availableActions`, the stdout `capability_result` event will include them verbatim. Typical flow:
 
 1. Send `capability-request`.
 2. Wait for `capability_result` with `status: "approved"`.
 3. Read `providers` to learn what resolved.
-4. If `actions` is present, choose one of those action names and construct your later `connection-invoke` from that schema instead of assuming an older static action list.
+4. If `availableActions` is non-empty, choose one of those action names and construct your later `connection-invoke` from that schema instead of assuming an older static action list.
 
 
 The agent stdin protocol exposes the same path under `capability-request`:
@@ -986,7 +1020,7 @@ The agent stdin protocol exposes the same path under `capability-request`:
 | -------- | -------- |
 | `subject`, `capability`, `rationale` | `requestId` (default: `agent-<8-hex>`), `preferredProviders` (string array) |
 
-The agent emits a `sent` event of `type: "capability-request"` carrying both the message `id` and the `requestId`. The eventual `CapabilityRequestResult` arrives as a regular message but is filtered from the chat stream (codec is silent), so agent code that wants to react to it must consume `getCapabilityRequestResultContent(message)` from a stream loop, the same way it would for `ConnectionInvocationResult`. On newer iOS builds, approved results may include `actions`; agents should cache them only for the current interaction and treat the next approval as fresher truth.
+The agent emits a `sent` event of `type: "capability-request"` carrying both the message `id` and the `requestId`. The eventual `CapabilityRequestResult` arrives as a regular message but is filtered from the chat stream (codec is silent), so agent code that wants to react to it must consume `getCapabilityRequestResultContent(message)` from a stream loop, the same way it would for `ConnectionInvocationResult`. Approved results carry `availableActions`; agents should cache them only for the current interaction and treat the next approval as fresher truth.
 
 ---
 
@@ -1190,14 +1224,14 @@ The agent stdin protocol exposes the same path under the `connection-invoke` com
 
 #### Consuming Connection Messages from an Agent
 
-`agent serve` emits structured stdout events for every silent codec — `connection_payload`, `connection_invocation`, `connection_result`, `connection_event`, `capability_request`, `capability_result`, and `explode_notice` (see the Events table under Agent Mode). The fields mirror the decoded codec content directly, so the typical agent loop is:
+`agent serve` emits structured stdout events for every silent codec — `connection_payload`, `connection_invocation`, `connection_result`, `connection_event`, `cloud_connection_grant_request`, `capability_request`, `capability_result`, and `explode_notice` (see the Events table under Agent Mode). The fields mirror the decoded codec content directly, so the typical agent loop is:
 
 ```jsonl
 // stdout (excerpt)
 {"event":"ready","conversationId":"…","inviteUrl":"…","inboxId":"…"}
 {"event":"connection_payload","id":"msg-abc","envelopeId":"E1A…","senderInboxId":"u1","conversationId":"c1","source":"calendar","schemaVersion":1,"capturedAt":721692800,"body":{"type":"calendar","data":{"summary":"2 events today"}},"sentAt":"2026-04-28T12:00:00.000Z"}
 {"event":"connection_event","id":"msg-def","senderInboxId":"u1","conversationId":"c1","version":1,"providerId":"device.health","action":"granted","sentAt":"2026-04-28T12:00:04.000Z"}
-{"event":"capability_result","id":"msg-deg","senderInboxId":"u1","conversationId":"c1","version":1,"requestId":"req-1","status":"approved","subject":"fitness","capability":"read","providers":["device.health"],"actions":[{"name":"fetch_summary_last_24h","summary":"Fetch a read-only health summary for the last 24 hours.","inputs":[],"outputs":[{"name":"summary","type":"string","description":"Human-readable summary of the window.","required":true},{"name":"sampleCount","type":"int","description":"Number of mapped samples in the window.","required":true},{"name":"rangeStart","type":"iso8601","description":"Window start (RFC 3339 with offset).","required":true},{"name":"rangeEnd","type":"iso8601","description":"Window end (RFC 3339 with offset).","required":true},{"name":"payloadJson","type":"string","description":"Full HealthPayload JSON string for callers that need richer structured data.","required":true}]}],"sentAt":"2026-04-28T12:00:05.000Z"}
+{"event":"capability_result","id":"msg-deg","senderInboxId":"u1","conversationId":"c1","version":1,"requestId":"req-1","status":"approved","subject":"fitness","capability":"read","providers":["device.health"],"availableActions":[{"providerId":"device.health","kind":"health","actionName":"fetch_summary_last_24h","summary":"Fetch a read-only health summary for the last 24 hours.","inputs":[],"outputs":[{"name":"summary","type":"string","description":"Human-readable summary of the window.","isRequired":true},{"name":"sampleCount","type":"int","description":"Number of mapped samples in the window.","isRequired":true},{"name":"rangeStart","type":"iso8601","description":"Window start (RFC 3339 with offset).","isRequired":true},{"name":"rangeEnd","type":"iso8601","description":"Window end (RFC 3339 with offset).","isRequired":true},{"name":"payloadJson","type":"string","description":"Full HealthPayload JSON string for callers that need richer structured data.","isRequired":true}]}],"sentAt":"2026-04-28T12:00:05.000Z"}
 {"event":"connection_result","id":"msg-ghi","envelopeId":"E2B…","senderInboxId":"u1","conversationId":"c1","invocationId":"agent-1-001","kind":"calendar","actionName":"create_event","status":"success","schemaVersion":1,"result":{"eventId":{"type":"string","value":"evt-1"}},"completedAt":721692900,"sentAt":"2026-04-28T12:01:30.000Z"}
 ```
 
