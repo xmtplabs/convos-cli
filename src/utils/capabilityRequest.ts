@@ -121,7 +121,9 @@ function validateCapabilityRequest(
     throw new Error("CapabilityRequest: not an object");
   }
   const r = value as Partial<CapabilityRequest>;
-  if (typeof r.version !== "number") throw new Error("CapabilityRequest: missing version");
+  if (typeof r.version !== "number" || !Number.isInteger(r.version) || r.version < 1) {
+    throw new Error(`CapabilityRequest: invalid version ${JSON.stringify(r.version)}`);
+  }
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequest: missing requestId");
   if (!isCapabilitySubject(r.subject)) {
     throw new Error(`CapabilityRequest: invalid subject ${JSON.stringify(r.subject)}`);

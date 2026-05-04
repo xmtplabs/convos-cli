@@ -76,7 +76,9 @@ function validateConnectionEvent(value: unknown): asserts value is ConnectionEve
     throw new Error("ConnectionEvent: not an object");
   }
   const event = value as Partial<ConnectionEvent>;
-  if (typeof event.version !== "number") throw new Error("ConnectionEvent: missing version");
+  if (typeof event.version !== "number" || !Number.isInteger(event.version) || event.version < 1) {
+    throw new Error(`ConnectionEvent: invalid version ${JSON.stringify(event.version)}`);
+  }
   if (typeof event.providerId !== "string") throw new Error("ConnectionEvent: missing providerId");
   if (event.action !== "granted" && event.action !== "revoked") {
     throw new Error("ConnectionEvent: invalid action");

@@ -111,8 +111,10 @@ function validateCloudConnectionGrantRequest(
     throw new Error("CloudConnectionGrantRequest: not an object");
   }
   const r = value as Partial<CloudConnectionGrantRequest>;
-  if (typeof r.version !== "number") {
-    throw new Error("CloudConnectionGrantRequest: missing version");
+  if (typeof r.version !== "number" || !Number.isInteger(r.version) || r.version < 1) {
+    throw new Error(
+      `CloudConnectionGrantRequest: invalid version ${JSON.stringify(r.version)}`,
+    );
   }
   if (typeof r.service !== "string") {
     throw new Error("CloudConnectionGrantRequest: missing service");

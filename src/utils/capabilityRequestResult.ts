@@ -197,7 +197,9 @@ function validateCapabilityRequestResult(
     throw new Error("CapabilityRequestResult: not an object");
   }
   const r = value as Partial<CapabilityRequestResult>;
-  if (typeof r.version !== "number") throw new Error("CapabilityRequestResult: missing version");
+  if (typeof r.version !== "number" || !Number.isInteger(r.version) || r.version < 1) {
+    throw new Error(`CapabilityRequestResult: invalid version ${JSON.stringify(r.version)}`);
+  }
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequestResult: missing requestId");
   if (
     r.status !== "approved" &&
@@ -316,9 +318,14 @@ export function getCapabilityRequestResultContent(
       const json = new TextDecoder().decode((content as { content: Uint8Array }).content);
       const parsed = JSON.parse(json) as unknown;
       const normalized = normalizeForDecode(parsed);
-      if (looksLikeCapabilityRequestResult(normalized)) {
-        return normalized as CapabilityRequestResult;
-      }
+      if (!looksLikeCapabilityRequestResult(normalized)) return undefined;
+      // Run the same per-entry validation and array-cap sanitization that
+      // `codec.decode()` performs — `looksLike*` only checks top-level
+      // shape, so without these calls a payload with malformed
+      // `availableActions` entries or an over-cap array could leak into
+      // downstream consumers.
+      validateCapabilityRequestResult(normalized);
+      return sanitizeCapabilityRequestResult(normalized);
     } catch {
       return undefined;
     }

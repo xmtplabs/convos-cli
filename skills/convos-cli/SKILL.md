@@ -174,7 +174,7 @@ convos conversation send-typing-indicator <conversation-id> --stop
 # (full flag docs and the response side: see ConvosConnections under Important Concepts)
 convos conversation send-invocation <conversation-id> \
   --kind calendar --action create_event \
-  --arguments '{"title":{"type":"string","value":"Team sync"}}'
+  --arguments '{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-01T16:00:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"}}'
 
 # request a capability up front (agent → user picker; approval may return available actions)
 convos conversation send-capability-request <conversation-id> \
@@ -589,7 +589,7 @@ Events with `catchup: true` were fetched during stream reconnection (missed whil
 {"type":"unlock"}
 {"type":"explode"}
 {"type":"explode","scheduled":"2025-03-01T00:00:00Z"}
-{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"isAllDay":{"type":"bool","value":false}}}
+{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-01T16:00:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"},"isAllDay":{"type":"bool","value":false}}}
 {"type":"connection-invoke","kind":"contacts","action":"create_contact","invocationId":"req-42","arguments":{}}
 {"type":"capability-request","subject":"calendar","capability":"read","rationale":"To summarize your week"}
 {"type":"capability-request","subject":"fitness","capability":"read","rationale":"To summarize training","preferredProviders":["composio.strava","composio.fitbit"]}
@@ -1219,7 +1219,7 @@ The CLI does **not** expose a corresponding `send-payload` or `send-result` comm
 The agent stdin protocol exposes the same path under the `connection-invoke` command type — see the Agent Mode section's Commands table. The wire-level outcome is identical to `send-invocation`; the agent emits a `sent` event with `type: "connection-invoke"`, the message `id`, and both `invocationId` and `envelopeId` for correlation.
 
 ```jsonl
-{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"isAllDay":{"type":"bool","value":false}}}
+{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-01T16:00:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"},"isAllDay":{"type":"bool","value":false}}}
 ```
 
 #### Consuming Connection Messages from an Agent

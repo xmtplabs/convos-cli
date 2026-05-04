@@ -68,18 +68,20 @@ export async function getClient(
   const cached = clientCache.get(key);
   if (cached) return cached;
 
-  const promise = buildClient(store.loadOrUpsert(), config, resolvedHome).then(
-    (client) => {
+  // .then(onSuccess, onError) doesn't catch throws from onSuccess — so a
+  // post-build store.load/update failure would leave a rejected promise
+  // permanently cached. Chain .then().catch() so any throw clears the entry.
+  const promise = buildClient(store.loadOrUpsert(), config, resolvedHome)
+    .then((client) => {
       if (!store.load()?.inboxId) {
         store.update({ inboxId: client.inboxId });
       }
       return client;
-    },
-    (error) => {
+    })
+    .catch((error) => {
       clientCache.delete(key);
       throw error;
-    },
-  );
+    });
 
   clientCache.set(key, promise);
   return promise;
