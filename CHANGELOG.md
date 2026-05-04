@@ -45,6 +45,16 @@ Existing `~/.convos/identities/*.json` files are no longer used. The CLI will cr
 
 - `conversations list --include-dms` — include DMs alongside groups in output.
 
+## 0.7.6 (2026-05-03)
+
+### Bug Fixes
+
+- **Agent serve attach mode is read-only for invite generation** — existing conversations no longer rewrite appData when invite metadata is missing or unreadable
+
+### Notes
+
+- Reverts the `@xmtp/node-sdk` 5.3.0 → 6.0.0 dependabot bump that landed on `main` after `v0.7.4`. The 6.0.0 SDK introduced breaking codec and `ClientOptions` API changes that have not yet been adapted in this repo. Pin remains at 5.3.0.
+
 ## 0.4.0 (2025-03-04)
 
 ### Features
