@@ -181,15 +181,26 @@ export function getCapabilityRequestContent(
   const content = message.content;
   if (!content || typeof content !== "object") return undefined;
 
+  // Both branches run the same validate + sanitize that `codec.decode()`
+  // performs — `looksLike*` only checks top-level shape, so without
+  // these calls a payload with malformed nested fields or an over-cap
+  // rationale could leak into downstream consumers.
   if (looksLikeCapabilityRequest(content)) {
-    return content as CapabilityRequest;
+    try {
+      validateCapabilityRequest(content);
+      return sanitizeCapabilityRequest(content as CapabilityRequest);
+    } catch {
+      return undefined;
+    }
   }
 
   if ("content" in content && (content as { content: unknown }).content instanceof Uint8Array) {
     try {
       const json = new TextDecoder().decode((content as { content: Uint8Array }).content);
       const parsed = JSON.parse(json) as unknown;
-      if (looksLikeCapabilityRequest(parsed)) return parsed as CapabilityRequest;
+      if (!looksLikeCapabilityRequest(parsed)) return undefined;
+      validateCapabilityRequest(parsed);
+      return sanitizeCapabilityRequest(parsed);
     } catch {
       return undefined;
     }

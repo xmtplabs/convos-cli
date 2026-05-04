@@ -154,17 +154,24 @@ export function getCloudConnectionGrantRequestContent(
   const content = message.content;
   if (!content || typeof content !== "object") return undefined;
 
+  // Both branches run the same validate + sanitize that `codec.decode()`
+  // performs — `looksLike*` only checks top-level shape.
   if (looksLikeCloudConnectionGrantRequest(content)) {
-    return content as CloudConnectionGrantRequest;
+    try {
+      validateCloudConnectionGrantRequest(content);
+      return sanitizeCloudConnectionGrantRequest(content as CloudConnectionGrantRequest);
+    } catch {
+      return undefined;
+    }
   }
 
   if ("content" in content && (content as { content: unknown }).content instanceof Uint8Array) {
     try {
       const json = new TextDecoder().decode((content as { content: Uint8Array }).content);
       const parsed = JSON.parse(json) as unknown;
-      if (looksLikeCloudConnectionGrantRequest(parsed)) {
-        return parsed as CloudConnectionGrantRequest;
-      }
+      if (!looksLikeCloudConnectionGrantRequest(parsed)) return undefined;
+      validateCloudConnectionGrantRequest(parsed);
+      return sanitizeCloudConnectionGrantRequest(parsed);
     } catch {
       return undefined;
     }

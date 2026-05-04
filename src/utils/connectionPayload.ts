@@ -140,15 +140,23 @@ export function getConnectionPayloadContent(
   const content = message.content;
   if (!content || typeof content !== "object") return undefined;
 
+  // Both branches run the same body validation `codec.decode()` performs.
   if (looksLikeConnectionPayload(content)) {
-    return content as ConnectionPayload;
+    try {
+      validateConnectionPayload(content);
+      return content as ConnectionPayload;
+    } catch {
+      return undefined;
+    }
   }
 
   if ("content" in content && (content as { content: unknown }).content instanceof Uint8Array) {
     try {
       const json = new TextDecoder().decode((content as { content: Uint8Array }).content);
       const parsed = JSON.parse(json) as unknown;
-      if (looksLikeConnectionPayload(parsed)) return parsed as ConnectionPayload;
+      if (!looksLikeConnectionPayload(parsed)) return undefined;
+      validateConnectionPayload(parsed);
+      return parsed;
     } catch {
       return undefined;
     }

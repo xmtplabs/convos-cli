@@ -130,15 +130,26 @@ export function getConnectionInvocationContent(
   const content = message.content;
   if (!content || typeof content !== "object") return undefined;
 
+  // Both branches run the per-argument validation that `codec.decode()`
+  // performs — `looksLike*` only checks top-level shape, so without
+  // these calls a payload with malformed `arguments` ArgumentValue tags
+  // could leak into downstream consumers.
   if (looksLikeConnectionInvocation(content)) {
-    return content as ConnectionInvocation;
+    try {
+      validateConnectionInvocation(content);
+      return content as ConnectionInvocation;
+    } catch {
+      return undefined;
+    }
   }
 
   if ("content" in content && (content as { content: unknown }).content instanceof Uint8Array) {
     try {
       const json = new TextDecoder().decode((content as { content: Uint8Array }).content);
       const parsed = JSON.parse(json) as unknown;
-      if (looksLikeConnectionInvocation(parsed)) return parsed as ConnectionInvocation;
+      if (!looksLikeConnectionInvocation(parsed)) return undefined;
+      validateConnectionInvocation(parsed);
+      return parsed;
     } catch {
       return undefined;
     }

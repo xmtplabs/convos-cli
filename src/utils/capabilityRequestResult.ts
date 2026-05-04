@@ -309,8 +309,21 @@ export function getCapabilityRequestResultContent(
   const content = message.content;
   if (!content || typeof content !== "object") return undefined;
 
+  // Both branches (already-decoded object, raw EncodedContent bytes) run
+  // the same per-entry validation and array-cap sanitization that
+  // `codec.decode()` performs — `looksLike*` only checks top-level shape,
+  // so without these calls a payload with malformed `availableActions`
+  // entries, non-string `providers` entries, or over-cap arrays could
+  // leak to downstream consumers. Validation throws on malformed input;
+  // we swallow to preserve the helper's lenient "return undefined when
+  // we can't safely decode" contract.
   if (looksLikeCapabilityRequestResult(content)) {
-    return content as CapabilityRequestResult;
+    try {
+      validateCapabilityRequestResult(content);
+      return sanitizeCapabilityRequestResult(content as CapabilityRequestResult);
+    } catch {
+      return undefined;
+    }
   }
 
   if ("content" in content && (content as { content: unknown }).content instanceof Uint8Array) {
@@ -319,11 +332,6 @@ export function getCapabilityRequestResultContent(
       const parsed = JSON.parse(json) as unknown;
       const normalized = normalizeForDecode(parsed);
       if (!looksLikeCapabilityRequestResult(normalized)) return undefined;
-      // Run the same per-entry validation and array-cap sanitization that
-      // `codec.decode()` performs — `looksLike*` only checks top-level
-      // shape, so without these calls a payload with malformed
-      // `availableActions` entries or an over-cap array could leak into
-      // downstream consumers.
       validateCapabilityRequestResult(normalized);
       return sanitizeCapabilityRequestResult(normalized);
     } catch {
