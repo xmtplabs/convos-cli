@@ -704,6 +704,52 @@ done
 | `--no-invite` | Skip generating an invite (attach mode) |
 | `--heartbeat` | Emit heartbeat events every N seconds (0 to disable, default: 0) |
 
+## Assistant Builder Focus Mode
+
+Mirrors the iOS `Build assistant` flow. The iOS user taps the hammer toolbar, copies an invite, and you join with `convos agent focus <invite>`. The two sides then enter a real-time co-typing session backed by three silent codecs:
+
+- `convos.org/focus_mode_control:1.0` — session lifecycle (`start` / `stop`, `focusedInboxId`, `sessionId`)
+- `convos.org/streaming_text:1.0` — full-snapshot bubble text with monotonic `revision` per `(sessionId, senderInboxId)`. Receivers drop any `revision <= existing.revision`. Decoder rejects > 1 KiB.
+- `convos.org/streaming_clear:1.0` — end-of-thought clear; shares the same monotonic counter as StreamingText. Receivers wait 600 ms before blanking the bubble.
+
+All three are `shouldPush: false` and are not stored in conversation history. The CLI registers the codecs but does not surface them through the normal `agent serve` `message` event — they only matter inside `agent focus`.
+
+```bash
+convos agent focus <invite-slug>            # join + wait for focus
+convos agent focus <slug> --persona ./p.txt # include persona contents in the joined event
+convos agent focus <slug> --auto-stop-after 60
+```
+
+**ndjson protocol** (symmetric with `agent serve`):
+
+| Stdin command | Effect |
+| --- | --- |
+| `{"type":"text","text":"..."}` | Publish a snapshot of your current bubble (auto-increments `revision`) |
+| `{"type":"clear"}` | Send `StreamingClear` (also auto-increments `revision`) |
+| `{"type":"stop"}` | Send `FocusModeControl(.stop)` and exit |
+
+| Stdout event | Meaning |
+| --- | --- |
+| `joined` | Joined the conversation; persona (if any) included |
+| `focus_pending` | Got `FocusModeControl(.start)` with `focusedInboxId: null` |
+| `focused` | Promoted to the focused member (or another member is focused; check `isUs`) |
+| `streaming_text` | Incoming snapshot from the focused user |
+| `streaming_clear` | Incoming end-of-thought clear |
+| `focus_stopped` | Other side ended the session |
+| `sent` | One of our `text`/`clear`/`stop` writes succeeded |
+| `auto_stop` | Idle timer fired; we are about to send `stop` |
+| `shutdown` | Process is exiting; carries `reason` |
+| `error` | Recoverable error; process keeps running |
+
+**Rules to remember:**
+
+- Revisions are uint32, monotonic per `(sessionId, senderInboxId)`, **shared** between StreamingText and StreamingClear.
+- Snapshots are full text — never deltas. Empty `text` means the user backspaced to nothing; that is **not** a clear.
+- Only the focused member should publish StreamingText. The CLI refuses to send if `focusedInboxId !== client.inboxId`.
+- The first `start` typically arrives with `focusedInboxId: null`; iOS auto-promotes once it sees you join. The promotion rule is "only overwrite focusedInboxId with non-null values" — a stale `start(null)` arriving late must not blow away a known focus.
+- Late `StreamingText` after a `StreamingClear` (or after `stop`) is dropped via the revision check.
+- For LLM-driven flows, batch 5–20 sends/sec rather than one-per-token; the wire cost adds up.
+
 ## Important Concepts
 
 ### Single-Inbox Identity Model (ADR 011)

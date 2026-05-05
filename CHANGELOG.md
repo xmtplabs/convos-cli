@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased
+
+### Added: Assistant Builder Focus Mode (mirrors convos-ios `jarod/assistant-builder`)
+
+Three new silent content types support a real-time co-typing "build session"
+between an iOS user and a CLI agent. All three are JSON-encoded, `shouldPush: false`,
+and have no text fallback.
+
+- **`convos.org/focus_mode_control:1.0`** — session lifecycle. iOS opens the
+  pending session and promotes focus when the agent joins; the agent sends
+  `stop` to end the interview.
+- **`convos.org/streaming_text:1.0`** — full-snapshot bubble text with a
+  monotonic `revision` (uint32) per `(sessionId, senderInboxId)`. Receivers drop
+  any snapshot with `revision <= existing.revision`. Decoder rejects payloads
+  larger than 1 KiB.
+- **`convos.org/streaming_clear:1.0`** — end-of-thought clear. Shares the same
+  monotonic counter as StreamingText. Receivers apply a 600 ms readability delay
+  before blanking the bubble.
+
+### Added: `convos agent focus <invite>` command
+
+New long-running command that joins by invite, waits for the iOS-initiated
+`FocusModeControl(.start)`, then participates in the session via ndjson
+stdin/stdout — symmetric with `agent serve`.
+
+- **STDIN commands**: `{"type":"text","text":"..."}`, `{"type":"clear"}`, `{"type":"stop"}`
+- **STDOUT events**: `joined`, `focus_pending`, `focused`, `streaming_text`,
+  `streaming_clear`, `focus_stopped`, `sent`, `auto_stop`, `shutdown`, `error`
+- **Flags**: `--persona <file>`, `--auto-stop-after <seconds>`,
+  `--join-timeout`, `--focus-timeout`
+- Refuses to publish StreamingText when focus is on a different member.
+- Applies the 600 ms clear delay locally so its in-memory bubble state mirrors
+  iOS rendering.
+
+### Exports
+
+- `FocusModeControlCodec`, `ContentTypeFocusModeControl`,
+  `isFocusModeControlMessage`, `getFocusModeControlContent`,
+  `FocusModeControl`, `FocusModeState`
+- `StreamingTextCodec`, `ContentTypeStreamingText`, `STREAMING_TEXT_MAX_BYTES`,
+  `isStreamingTextMessage`, `getStreamingTextContent`, `StreamingText`
+- `StreamingClearCodec`, `ContentTypeStreamingClear`, `STREAMING_CLEAR_DELAY_MS`,
+  `isStreamingClearMessage`, `getStreamingClearContent`, `StreamingClear`
+
 ## 0.9.1
 
 ### Multi-agent capability resolution (mirrors convos-ios#812)

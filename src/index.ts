@@ -87,6 +87,32 @@ export {
   type TypingIndicatorContent,
 } from "./utils/typingIndicator.js";
 
+// Assistant Builder Focus Mode content types
+export {
+  FocusModeControlCodec,
+  ContentTypeFocusModeControl,
+  isFocusModeControlMessage,
+  getFocusModeControlContent,
+  type FocusModeControl,
+  type FocusModeState,
+} from "./utils/focusModeControl.js";
+export {
+  StreamingTextCodec,
+  ContentTypeStreamingText,
+  STREAMING_TEXT_MAX_BYTES,
+  isStreamingTextMessage,
+  getStreamingTextContent,
+  type StreamingText,
+} from "./utils/streamingText.js";
+export {
+  StreamingClearCodec,
+  ContentTypeStreamingClear,
+  STREAMING_CLEAR_DELAY_MS,
+  isStreamingClearMessage,
+  getStreamingClearContent,
+  type StreamingClear,
+} from "./utils/streamingClear.js";
+
 // Explode settings content type
 export {
   ExplodeSettingsCodec,

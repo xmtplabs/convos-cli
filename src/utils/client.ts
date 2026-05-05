@@ -18,6 +18,9 @@ import { ConnectionEventCodec } from "./connectionEvent.js";
 import { CapabilityRequestCodec } from "./capabilityRequest.js";
 import { CapabilityRequestResultCodec } from "./capabilityRequestResult.js";
 import { CloudConnectionGrantRequestCodec } from "./cloudConnectionGrantRequest.js";
+import { FocusModeControlCodec } from "./focusModeControl.js";
+import { StreamingTextCodec } from "./streamingText.js";
+import { StreamingClearCodec } from "./streamingClear.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -145,6 +148,9 @@ async function buildClient(
       new CapabilityRequestCodec() as any,
       new CapabilityRequestResultCodec() as any,
       new CloudConnectionGrantRequestCodec() as any,
+      new FocusModeControlCodec() as any,
+      new StreamingTextCodec() as any,
+      new StreamingClearCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,
