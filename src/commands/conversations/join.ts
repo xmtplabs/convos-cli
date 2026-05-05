@@ -5,6 +5,10 @@ import { getIdentityAndClient } from "../../utils/client.js";
 import { parseInvite, verifyInvite, inviteToSlug } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
 import {
+  attestationToProfileMetadata,
+  resolveAttestationFromFlags,
+} from "../../utils/attestation.js";
+import {
   sendProfileUpdate,
   MemberKind,
   parseMetadataFlags,
@@ -116,6 +120,14 @@ slug as query parameter 'i'.`;
       helpValue: "<kid>",
       env: "CONVOS_ATTESTATION_KID",
     }),
+    "attestation-private-key": Flags.string({
+      description:
+        "Path to an Ed25519 private key (PEM). When set with --attestation-kid, " +
+        "the CLI signs the attestation against the resolved XMTP inbox id once the " +
+        "join is accepted. Mutually exclusive with --attestation / --attestation-ts.",
+      helpValue: "<path>",
+      env: "CONVOS_ATTESTATION_PRIVATE_KEY",
+    }),
   };
 
   async run(): Promise<void> {
@@ -193,7 +205,12 @@ slug as query parameter 'i'.`;
     this.log("Join request sent.");
 
     if (flags["no-wait"]) {
-      if (flags.attestation || flags["attestation-ts"] || flags["attestation-kid"]) {
+      if (
+        flags.attestation ||
+        flags["attestation-ts"] ||
+        flags["attestation-kid"] ||
+        flags["attestation-private-key"]
+      ) {
         this.warn(
           "Attestation flags have no effect with --no-wait. " +
           "Attestation metadata is sent via ProfileUpdate after joining, " +
@@ -272,6 +289,12 @@ slug as query parameter 'i'.`;
       // Non-fatal: tag verification is a safety check, don't block joining
     }
 
+    // Resolved ahead of the try-block so the output below reflects what was
+    // actually sent on the ProfileUpdate (including identity defaults), not
+    // just the literal flag values.
+    const profileName = flags["profile-name"] ?? identity.profileName;
+    const profileImage = flags["profile-image"] ?? identity.profileImageUrl;
+
     // Send ProfileUpdate message (primary profile source).
     // Always send to set memberKind: Agent (and name/image/metadata if provided).
     try {
@@ -279,8 +302,6 @@ slug as query parameter 'i'.`;
       const conv = await client.conversations.getConversationById(conversationId);
       if (conv && isGroup(conv)) {
         await conv.sync();
-        const profileName = flags["profile-name"] ?? identity.profileName;
-        const profileImage = flags["profile-image"] ?? identity.profileImageUrl;
 
         let encryptedImage: import("../../utils/profileMessages.js").EncryptedProfileImageRef | undefined;
         if (profileImage) {
@@ -309,12 +330,9 @@ slug as query parameter 'i'.`;
         }
 
         let allMetadata = parsedMetadata;
-        if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
-          const attestationMeta: ProfileMetadata = {
-            attestation: { type: "string", value: flags.attestation },
-            attestation_ts: { type: "string", value: flags["attestation-ts"] },
-            attestation_kid: { type: "string", value: flags["attestation-kid"] },
-          };
+        const attestation = await resolveAttestationFromFlags(flags, client.inboxId);
+        if (attestation) {
+          const attestationMeta = attestationToProfileMetadata(attestation) as ProfileMetadata;
           allMetadata = { ...(allMetadata ?? {}), ...attestationMeta };
         }
 
@@ -339,8 +357,8 @@ slug as query parameter 'i'.`;
       inboxId: client.inboxId,
       tag: invite.tag,
       conversationName: invite.name ?? null,
-      profileName: flags["profile-name"] ?? null,
-      profileImage: flags["profile-image"] ?? null,
+      profileName: profileName ?? null,
+      profileImage: profileImage ?? null,
       ...(joinMetadata && { metadata: joinMetadata }),
     });
   }

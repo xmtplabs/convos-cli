@@ -256,7 +256,15 @@ always-on usage).`;
           });
           for (const message of messages) {
             try {
-              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              // Advance the watermark before processMessage so a window full
+              // of invalid invites (filtered, malformed, duplicates) doesn't
+              // get re-queried on every reconnect — `processedMessageIds` is
+              // capped at 1000 and would eventually evict, risking duplicate
+              // processing. Mirrors the batch/stream paths below.
+              const sentAtNs = message.sentAtNs;
+              if (sentAtNs > this.lastDmTimestampNs) {
+                this.lastDmTimestampNs = sentAtNs;
+              }
               const result = await this.processMessage(
                 message,
                 client,
@@ -264,9 +272,6 @@ always-on usage).`;
                 filterConversationId,
               );
               if (result) {
-                if (sentAtNs > this.lastDmTimestampNs) {
-                  this.lastDmTimestampNs = sentAtNs;
-                }
                 this.streamOutput({
                   event: "join_request_accepted",
                   ...result,
@@ -322,7 +327,7 @@ always-on usage).`;
             // Track the batch high-water mark so an onRestart fired before
             // any live-stream message arrives still has a non-zero sinceNs
             // for catchup to work against.
-            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            const sentAtNs = message.sentAtNs;
             if (sentAtNs > this.lastDmTimestampNs) {
               this.lastDmTimestampNs = sentAtNs;
             }
@@ -383,7 +388,7 @@ always-on usage).`;
       try {
         for await (const message of stream) {
           try {
-            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            const sentAtNs = message.sentAtNs;
             if (sentAtNs > this.lastDmTimestampNs) {
               this.lastDmTimestampNs = sentAtNs;
             }

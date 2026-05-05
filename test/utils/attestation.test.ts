@@ -1,10 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  attestationToProfileMetadata,
+  buildJwks,
+  generateAttestationKeyPair,
+  resolveAttestationFromFlags,
   signAttestation,
   verifyAttestation,
   verifyAttestationWithJwks,
-  generateAttestationKeyPair,
-  buildJwks,
 } from "../../src/utils/attestation.js";
 
 describe("attestation", () => {
@@ -180,6 +185,114 @@ describe("attestation", () => {
       const pair1 = generateAttestationKeyPair("k1");
       const pair2 = generateAttestationKeyPair("k2");
       expect(pair1.publicKey).not.toBe(pair2.publicKey);
+    });
+  });
+
+  describe("resolveAttestationFromFlags", () => {
+    let tmp: string;
+    let pemPath: string;
+    const signingKp = generateAttestationKeyPair("flag-test-key");
+
+    beforeAll(async () => {
+      tmp = await mkdtemp(join(tmpdir(), "convos-attest-"));
+      pemPath = join(tmp, "private-key.pem");
+      await writeFile(pemPath, signingKp.privateKeyPem, "utf8");
+    });
+
+    afterAll(async () => {
+      await rm(tmp, { recursive: true, force: true });
+    });
+
+    it("returns undefined when no attestation flags are set", async () => {
+      const result = await resolveAttestationFromFlags({}, inboxId);
+      expect(result).toBeUndefined();
+    });
+
+    it("uses pre-computed attestation values verbatim", async () => {
+      const result = await resolveAttestationFromFlags(
+        {
+          attestation: "sig-base64url",
+          "attestation-ts": "2026-05-04T00:00:00Z",
+          "attestation-kid": "external-key",
+        },
+        inboxId,
+      );
+      expect(result).toEqual({
+        signature: "sig-base64url",
+        timestamp: "2026-05-04T00:00:00Z",
+        kid: "external-key",
+      });
+    });
+
+    it("rejects partial pre-computed flag set", async () => {
+      await expect(
+        resolveAttestationFromFlags(
+          { attestation: "sig", "attestation-kid": "k" },
+          inboxId,
+        ),
+      ).rejects.toThrow(/attestation-ts/);
+    });
+
+    it("signs at runtime using the PEM at --attestation-private-key", async () => {
+      const result = await resolveAttestationFromFlags(
+        {
+          "attestation-private-key": pemPath,
+          "attestation-kid": signingKp.kid,
+        },
+        inboxId,
+      );
+      expect(result).toBeDefined();
+      expect(result!.kid).toBe(signingKp.kid);
+      // Round-trip verifiable against the public key from the same pair.
+      const verify = verifyAttestation(inboxId, result!, signingKp.publicKey);
+      expect(verify.valid).toBe(true);
+    });
+
+    it("requires --attestation-kid alongside --attestation-private-key", async () => {
+      await expect(
+        resolveAttestationFromFlags(
+          { "attestation-private-key": pemPath },
+          inboxId,
+        ),
+      ).rejects.toThrow(/attestation-kid/);
+    });
+
+    it("rejects orphaned --attestation-kid (no signing source)", async () => {
+      await expect(
+        resolveAttestationFromFlags(
+          { "attestation-kid": "k" },
+          inboxId,
+        ),
+      ).rejects.toThrow(/attestation-kid/);
+    });
+
+    it("rejects mixing pre-computed and signing flags", async () => {
+      await expect(
+        resolveAttestationFromFlags(
+          {
+            attestation: "sig",
+            "attestation-ts": "2026-05-04T00:00:00Z",
+            "attestation-kid": "k",
+            "attestation-private-key": pemPath,
+          },
+          inboxId,
+        ),
+      ).rejects.toThrow(/Cannot mix/);
+    });
+  });
+
+  describe("attestationToProfileMetadata", () => {
+    it("emits the snake_case keys iOS expects", () => {
+      const metadata = attestationToProfileMetadata({
+        signature: "sig",
+        timestamp: "ts",
+        kid: "k",
+      });
+      expect(metadata).toEqual({
+        attestation: { type: "string", value: "sig" },
+        attestation_ts: { type: "string", value: "ts" },
+        attestation_kid: { type: "string", value: "k" },
+      });
     });
   });
 });

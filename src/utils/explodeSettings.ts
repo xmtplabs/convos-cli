@@ -83,8 +83,18 @@ export function isExplodeSettingsMessage(message: DecodedMessage): boolean {
 }
 
 /**
- * Extract ExplodeSettings content from a DecodedMessage whether the codec
- * was registered at client creation or not.
+ * Extract ExplodeSettings content from a DecodedMessage. When the codec is
+ * registered on the client (the default), the SDK has already decoded the
+ * payload and the first branch returns the typed object directly. The
+ * EncodedContent fallback handles callers that hand the helper a raw
+ * `{ content: Uint8Array }` object (test mocks, in-process forwarding, or
+ * any future code path that bypasses the codec registry); without this
+ * branch those callers would silently get `undefined`.
+ *
+ * Note: when an unregistered codec runs through the SDK proper the SDK
+ * sets `content = undefined`, so the early-exit kicks in and the fallback
+ * is unreachable. The fallback is load-bearing only for callers that
+ * supply EncodedContent directly.
  */
 export function getExplodeSettingsContent(
   message: DecodedMessage,

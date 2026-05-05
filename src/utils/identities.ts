@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { XmtpEnv } from "@xmtp/node-sdk";
 import { generatePrivateKey } from "viem/accounts";
 
-const DEFAULT_CONVOS_HOME =
+export const DEFAULT_CONVOS_HOME =
   process.env.CONVOS_HOME ??
   join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".convos");
 

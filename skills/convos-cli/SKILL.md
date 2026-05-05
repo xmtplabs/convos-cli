@@ -169,6 +169,22 @@ convos conversation send-typing-indicator <conversation-id>
 
 # stop typing indicator
 convos conversation send-typing-indicator <conversation-id> --stop
+
+# send a ConvosConnections invocation (agent → device write request)
+# (full flag docs and the response side: see ConvosConnections under Important Concepts)
+convos conversation send-invocation <conversation-id> \
+  --kind calendar --action create_event \
+  --arguments '{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-01T16:00:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"}}'
+
+# request a capability up front (agent → user picker; approval may return available actions)
+convos conversation send-capability-request <conversation-id> \
+  --subject calendar --capability read \
+  --rationale "To summarize your week"
+
+# request health/fitness read access, then inspect returned actions from agent serve
+convos conversation send-capability-request <conversation-id> \
+  --subject fitness --capability read \
+  --rationale "To summarize the last day of health data"
 ```
 
 ### Send Attachments
@@ -473,10 +489,11 @@ convos attestation verify <inbox-id> \
   --jwks-file ./agents.json
 ```
 
-Agents include attestation in their profile metadata when joining:
+Agents include attestation in their profile metadata when joining or attaching. Both `agent serve` and `conversations join` accept attestation flags two ways:
+
+**Pre-computed** — pass the signed triple verbatim (typical for backend-issued attestations):
 
 ```bash
-# agent serve with attestation (typically provided by the backend)
 convos agent serve --name "Bot" \
   --attestation <sig> \
   --attestation-ts <ts> \
@@ -486,12 +503,28 @@ convos agent serve --name "Bot" \
 CONVOS_ATTESTATION=<sig> CONVOS_ATTESTATION_TS=<ts> CONVOS_ATTESTATION_KID=<kid> \
   convos agent serve --name "Bot"
 
-# join with attestation
+# join with a pre-computed attestation
 convos conversations join <slug> \
   --attestation <sig> \
   --attestation-ts <ts> \
   --attestation-kid <kid>
 ```
+
+**Sign at startup** — pass a PEM private key and a `kid`; the CLI signs `sha256(inboxId || now)` itself once the XMTP client is initialized. Use this when the inbox id isn't known up front (e.g. fresh `identity create`):
+
+```bash
+# agent serve mints the attestation against the resolved inbox id
+convos agent serve <conversation-id> \
+  --attestation-private-key ~/.convos-debug-attest.pem \
+  --attestation-kid convos-agents-test
+
+# same flow for join
+convos conversations join <slug> \
+  --attestation-private-key ~/.convos-debug-attest.pem \
+  --attestation-kid convos-agents-test
+```
+
+Pre-computed and signing flags are mutually exclusive — pass either the triple or the PEM path, not both. With either path, the agent emits a `ProfileUpdate` at startup carrying `attestation`, `attestation_ts`, `attestation_kid` in `metadata`, in both **attach** mode (`agent serve <id>`) and **create** mode (`agent serve` with no id). The signing path is the recommended way to bootstrap a fresh debug agent — `identity create` no longer needs to be a separate step before signing.
 
 ### Sync Data from Network
 
@@ -533,14 +566,26 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | Event | Description | Key Fields |
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
-| `message` | New message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
-| `typing` | Member typing status changed | `senderInboxId`, `isTyping`, `conversationId` |
+| `message` | New chat message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `typing` | Member typing status changed | `senderInboxId`, `isTyping`, `conversationId`, `timestamp` |
+| `read_receipt` | Member sent an `xmtp.org/read_receipt` (they've read up to messages dated before `sentAt`) | `id`, `senderInboxId`, `conversationId`, `sentAt`. Live-only — not replayed on catchup, since only the latest receipt matters. Agents that need historical read state should call `convos conversation last-read-times`. |
 | `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
-| `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
-| `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
-| `error` | Error occurred | `message` |
+| `explode_notice` | A member sent an `ExplodeSettings` message scheduling or triggering conversation teardown | `conversationId`, `senderInboxId`, `expiresAt` (ISO8601), `sentAt`, `catchup` (optional) |
+| `profile_update` | A member published a `ProfileUpdate` (changed their name, avatar, member kind, or metadata for this conversation) | `id`, `senderInboxId`, `conversationId`, plus only the fields the sender included: `name` (may be `""` to clear), `encryptedImage` (`{url, salt, nonce}`), `memberKind` (numeric, 1=`Agent`, 2=`User`), `metadata` (`{key: {type, value}}`), `sentAt`, `catchup` (optional). `ProfileSnapshot` messages (sent on join) are not surfaced as separate events — agents react to `member_joined` instead. |
+| `connection_payload` | A `ConnectionPayload` arrived (device → agent sensor data) | `id` (XMTP message id), `envelopeId` (payload UUID), `senderInboxId`, `conversationId`, `source` (`ConnectionKind`), `schemaVersion`, `capturedAt` (Swift reference seconds), `body` (`{type, data}`), `sentAt`, `catchup` (optional) |
+| `connection_invocation` | A `ConnectionInvocation` arrived (rare — agent-to-agent or other-agent) | `id`, `envelopeId`, `senderInboxId`, `conversationId`, `invocationId`, `kind`, `schemaVersion`, `action` (`{name, arguments}`), `issuedAt`, `sentAt`, `catchup` (optional) |
+| `connection_result` | A `ConnectionInvocationResult` arrived (device → agent reply to a write) | `id`, `envelopeId`, `senderInboxId`, `conversationId`, `invocationId`, `kind`, `actionName`, `status`, `schemaVersion`, `result`, `errorMessage` (optional, present on non-success), `completedAt`, `sentAt`, `catchup` (optional) |
+| `capability_request` | A `CapabilityRequest` arrived (rare — agent-to-agent) | `id`, `senderInboxId`, `conversationId`, `version`, `requestId`, `subject`, `capability`, `rationale`, `preferredProviders` (optional), `sentAt`, `catchup` (optional) |
+| `connection_event` | A `ConnectionEvent` arrived (user/device → agent grant change notification) | `id`, `senderInboxId`, `conversationId`, `version`, `providerId`, `action` (`granted`/`revoked`), `sentAt`, `catchup` (optional) |
+| `cloud_connection_grant_request` | A `CloudConnectionGrantRequest` arrived (agent → device OAuth link prompt) | `id`, `senderInboxId`, `conversationId`, `version`, `service`, `requestedByInboxId`, `targetInboxId`, `reason`, `sentAt`, `catchup` (optional) |
+| `capability_result` | A `CapabilityRequestResult` arrived (user → agent picker outcome) | `id`, `senderInboxId`, `conversationId`, `version`, `requestId`, `status`, `subject`, `capability`, `providers`, `availableActions`, `sentAt`, `catchup` (optional) |
+| `sent` | Message sent confirmation (replies to a stdin command) | `id`, `type`, plus type-specific fields (e.g. `text`, `replyTo`, `invocationId`, `requestId`, `expiresAt`, …) |
+| `heartbeat` | Periodic health check | `conversationId`, `activeStreams`, `timestamp` |
+| `error` | Error occurred | `message`, plus optional context fields |
 
-Messages with `catchup: true` were fetched during stream reconnection (missed while disconnected).
+Events with `catchup: true` were fetched during stream reconnection (missed while disconnected). The six connection / capability events plus `explode_notice` and `profile_update` carry the flag the same way `message` does — agents should treat catchup events as the source of truth for state they may have missed (e.g. a `connection_result` arriving with `catchup: true` is exactly as authoritative as one delivered live; a `connection_event` with `action: "revoked"` and `catchup: true` should still invalidate any cached assumption that the provider remains available; a `profile_update` with `catchup: true` should still update whatever local cache renders the sender's name). Live and catchup paths dedupe by message id, so the same `id` will not appear twice.
+
+`typing` is intentionally not replayed on catchup — the indicator is ephemeral, and surfacing a stale "is typing" state on reconnect is worse than dropping it.
 
 #### Commands (stdin)
 
@@ -561,6 +606,11 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"unlock"}
 {"type":"explode"}
 {"type":"explode","scheduled":"2025-03-01T00:00:00Z"}
+{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-01T16:00:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"},"isAllDay":{"type":"bool","value":false}}}
+{"type":"connection-invoke","kind":"contacts","action":"create_contact","invocationId":"req-42","arguments":{}}
+{"type":"capability-request","subject":"calendar","capability":"read","rationale":"To summarize your week"}
+{"type":"capability-request","subject":"fitness","capability":"read","rationale":"To summarize training","preferredProviders":["composio.strava","composio.fitbit"]}
+{"type":"cloud-connection-grant-request","service":"strava","targetInboxId":"<user-inbox-id>","reason":"To summarize this week's training"}
 {"type":"stop"}
 ```
 
@@ -576,11 +626,14 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `lock` | — | — |
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |
+| `connection-invoke` | `kind`, `action` | `arguments` (object, default `{}`), `invocationId` (default: `agent-<8-hex>`), `issuedAt` (ISO8601, default: now) |
+| `capability-request` | `subject`, `capability`, `rationale` | `requestId` (default: `agent-<8-hex>`), `preferredProviders` (string array, max 16) |
+| `cloud-connection-grant-request` | `service`, `targetInboxId`, `reason` | `requestedByInboxId` (defaults to the agent's own `inboxId`) |
 | `stop` | — | — |
 
 Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
 
-**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members.
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`. The reply does not surface as a `message` event (the codec is silent and filtered from the chat stream); it surfaces as a dedicated `connection_result` event on stdout, so agents can correlate by reading lines and matching `invocationId`. **capability-request** is the same shape for capability resolution: agent posts a request naming a `(subject, capability)` pair plus a human rationale, and the device replies asynchronously with a `CapabilityRequestResult` (`approved` / `denied` / `cancelled`) — surfaced as a `capability_result` event with the persisted `providers` array and an `availableActions` array describing invocable provider actions. **cloud-connection-grant-request** is a one-way OAuth link prompt: agent names a cloud `service` (`strava`, `google_calendar`, …), a `targetInboxId`, and a `reason`; the receiving device renders a link card and runs OAuth itself. There is no on-wire reply — agents that need to know whether the link succeeded should watch for the next `profile_update` and re-read `metadata["connections"]`.
 
 ### How It Works
 
@@ -619,6 +672,22 @@ convos agent serve --name "Bot" --profile-name "AI Assistant" | while IFS= read 
       inbox=$(echo "$event" | jq -r '.inboxId')
       echo "New member: $inbox" >&2
       echo "{\"type\":\"send\",\"text\":\"Welcome!\"}"
+      ;;
+    connection_payload)
+      summary=$(echo "$event" | jq -r '.body.data.summary // "no summary"')
+      echo "[connection] $(echo "$event" | jq -r '.source'): $summary" >&2
+      ;;
+    connection_result)
+      # Reply to a connection-invoke we sent — correlate by invocationId
+      inv=$(echo "$event" | jq -r '.invocationId')
+      status=$(echo "$event" | jq -r '.status')
+      echo "[invocation $inv] $status" >&2
+      ;;
+    capability_result)
+      # Reply to a capability-request — correlate by requestId
+      req=$(echo "$event" | jq -r '.requestId')
+      status=$(echo "$event" | jq -r '.status')
+      echo "[capability $req] $status" >&2
       ;;
   esac
 done
@@ -684,6 +753,568 @@ Join requests use a structured content type instead of plain text:
 - **`JoinRequest`** (`convos.org/join_request:1.0`) — sent as a DM to the conversation creator when joining via invite. Contains the invite slug, joiner's profile (name, image, memberKind), and optional metadata.
 
 The CLI sets `memberKind: "agent"` by default on all join requests so the creator knows a bot is joining. For backward compatibility, the CLI sends both the JoinRequestContent message and a plain text slug — older clients that don't understand the new content type will read the text fallback. When processing incoming join requests, the CLI tries JoinRequestContent first, then falls back to plain text.
+
+### ConvosConnections (Device Data Sources & Sinks)
+
+ConvosConnections lets an iOS user wire native device frameworks (HealthKit, Calendar, Contacts, Location, Photos, Music, HomeKit, Screen Time, Motion) into a conversation, so an agent in the same group can both **receive sensor data** from the device and **request writes back** to it. The wire-level handshake is three custom XMTP content codecs, all under `convos.org`. The CLI registers them on every client, so encoded messages decode into structured objects automatically rather than landing as opaque bytes. All three are silent (`shouldPush = false`) — they do **not** appear in the chat stream and do not generate notifications. Agents must reach in via the dedicated helpers (see below) instead of expecting them to surface through `agent serve`'s `message` events.
+
+#### Content Types
+
+| Content Type | Direction | Role | Fallback |
+| ------------ | --------- | ---- | -------- |
+| `convos.org/connection_payload:1.0` | device → agent | Sensor reading from a device data source | `payload.body.data.summary` |
+| `convos.org/connection_invocation:1.0` | agent → device | Request the device to execute a named action | `Action requested: <name>` |
+| `convos.org/connection_invocation_result:1.0` | device → agent | Reply to an invocation, always emitted (success or error) | `<actionName>: <status>` |
+
+All three encode their content as JSON. The TypeScript types (`ConnectionPayload`, `ConnectionInvocation`, `ConnectionInvocationResult`) ship from `@xmtp/convos-cli/utils/connectionPayload`, `.../connectionInvocation`, and `.../connectionInvocationResult`. Shared enums and the `ArgumentValue` tagged union live in `.../connectionTypes`.
+
+#### ConnectionKind
+
+`kind` (and `source` on payloads) identifies the device data source. Raw values are snake_case for compound names:
+
+| Raw value | Source |
+| --------- | ------ |
+| `health` | HealthKit |
+| `calendar` | EventKit calendars |
+| `contacts` | Contacts framework |
+| `location` | CoreLocation visits / region monitoring |
+| `photos` | PhotoKit |
+| `music` | MusicKit / MPMusicPlayerController |
+| `home_kit` | HomeKit |
+| `screen_time` | Screen Time / FamilyControls |
+| `motion` | CoreMotion activity classifier |
+
+Forward compatibility: a `ConnectionPayload` body uses a `{type, data}` discriminator. If iOS ships a new source the CLI doesn't recognize, the message still round-trips — `payload.body.type` is the new raw string and `payload.body.data` is the un-typed JSON object.
+
+#### Invocation Flow
+
+```
+agent                                       iOS device
+  |                                              |
+  |  ConnectionInvocation                        |
+  |    invocationId: "agent-1-001"               |
+  |    kind: "calendar"                          |
+  |    action: { name, arguments }               |
+  |--------------------------------------------->|
+  |                                              | (gates via per-conversation
+  |                                              |  enablement; may prompt user)
+  |                                              |
+  |              ConnectionInvocationResult      |
+  |                invocationId: "agent-1-001"   |
+  |                status: "success" | ...       |
+  |                result: { ... } | {}          |
+  |<---------------------------------------------|
+```
+
+The agent picks the `invocationId` and uses it to correlate the reply. The device echoes the same `invocationId` on the result so multiple in-flight invocations don't get confused. If the agent's invocation references a `kind` that isn't enabled for the conversation, the device replies with `status: "capability_not_enabled"` rather than executing.
+
+#### Discovering Enabled Capabilities
+
+There is no capability-advertisement content type — agents discover what's available by observing payloads and probing invocations.
+
+**Capabilities are a private per-conversation gate on the device, with four independent dimensions:**
+
+| Capability raw | Meaning |
+| -------------- | ------- |
+| `read` | The source may publish `ConnectionPayload` messages into this conversation |
+| `write_create` | Actions that create a new record (e.g. `create_event`, `create_calendar`, `create_contact`) |
+| `write_update` | Actions that modify an existing record (e.g. `update_event`) |
+| `write_delete` | Actions that destroy a record (e.g. `delete_event`) |
+
+Each `ActionSchema` declares which capability it consumes — `create_event` and `create_calendar` both require `calendar.write_create`; `update_event` requires `calendar.write_update`; `delete_event` requires `calendar.write_delete`. A user can enable any subset (for example, read + create but not delete).
+
+**Read capability is announced implicitly.** When the user enables `(kind, read, conversation)`, iOS's source starts publishing `ConnectionPayload` messages of that source into the conversation. The first inbound payload with `source: "calendar"` is the agent's proof that calendar reads are enabled here. Stop seeing payloads for a while? Don't infer revocation from silence — the source may simply have nothing new to report. The user revoking read does not generate a teardown message; the agent just stops receiving payloads.
+
+**Write capabilities are discovered by probing.** Send the invocation and read back the status:
+
+| Result status | Agent action |
+| ------------- | ------------ |
+| `success` | Enabled and executed; consume `result` |
+| `capability_not_enabled` | Capability is off — ask the user in chat to enable it. The `errorMessage` carries the specific capability raw value, so you can be precise ("please enable calendar create") |
+| `unknown_action` | Either the action name is wrong, or this iOS build doesn't expose this `(kind, action)` pair (e.g. older app version), or the invocation's `schemaVersion` is newer than the device knows. Treat as unsupported on this device. |
+| `authorization_denied` | The OS-level permission for the underlying framework (HealthKit, Calendar, Contacts, …) is denied. Ask the user to grant the system permission in Settings — retrying the invocation won't help until they do. |
+| `requires_confirmation` | Always-confirm is on for this `(kind, conversation, capability)` and the device needs to surface a per-invocation prompt the user hasn't acted on yet (e.g. app backgrounded, no handler attached). Retry later, or nudge the user to open Convos. |
+| `capability_revoked` | Was enabled at gate-check, off at execution. Treat the same as `capability_not_enabled`. |
+| `execution_failed` | Capability was on but the underlying iOS framework errored. `errorMessage` carries the detail; report verbatim, do not auto-retry. |
+
+**Action schemas don't travel over the wire.** `ConnectionsManager.actionSchemas(for:)` is in-process on iOS — agents must know the schema for an action ahead of time. The canonical source is each iOS `<Kind>ActionSchemas.swift` (e.g. `CalendarActionSchemas.swift`); this skill keeps a documented snapshot for the kinds users care about, starting with Calendar below.
+
+**Pattern for a polite agent:**
+
+1. On joining a conversation, listen for `ConnectionPayload` messages to learn which `kind`s the user has enabled for reads.
+2. When the agent has a write it wants to do, just send the invocation. Don't ask for permission first — the device's gate is the source of truth.
+3. If the result is `capability_not_enabled`, send a chat message naming the specific capability and how to enable it ("I'd like to add an event to your calendar — turn on Calendar → Create in Convos when you're ready"), then back off until you see a related payload (rough proxy for the user having opened the connection settings).
+4. If the result is `unknown_action`, log it but don't pester the user — their iOS build can't run that action regardless.
+5. Do not store an internal "is enabled" cache for longer than a single transaction; the user can toggle it off in Settings without notice. The wire is the cache.
+
+Action names and argument shapes are **not** carried on the CLI side — they're defined by `ActionSchema` declarations on each iOS `DataSink`. Agents must know the schema for the action they're invoking ahead of time.
+
+#### Capability Resolution
+
+iOS uses a unified subject/provider model that lets cloud-OAuth providers (Composio-linked services like Google Calendar, Strava, Fitbit) satisfy the same capability requests that route to device frameworks. Two new wire codecs landed in [convos-ios#771](https://github.com/xmtplabs/convos-ios/pull/771) — `convos.org/capability_request:1.0` and `convos.org/capability_request_result:1.0` — both registered on every CLI client and filtered out of the chat stream alongside the existing connection codecs. The wider routing layer (resolver dispatching `ConnectionInvocation` by subject, the `profile.metadata["connections"]` manifest) is rolling out incrementally; the wire-level pieces an agent needs to actively use today are the two codecs documented in this section.
+
+##### Subjects vs. kinds
+
+`ConnectionKind` (the wire field on `ConnectionInvocation` and `ConnectionPayload` today) describes a **device** data source. `CapabilitySubject` (the upcoming routing key) describes what an agent is asking for, agnostic of device vs. cloud. They're deliberately separate enums:
+
+| `ConnectionKind` (wire today) | `CapabilitySubject` (upcoming) | Notes |
+| ----------------------------- | ------------------------------ | ----- |
+| `health` | `fitness` | Renamed user-facing; the same Apple Health `DataSource` becomes one provider for the `fitness` subject |
+| `home_kit` | `home` | Renamed user-facing |
+| `screen_time` | `screen_time` | Same |
+| `calendar` / `contacts` / `location` / `photos` / `music` | identical | |
+| `motion` | _(no equivalent)_ | Motion is device-only telemetry; doesn't surface as a user-facing subject |
+| _(no equivalent)_ | `tasks`, `mail` | Subjects without a device counterpart yet |
+
+When the routing migration ships, `ConnectionInvocation` will gain an optional `subject` field. During the transition `kind == "calendar"` implies `subject == "calendar"`; once routing is fully subject-based, `kind` becomes device-specific and `subject` is the source of truth. The CLI will be updated then; for now `ConnectionInvocation` still uses `kind` as documented above. `CapabilityRequest` already routes by subject because it never had a `kind` field to migrate.
+
+##### Providers and the registry
+
+A `CapabilityProvider` is a concrete way to satisfy a subject. Provider IDs are dotted strings:
+
+- `device.calendar`, `device.contacts`, `device.health`, … (registered by `ConnectionsManager` at startup, one per `ConnectionKind`)
+- `composio.google_calendar`, `composio.strava`, `composio.fitbit`, … (registered by the cloud-OAuth subsystem on link, removed on unlink)
+
+Each provider declares a `Set<ConnectionCapability>` describing which verbs it supports — a read-only Strava provider just publishes `[read]`. A user can have several providers linked for the same subject (Apple Calendar + Google Calendar + Outlook), so the resolver picks one (or many, for federating reads) per `(subject, conversation, capability)`.
+
+##### Resolution and read federation
+
+A resolution row binds `(subject, conversationId, capability)` to a `Set<ProviderID>`. The cardinality matrix from the PRD:
+
+| `subject.allowsReadFederation` | Capability | Allowed set size |
+| ------------------------------ | ---------- | ---------------- |
+| `false` (default) | `read` | exactly 1 |
+| `false` | any write | exactly 1 |
+| `true` | `read` | ≥ 1 |
+| `true` | any write | exactly 1 (writes never federate) |
+
+Only `fitness` opts in to read federation in v1 — Strava + Fitbit + Apple Health summed across a week is the natural agent ask. Every other subject (calendar, contacts, photos, music, location, home, screen_time, mail, tasks) is single-provider for every verb. The default is conservative because flipping a subject to `true` later is non-breaking; the reverse is breaking.
+
+For federating subjects, each verb is independent: read can resolve to `{Strava, Fitbit}` while `write_create` is `{Strava}`.
+
+##### Wire shape: `convos.org/capability_request:1.0`
+
+Agent → user, "may I have this capability?". JSON-encoded.
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `version` | `int` | Currently `1`. Decoders reject anything higher to keep hostile or future senders from smuggling fields the picker can't render. |
+| `requestId` | `string` | Caller-chosen correlation key. Echoed back on the result. |
+| `subject` | `CapabilitySubject` raw | `calendar`, `fitness`, `home`, etc. — the user-facing routing key. |
+| `capability` | `ConnectionCapability` raw | `read`, `write_create`, `write_update`, or `write_delete`. |
+| `rationale` | `string` | Shown verbatim on the picker card. **Truncated at 500 chars** on encode and decode — going over the cap doesn't fail, but the user only sees the prefix. |
+| `preferredProviders` | `string[]` (optional) | Agent hint — provider IDs the resolver should default to (e.g. `["device.calendar"]` or `["composio.strava", "composio.fitbit"]`). **Truncated at 16 entries.** Resolver may override if the hint isn't applicable (provider unlinked, doesn't match the verb's federation rule, etc.). |
+
+Fallback string (rendered when a client doesn't have the codec): `"The assistant is requesting access to your <subject>"` — subject lowercased.
+
+##### Wire shape: `convos.org/capability_request_result:1.0`
+
+Device → agent picker outcome. Always emitted, even on cancel/deny, so the agent can correlate by `requestId` and stop waiting.
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `version` | `int` | Currently `1`. |
+| `requestId` | `string` | Echoes the request's `requestId`. |
+| `status` | `string` | `approved` \| `denied` \| `cancelled`. |
+| `subject` / `capability` | as above | |
+| `providers` | `string[]` | Empty for `denied` / `cancelled`. For `approved`, size 1 for non-federating subjects and write verbs, ≥ 1 for federating-subject reads. **Truncated at 16 entries.** Reflects what the resolver actually persisted — agents that supplied a `preferredProviders` hint should compare against this to confirm whether their hint was honored. |
+| `availableActions` | `AvailableAction[]` | Empty for `denied` / `cancelled`. For `approved`, lists the action schemas the resolved providers can fulfill. Use this as the device-provided source of truth for valid action names, argument shapes, and result fields. **Truncated at 64 entries.** |
+
+`AvailableAction` entries in a capability result use this JSON shape:
+
+```ts
+interface AvailableActionParameter {
+  name: string;
+  type: string;          // free-form schema type (e.g. "string", "int", "iso8601")
+  description: string;
+  isRequired: boolean;
+}
+
+interface AvailableAction {
+  providerId: string;    // e.g. "device.calendar", "composio.strava"
+  kind: string;          // ConnectionKind raw value, e.g. "calendar", "health"
+  actionName: string;
+  summary: string;
+  inputs: AvailableActionParameter[];
+  outputs: AvailableActionParameter[];
+}
+```
+
+Fallback strings:
+
+- `approved`: `"Approved <subject> access"`
+- `denied`: `"Declined <subject> access"`
+- `cancelled`: `"Cancelled <subject> access request"`
+
+##### Wire shape: `convos.org/connection_grant_request:1.0`
+
+A separate but adjacent codec used to ask the receiving device to **link a cloud (OAuth) provider** like Strava or Google Calendar. The device performs the OAuth flow itself and writes the resulting grant into the `connections` manifest — there is **no on-wire reply codec**. Agents that want to know whether the link succeeded should watch the next `profile_update` and re-read the manifest.
+
+Unlike `capability_request`, this isn't gated by the picker — it's a "please link this account" prompt. Use it when you know the user needs a specific cloud provider linked (e.g. agent prerequisite for a Strava-backed analysis) before issuing any `capability_request` against that subject.
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `version` | `int` | Currently `1`. |
+| `service` | `string` | Cloud service identifier (e.g. `"strava"`, `"google_calendar"`). The receiving device renders a service-specific link card based on this. |
+| `requestedByInboxId` | `string` | Inbox ID of the agent requesting the link. |
+| `targetInboxId` | `string` | Inbox ID of the user expected to complete the OAuth flow. |
+| `reason` | `string` | Free-form human-readable rationale; rendered verbatim on the link card. **Truncated at 500 chars** symmetrically on encode and decode. |
+
+Fallback string: `"The assistant asked to connect <service>"`. The codec is silent (`shouldPush=false`) and surfaces on `agent serve` as a `cloud_connection_grant_request` event rather than as chat content.
+
+CLI surface:
+
+```bash
+# ask the user to link Strava
+convos conversation send-cloud-connection-grant-request <conversation-id> \
+  --service strava \
+  --target-inbox-id <user-inbox-id> \
+  --reason "To summarize this week's training"
+```
+
+Agent stdin equivalent (omits `requestedByInboxId` to default to the agent's own inbox):
+
+```jsonl
+{"type":"cloud-connection-grant-request","service":"strava","targetInboxId":"<user-inbox-id>","reason":"To summarize this week's training"}
+```
+
+##### `profile.metadata["connections"]` manifest (in flight)
+
+A unified per-sender manifest, published on every `ProfileUpdate` under the `connections` key, listing every provider available to the sender plus per-verb `resolved` flags so agents can plan tool calls without speculative probing. The wire codec for capability requests has shipped (above), but the manifest writer is still rolling out — the CLI will start surfacing it through `profile.metadata` once iOS commits to the shape. See the [PRD](https://github.com/xmtplabs/convos-ios/blob/jarod/convos-connections-squashed/docs/plans/capability-resolution.md#runtime-capabilities-manifest) for the planned structure.
+
+Note the key reuse: the original CloudConnections design (PR #719) was going to publish a separate OAuth-only `connections` payload, but that's been folded into the unified shape — when this lands, every capabilities-aware iOS build emits one manifest under `connections` covering both device sources and cloud providers, not two parallel keys.
+
+##### What this changes for agents
+
+- **Pre-emptive consent.** Instead of firing a write invocation and getting `capability_not_enabled` back, an agent can post a `capability_request` first; the user's pick persists per `(subject, conversation, capability)`, so subsequent invocations on the same `ConnectionKind` (until the manifest's subject-routing migration completes) land cleanly.
+- **Action discovery now piggybacks on approval.** Approved `CapabilityRequestResult` messages carry `availableActions` — a device-provided action schema list for the resolved providers. Prefer this over stale hard-coded knowledge — it tells you exactly which action names, inputs, and outputs this device build supports right now.
+- **Probe-driven discovery is still load-bearing for now.** Until the `metadata["connections"]` manifest ships, the "polite agent" pattern under "Discovering Enabled Capabilities" remains the right way to learn what's enabled. Sending a `capability_request` is a complement, not a replacement — use it when you know up front you'll need a capability and want to surface the picker before the user is mid-conversation.
+- **Federated reads aggregate.** When fitness reads resolve to multiple providers, the device fans the read out and returns one combined payload with a `partialFailures` array if any provider errored. Agents handling fitness data should expect that shape rather than assuming a single-source result.
+- **Provider unlink is silent.** When the user unlinks a cloud provider, resolutions referencing it are pruned — single-element rows delete (next invocation re-prompts), multi-element rows shrink. No teardown message hits the wire.
+
+##### Sending a CapabilityRequest from the CLI
+
+```bash
+# request calendar reads
+convos conversation send-capability-request <conversation-id> \
+  --subject calendar --capability read \
+  --rationale "To summarize your week"
+
+# request fitness reads with a federation hint (only fitness allows multi-provider reads)
+convos conversation send-capability-request <conversation-id> \
+  --subject fitness --capability read \
+  --rationale "To summarize training" \
+  --preferred-providers composio.strava,composio.fitbit
+
+# request a write capability with a pinned correlation id
+convos conversation send-capability-request <conversation-id> \
+  --subject contacts --capability write_create \
+  --rationale "To save the lead you mentioned" \
+  --request-id req-42 --json
+```
+
+`--subject` and `--capability` are validated against the documented enum sets; `--rationale` is required and gets truncated at 500 chars on encode (matches the iOS cap). `--preferred-providers` takes a comma-separated list of provider IDs and is capped at 16 entries. `--request-id` defaults to a random `cli-<8-hex>` token; pin it when you need to correlate the eventual `CapabilityRequestResult` deterministically.
+
+##### Sending a CapabilityRequest from `agent serve`
+
+If the approval comes back with non-empty `availableActions`, the stdout `capability_result` event will include them verbatim. Typical flow:
+
+1. Send `capability-request`.
+2. Wait for `capability_result` with `status: "approved"`.
+3. Read `providers` to learn what resolved.
+4. If `availableActions` is non-empty, choose one of those action names and construct your later `connection-invoke` from that schema instead of assuming an older static action list.
+
+
+The agent stdin protocol exposes the same path under `capability-request`:
+
+```jsonl
+{"type":"capability-request","subject":"calendar","capability":"read","rationale":"To summarize your week"}
+{"type":"capability-request","subject":"fitness","capability":"read","rationale":"To summarize training","preferredProviders":["composio.strava","composio.fitbit"]}
+{"type":"capability-request","subject":"contacts","capability":"write_create","rationale":"Saving your lead","requestId":"req-42"}
+```
+
+| Required | Optional |
+| -------- | -------- |
+| `subject`, `capability`, `rationale` | `requestId` (default: `agent-<8-hex>`), `preferredProviders` (string array) |
+
+The agent emits a `sent` event of `type: "capability-request"` carrying both the message `id` and the `requestId`. The eventual `CapabilityRequestResult` arrives as a regular message but is filtered from the chat stream (codec is silent), so agent code that wants to react to it must consume `getCapabilityRequestResultContent(message)` from a stream loop, the same way it would for `ConnectionInvocationResult`. Approved results carry `availableActions`; agents should cache them only for the current interaction and treat the next approval as fresher truth.
+
+---
+
+#### Action Schema Reference
+
+Other kinds expose actions in the same shape — short examples from the iOS package:
+
+- Contacts: `create_contact(givenName, familyName, email, phone, …)`
+- Health/Fitness: `log_water(quantity, unit)`, `log_caffeine(milligrams)`, `fetch_summary_last_24h()`, `fetch_samples(startDate, endDate)`
+- Photos: `save_image(url, …)`
+- Music: `play(title, artist, …)`
+
+##### Calendar action schemas
+
+The Calendar `DataSink` exposes four actions. Required inputs in **bold**; outputs are returned in `ConnectionInvocationResult.result` on `status: "success"`.
+
+**`create_event`** — write a new event.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`title`** | `string` | |
+| **`startDate`** | `iso8601` | RFC 3339 with offset, e.g. `2026-05-01T15:00:00-07:00` |
+| **`endDate`** | `iso8601` | RFC 3339 with offset |
+| **`timeZone`** | `string` | IANA identifier, e.g. `America/Los_Angeles` |
+| `isAllDay` | `bool` | Defaults to false |
+| `location` | `string` | Free-form |
+| `notes` | `string` | |
+| `calendarId` | `string` | Target calendar identifier. Omit to use the user's default calendar |
+| `calendarTitle` | `string` | Target calendar title; collisions return `execution_failed` |
+
+Outputs: `eventId` (string), `calendarId` (string — identifier of the calendar the event was written to).
+
+**`update_event`** — patch an existing event. All inputs except `eventId` are optional; pass only the fields you're changing.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`eventId`** | `string` | Identifier returned from a prior `create_event` |
+| `title` | `string` | |
+| `startDate` | `iso8601` | RFC 3339 with offset |
+| `endDate` | `iso8601` | RFC 3339 with offset |
+| `timeZone` | `string` | Required if `startDate` or `endDate` is supplied |
+| `location` | `string` | |
+| `notes` | `string` | |
+| `span` | `enum` | `thisEvent` or `futureEvents`. Defaults to `futureEvents` |
+
+Outputs: `eventId` (string).
+
+**`delete_event`** — remove an event.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`eventId`** | `string` | |
+| `span` | `enum` | `thisEvent` or `futureEvents`. Defaults to `futureEvents` |
+
+Outputs: none (empty `result` map on success).
+
+**`create_calendar`** — create a new calendar that subsequent `create_event` invocations can target via the returned `calendarId`.
+
+| Input | Type | Notes |
+| ----- | ---- | ----- |
+| **`title`** | `string` | Display name of the new calendar |
+| `color` | `string` | Hex color, e.g. `"#FF8800"` or `"#FF8800AA"`. Falls back to the source's default |
+| `sourceType` | `enum` | `iCloud` or `local`. Defaults to iCloud if available, falling back to local |
+
+Outputs: `calendarId` (string — `EKCalendar.calendarIdentifier`).
+
+Chained example — provision a per-conversation calendar then write into it:
+
+```jsonl
+{"type":"connection-invoke","kind":"calendar","action":"create_calendar","invocationId":"req-create-cal","arguments":{"title":{"type":"string","value":"Team Standups"},"color":{"type":"string","value":"#FF8800"},"sourceType":{"type":"enum","value":"iCloud"}}}
+```
+
+After the device returns `{"status":"success", "result":{"calendarId":{"type":"string","value":"<cal-id>"}}}`, plug that `calendarId` into `create_event`:
+
+```jsonl
+{"type":"connection-invoke","kind":"calendar","action":"create_event","invocationId":"req-evt-1","arguments":{"title":{"type":"string","value":"Daily standup"},"startDate":{"type":"iso8601","value":"2026-05-04T09:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-04T09:15:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"},"calendarId":{"type":"string","value":"<cal-id>"}}}
+```
+
+#### ConnectionPayload
+
+```ts
+interface ConnectionPayload {
+  id: string;                    // uppercase UUID
+  schemaVersion: number;         // currently 1
+  source: ConnectionKind;
+  capturedAt: number;            // Swift reference date seconds (see Wire Format)
+  body: {
+    type: ConnectionKind | string;  // unknown future kinds round-trip as string
+    data: unknown;               // source-specific shape; usually has a `summary` field
+  };
+}
+```
+
+Use `summarizeConnectionPayload(payload)` for a human-readable line — it pulls `body.data.summary` when present and falls back to `Unknown payload (<type>)`.
+
+#### ConnectionInvocation
+
+```ts
+interface ConnectionInvocation {
+  id: string;                    // uppercase UUID (envelope ID)
+  schemaVersion: number;         // currently 1
+  invocationId: string;          // agent-chosen correlation key (echoed on the result)
+  kind: ConnectionKind;
+  action: {
+    name: string;                // e.g. "create_event"
+    arguments: Record<string, ArgumentValue>;
+  };
+  issuedAt: number;              // Swift reference date seconds
+}
+```
+
+#### ConnectionInvocationResult
+
+```ts
+interface ConnectionInvocationResult {
+  id: string;                    // uppercase UUID (envelope ID)
+  schemaVersion: number;         // currently 1
+  invocationId: string;          // matches the request
+  kind: ConnectionKind;
+  actionName: string;
+  status: InvocationStatus;
+  result: Record<string, ArgumentValue>;  // populated only on `success`
+  errorMessage?: string;         // present on non-success when iOS surfaces a message
+  completedAt: number;           // Swift reference date seconds
+}
+```
+
+`InvocationStatus` (raw values, snake_case):
+
+| Status | Meaning |
+| ------ | ------- |
+| `success` | Action executed; `result` carries the outputs |
+| `capability_not_enabled` | The user has not enabled this `kind` for this conversation |
+| `capability_revoked` | The user previously enabled and has since revoked |
+| `requires_confirmation` | The action requires interactive confirmation that hasn't happened |
+| `authorization_denied` | The OS framework denied the underlying authorization (e.g. HealthKit permission) |
+| `execution_failed` | The action ran but the framework returned an error (see `errorMessage`) |
+| `unknown_action` | The device build doesn't recognize this action name for this kind |
+
+#### ArgumentValue
+
+Both `action.arguments` and `result` use a tagged-union value type so each parameter carries its declared type alongside the value. Wire form is `{"type": <tag>, "value": …}`:
+
+| Tag | Value type | Notes |
+| --- | ---------- | ----- |
+| `string` | `string` | |
+| `bool` | `boolean` | |
+| `int` | `number` | Integer; producers should not send fractional values |
+| `double` | `number` | Floating-point |
+| `date` | `number` | Swift reference date seconds |
+| `iso8601` | `string` | Pre-formatted ISO 8601 datetime — preferred over `date` when the value comes from user input or the wire |
+| `enum` | `string` | Constrained to the action schema's `allowed` list |
+| `array` | `ArgumentValue[]` | Recursive |
+| `null` | `null` | |
+
+The CLI validates the tag and value type on encode and decode and throws on the first mismatch — agents constructing invocations get a clear error if they pass `{type: "int", value: "1"}` or `{type: "uint64", …}`.
+
+Pick `iso8601` over `date` when the value is a calendar moment (event start, deadline) — it round-trips human-readably and is what the iOS calendar/photos action schemas expect. Use `date` only when the value is a wall-clock instant produced by the device itself.
+
+#### Wire Format Notes
+
+These are mostly invisible — the codecs handle them — but matter when constructing payloads from raw JSON or comparing against captures from another tool:
+
+- **Dates** are encoded as `Double` seconds since the **Swift reference date** (2001-01-01 00:00:00 UTC), not the Unix epoch. The CLI exposes `dateToSwiftReference(date)` and `swiftReferenceToDate(seconds)` from `@xmtp/convos-cli/utils/connectionTypes`. Don't use `Date.now() / 1000` — that produces a Unix timestamp and iOS will decode it as ~50 years in the future.
+- **UUIDs** are uppercase hex with dashes (`AABBCCDD-EEFF-1122-3344-556677889900`), matching Swift's default `UUID` encoding. Lowercase will decode but echoes back uppercase.
+- **Enum raw values** are lowercase or snake_case — never camelCase.
+- **`shouldPush` is false** for all three codecs. They are intentionally invisible to the chat stream and the push-notification pipeline. `isDisplayableMessage` filters them out; `agent serve` does not emit `message` events for them.
+
+#### Sending an Invocation from the CLI
+
+```bash
+# raw JSON arguments
+convos conversation send-invocation <conversation-id> \
+  --kind calendar \
+  --action create_event \
+  --arguments '{"title":{"type":"string","value":"Team sync"},"isAllDay":{"type":"bool","value":false}}'
+
+# arguments from a file (handy for non-trivial payloads)
+convos conversation send-invocation <conversation-id> \
+  --kind health --action log_water --arguments-file ./water.json
+
+# pin a known invocationId for correlating the eventual result
+convos conversation send-invocation <conversation-id> \
+  --kind contacts --action create_contact \
+  --invocation-id req-42 \
+  --arguments '{}' \
+  --json
+```
+
+`--kind` must be one of the nine `ConnectionKind` raw values. `--arguments` (or `--arguments-file`) is required — pass `'{}'` for an action with no parameters. Each value is validated as an `ArgumentValue` tagged object before the message is sent; a malformed tag (`{type:"uint64",…}`) or a value-type mismatch (`{type:"int",value:"1"}`) errors out without sending. `--invocation-id` defaults to a random `cli-<8-hex>` token; pin it when you need to correlate the eventual result deterministically. The output JSON includes both the envelope `id` (per-message UUID) and the caller-correlation `invocationId`.
+
+The CLI does **not** expose a corresponding `send-payload` or `send-result` command — those are device-originated and only iOS produces them in production.
+
+#### Sending an Invocation from `agent serve`
+
+The agent stdin protocol exposes the same path under the `connection-invoke` command type — see the Agent Mode section's Commands table. The wire-level outcome is identical to `send-invocation`; the agent emits a `sent` event with `type: "connection-invoke"`, the message `id`, and both `invocationId` and `envelopeId` for correlation.
+
+```jsonl
+{"type":"connection-invoke","kind":"calendar","action":"create_event","arguments":{"title":{"type":"string","value":"Team sync"},"startDate":{"type":"iso8601","value":"2026-05-01T15:00:00-07:00"},"endDate":{"type":"iso8601","value":"2026-05-01T16:00:00-07:00"},"timeZone":{"type":"string","value":"America/Los_Angeles"},"isAllDay":{"type":"bool","value":false}}}
+```
+
+#### Consuming Connection Messages from an Agent
+
+`agent serve` emits structured stdout events for every silent codec — `connection_payload`, `connection_invocation`, `connection_result`, `connection_event`, `cloud_connection_grant_request`, `capability_request`, `capability_result`, and `explode_notice` (see the Events table under Agent Mode). The fields mirror the decoded codec content directly, so the typical agent loop is:
+
+```jsonl
+// stdout (excerpt)
+{"event":"ready","conversationId":"…","inviteUrl":"…","inboxId":"…"}
+{"event":"connection_payload","id":"msg-abc","envelopeId":"E1A…","senderInboxId":"u1","conversationId":"c1","source":"calendar","schemaVersion":1,"capturedAt":721692800,"body":{"type":"calendar","data":{"summary":"2 events today"}},"sentAt":"2026-04-28T12:00:00.000Z"}
+{"event":"connection_event","id":"msg-def","senderInboxId":"u1","conversationId":"c1","version":1,"providerId":"device.health","action":"granted","sentAt":"2026-04-28T12:00:04.000Z"}
+{"event":"capability_result","id":"msg-deg","senderInboxId":"u1","conversationId":"c1","version":1,"requestId":"req-1","status":"approved","subject":"fitness","capability":"read","providers":["device.health"],"availableActions":[{"providerId":"device.health","kind":"health","actionName":"fetch_summary_last_24h","summary":"Fetch a read-only health summary for the last 24 hours.","inputs":[],"outputs":[{"name":"summary","type":"string","description":"Human-readable summary of the window.","isRequired":true},{"name":"sampleCount","type":"int","description":"Number of mapped samples in the window.","isRequired":true},{"name":"rangeStart","type":"iso8601","description":"Window start (RFC 3339 with offset).","isRequired":true},{"name":"rangeEnd","type":"iso8601","description":"Window end (RFC 3339 with offset).","isRequired":true},{"name":"payloadJson","type":"string","description":"Full HealthPayload JSON string for callers that need richer structured data.","isRequired":true}]}],"sentAt":"2026-04-28T12:00:05.000Z"}
+{"event":"connection_result","id":"msg-ghi","envelopeId":"E2B…","senderInboxId":"u1","conversationId":"c1","invocationId":"agent-1-001","kind":"calendar","actionName":"create_event","status":"success","schemaVersion":1,"result":{"eventId":{"type":"string","value":"evt-1"}},"completedAt":721692900,"sentAt":"2026-04-28T12:01:30.000Z"}
+```
+
+Live and catchup share the same event shape; catchup events carry `"catchup": true`. Dedupe is handled inside `agent serve` via message id, so an agent that wires its own retry/reconnect logic on top of stdin commands won't double-process a result if the stream reconnects while it was firing.
+
+For agents that embed the CLI as a library rather than driving it via stdin, the same library helpers used by `agent serve` are exported under `@xmtp/convos-cli/utils/...`:
+
+```ts
+import {
+  ConnectionInvocationCodec,
+  isConnectionInvocationMessage,
+  getConnectionInvocationContent,
+} from "@xmtp/convos-cli/utils/connectionInvocation";
+import {
+  isConnectionPayloadMessage,
+  getConnectionPayloadContent,
+  summarizeConnectionPayload,
+} from "@xmtp/convos-cli/utils/connectionPayload";
+import {
+  isConnectionInvocationResultMessage,
+  getConnectionInvocationResultContent,
+} from "@xmtp/convos-cli/utils/connectionInvocationResult";
+import {
+  dateToSwiftReference,
+  type ArgumentValue,
+} from "@xmtp/convos-cli/utils/connectionTypes";
+import { randomUUID } from "node:crypto";
+
+// Read: route incoming messages to the right handler.
+for await (const message of stream) {
+  if (isConnectionPayloadMessage(message)) {
+    const payload = getConnectionPayloadContent(message);
+    if (payload) console.log(summarizeConnectionPayload(payload));
+    continue;
+  }
+  if (isConnectionInvocationResultMessage(message)) {
+    const result = getConnectionInvocationResultContent(message);
+    // correlate result.invocationId against an in-flight request table
+    continue;
+  }
+  // ... handle text, attachments, etc.
+}
+
+// Write: send a calendar create_event invocation.
+const invocation = {
+  id: randomUUID().toUpperCase(),
+  schemaVersion: 1,
+  invocationId: "agent-1-001",
+  kind: "calendar" as const,
+  action: {
+    name: "create_event",
+    arguments: {
+      title: { type: "string", value: "Team sync" },
+      startDate: { type: "iso8601", value: "2026-05-01T15:00:00-07:00" },
+      endDate: { type: "iso8601", value: "2026-05-01T16:00:00-07:00" },
+      timeZone: { type: "string", value: "America/Los_Angeles" },
+      isAllDay: { type: "bool", value: false },
+    } satisfies Record<string, ArgumentValue>,
+  },
+  issuedAt: dateToSwiftReference(new Date()),
+};
+const codec = new ConnectionInvocationCodec();
+await conversation.send(invocation, codec.contentType);
+```
+
+Pure-shell agents can stick to the `agent serve` stdout events — piping through `jq -r 'select(.event == "connection_payload" or .event == "capability_result")'` is the supported way to filter without embedding the library.
 
 ### Consent States
 

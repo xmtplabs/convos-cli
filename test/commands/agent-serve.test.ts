@@ -115,6 +115,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "mine",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
         // non-displayable (unknown authority) — should be skipped
         {
@@ -123,6 +124,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "custom.org", typeId: "binary" },
           content: {},
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
         // valid message — should be emitted
         {
@@ -131,6 +133,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "hello",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
       ]),
     });
@@ -155,6 +158,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "first",
           sentAt: t1,
+          sentAtNs: BigInt(t1.getTime()) * 1_000_000n,
         },
         {
           id: "m2",
@@ -162,6 +166,7 @@ describe("catchUpMessages", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "second",
           sentAt: t2,
+          sentAtNs: BigInt(t2.getTime()) * 1_000_000n,
         },
       ]),
     });
@@ -513,6 +518,7 @@ describe("message deduplication", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "dup",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
         {
           id: "new-msg",
@@ -520,6 +526,7 @@ describe("message deduplication", () => {
           contentType: { authorityId: "xmtp.org", typeId: "text" },
           content: "fresh",
           sentAt: t,
+          sentAtNs: BigInt(t.getTime()) * 1_000_000n,
         },
       ]),
     });
@@ -570,5 +577,744 @@ describe("scheduleMessagesCatchup", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(agent.isCatchingUpMessages).toBe(false);
+  });
+});
+
+// ─── handleCommand: connection-invoke ───
+
+describe("handleCommand connection-invoke", () => {
+  it("encodes and sends a ConnectionInvocation with the expected wire shape", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-7") });
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "calendar",
+        action: "create_event",
+        invocationId: "req-1",
+        arguments: {
+          title: { type: "string", value: "Team sync" },
+          isAllDay: { type: "bool", value: false },
+        },
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).toHaveBeenCalledTimes(1);
+    const encoded = group.send.mock.calls[0][0];
+    expect(encoded.type).toEqual({
+      authorityId: "convos.org",
+      typeId: "connection_invocation",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const payload = JSON.parse(new TextDecoder().decode(encoded.content));
+    expect(payload.invocationId).toBe("req-1");
+    expect(payload.kind).toBe("calendar");
+    expect(payload.action.name).toBe("create_event");
+    expect(payload.action.arguments).toEqual({
+      title: { type: "string", value: "Team sync" },
+      isAllDay: { type: "bool", value: false },
+    });
+
+    const sent = events.find((e) => e.event === "sent" && e.type === "connection-invoke");
+    expect(sent).toBeDefined();
+    expect(sent!.invocationId).toBe("req-1");
+    expect(sent!.id).toBe("msg-7");
+  });
+
+  it("auto-generates an invocationId when none is supplied", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-8") });
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "contacts",
+        action: "create_contact",
+        arguments: {},
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    const sent = events.find((e) => e.event === "sent");
+    expect(sent!.invocationId).toMatch(/^agent-[0-9a-f]{8}$/);
+  });
+
+  it("rejects unknown ConnectionKind raw values", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "telepathy",
+        action: "create_event",
+        arguments: {},
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.event).toBe("error");
+    expect(events.at(-1)!.message).toMatch(/'kind' must be one of/);
+  });
+
+  it("rejects malformed argument values without sending", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "calendar",
+        action: "create_event",
+        arguments: { bad: { type: "uint64", value: 1 } },
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.event).toBe("error");
+    expect(events.at(-1)!.message).toMatch(/unknown type tag/);
+  });
+
+  it("requires kind and action", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      { type: "connection-invoke" } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+    expect(events.at(-1)!.message).toMatch(/'kind' field/);
+
+    await agent.handleCommand(
+      { type: "connection-invoke", kind: "health" } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+    expect(events.at(-1)!.message).toMatch(/'action' field/);
+
+    expect(group.send).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid issuedAt timestamp", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "connection-invoke",
+        kind: "calendar",
+        action: "create_event",
+        arguments: {},
+        issuedAt: "garbage",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/Invalid 'issuedAt'/);
+  });
+});
+
+// ─── handleCommand: capability-request ───
+
+describe("handleCommand capability-request", () => {
+  it("encodes and sends a CapabilityRequest with the expected wire shape", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-cap-1") });
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "calendar",
+        capability: "read",
+        rationale: "To summarize your week",
+        requestId: "req-cap-1",
+        preferredProviders: ["device.calendar"],
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).toHaveBeenCalledTimes(1);
+    const encoded = group.send.mock.calls[0][0];
+    expect(encoded.type).toEqual({
+      authorityId: "convos.org",
+      typeId: "capability_request",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const payload = JSON.parse(new TextDecoder().decode(encoded.content));
+    expect(payload).toEqual({
+      version: 1,
+      requestId: "req-cap-1",
+      subject: "calendar",
+      capability: "read",
+      rationale: "To summarize your week",
+      preferredProviders: ["device.calendar"],
+    });
+
+    const sent = events.find((e) => e.event === "sent" && e.type === "capability-request");
+    expect(sent).toBeDefined();
+    expect(sent!.id).toBe("msg-cap-1");
+    expect(sent!.requestId).toBe("req-cap-1");
+  });
+
+  it("auto-generates a requestId when none is supplied", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup({ send: vi.fn().mockResolvedValue("msg-cap-2") });
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "fitness",
+        capability: "read",
+        rationale: "To summarize training",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    const sent = events.find((e) => e.event === "sent");
+    expect(sent!.requestId).toMatch(/^agent-[0-9a-f]{8}$/);
+  });
+
+  it("rejects unknown subjects", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "telepathy",
+        capability: "read",
+        rationale: "x",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.event).toBe("error");
+    expect(events.at(-1)!.message).toMatch(/'subject' must be one of/);
+  });
+
+  it("rejects unknown capabilities", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "calendar",
+        capability: "write_admin",
+        rationale: "x",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/'capability' must be one of/);
+  });
+
+  it("requires a non-empty rationale", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "calendar",
+        capability: "read",
+        rationale: "",
+      } as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/non-empty 'rationale'/);
+  });
+
+  it("rejects malformed preferredProviders", async () => {
+    const { agent, events } = createTestAgent();
+    const group = mockGroup();
+
+    await agent.handleCommand(
+      {
+        type: "capability-request",
+        subject: "fitness",
+        capability: "read",
+        rationale: "x",
+        preferredProviders: ["composio.strava", 7],
+      } as unknown as AgentCommand,
+      group,
+      { inboxId: "self" },
+      mockIdentity(),
+    );
+
+    expect(group.send).not.toHaveBeenCalled();
+    expect(events.at(-1)!.message).toMatch(/preferredProviders/);
+  });
+});
+
+// ─── routeConvosContentType: inbound silent-codec → structured event ───
+
+describe("routeConvosContentType", () => {
+  const conv = (id = "conv-123") => ({ id }) as any;
+  const sentAt = new Date("2026-04-28T12:00:00.000Z");
+  const sentAtNs = BigInt(sentAt.getTime()) * 1_000_000n;
+
+  function mockDecoded(typeId: string, content: any, overrides: any = {}) {
+    return {
+      id: `msg-${typeId}-${Math.random().toString(36).slice(2, 8)}`,
+      senderInboxId: "other",
+      contentType: { authorityId: "convos.org", typeId, versionMajor: 1, versionMinor: 0 },
+      content,
+      sentAt,
+      sentAtNs,
+      ...overrides,
+    } as any;
+  }
+
+  it("emits connection_payload for ConnectionPayload, with envelope and source", () => {
+    const { agent, events } = createTestAgent();
+    const payload = {
+      id: "11111111-1111-1111-1111-111111111111",
+      schemaVersion: 1,
+      source: "calendar",
+      capturedAt: 721_692_800,
+      body: { type: "calendar", data: { summary: "2 events today" } },
+    };
+    const message = mockDecoded("connection_payload", payload);
+
+    const handled = agent.routeConvosContentType(message, conv(), false);
+
+    expect(handled).toBe(true);
+    const evt = events.find((e) => e.event === "connection_payload");
+    expect(evt).toMatchObject({
+      event: "connection_payload",
+      id: message.id,
+      envelopeId: payload.id,
+      senderInboxId: "other",
+      conversationId: "conv-123",
+      source: "calendar",
+      schemaVersion: 1,
+      capturedAt: 721_692_800,
+      body: payload.body,
+      sentAt: sentAt.toISOString(),
+    });
+    expect(evt!.catchup).toBeUndefined();
+  });
+
+  it("emits connection_invocation for an inbound ConnectionInvocation", () => {
+    const { agent, events } = createTestAgent();
+    const invocation = {
+      id: "AABBCCDD-EEFF-1122-3344-556677889900",
+      schemaVersion: 1,
+      invocationId: "agent-1-001",
+      kind: "calendar",
+      action: { name: "create_event", arguments: {} },
+      issuedAt: 0,
+    };
+    const message = mockDecoded("connection_invocation", invocation);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "connection_invocation");
+    expect(evt).toMatchObject({
+      event: "connection_invocation",
+      invocationId: "agent-1-001",
+      kind: "calendar",
+      action: invocation.action,
+    });
+  });
+
+  it("emits connection_result with errorMessage when present", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      id: "DDEEFF00-1122-3344-5566-778899AABBCC",
+      schemaVersion: 1,
+      invocationId: "agent-1-001",
+      kind: "calendar",
+      actionName: "create_event",
+      status: "execution_failed",
+      result: {},
+      errorMessage: "EventKit returned: …",
+      completedAt: 0,
+    };
+    const message = mockDecoded("connection_invocation_result", result);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "connection_result");
+    expect(evt).toMatchObject({
+      event: "connection_result",
+      invocationId: "agent-1-001",
+      status: "execution_failed",
+      errorMessage: "EventKit returned: …",
+    });
+  });
+
+  it("omits errorMessage on a successful result", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      id: "DDEEFF00-1122-3344-5566-778899AABBCC",
+      schemaVersion: 1,
+      invocationId: "ok-1",
+      kind: "calendar",
+      actionName: "create_event",
+      status: "success",
+      result: { eventId: { type: "string", value: "evt-1" } },
+      completedAt: 0,
+    };
+    const message = mockDecoded("connection_invocation_result", result);
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "connection_result");
+    expect(evt!.errorMessage).toBeUndefined();
+    expect(evt!.result).toEqual({ eventId: { type: "string", value: "evt-1" } });
+  });
+
+  it("emits connection_event for granted/revoked provider changes", () => {
+    const { agent, events } = createTestAgent();
+    const event = {
+      version: 1,
+      providerId: "device.health",
+      action: "granted",
+    };
+    const message = mockDecoded("connection_event", event);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "connection_event");
+    expect(evt).toMatchObject({
+      event: "connection_event",
+      version: 1,
+      providerId: "device.health",
+      action: "granted",
+    });
+  });
+
+  it("emits cloud_connection_grant_request when an OAuth grant is requested", () => {
+    const { agent, events } = createTestAgent();
+    const request = {
+      version: 1,
+      service: "strava",
+      requestedByInboxId: "inbox-agent",
+      targetInboxId: "inbox-user",
+      reason: "To summarize this week's training",
+    };
+    const message = mockDecoded("connection_grant_request", request);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "cloud_connection_grant_request");
+    expect(evt).toMatchObject({
+      event: "cloud_connection_grant_request",
+      version: 1,
+      service: "strava",
+      requestedByInboxId: "inbox-agent",
+      targetInboxId: "inbox-user",
+      reason: "To summarize this week's training",
+    });
+  });
+
+  it("emits capability_request, including the preferredProviders hint", () => {
+    const { agent, events } = createTestAgent();
+    const request = {
+      version: 1,
+      requestId: "req-1",
+      subject: "fitness",
+      capability: "read",
+      rationale: "Summarize training",
+      preferredProviders: ["composio.strava", "composio.fitbit"],
+    };
+    const message = mockDecoded("capability_request", request);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "capability_request");
+    expect(evt).toMatchObject({
+      event: "capability_request",
+      requestId: "req-1",
+      subject: "fitness",
+      capability: "read",
+      rationale: "Summarize training",
+      preferredProviders: ["composio.strava", "composio.fitbit"],
+    });
+  });
+
+  it("emits capability_result echoing the persisted providers", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      version: 1,
+      requestId: "req-1",
+      status: "approved",
+      subject: "calendar",
+      capability: "read",
+      providers: ["device.calendar"],
+      availableActions: [],
+    };
+    const message = mockDecoded("capability_request_result", result);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "capability_result");
+    expect(evt).toMatchObject({
+      event: "capability_result",
+      requestId: "req-1",
+      status: "approved",
+      providers: ["device.calendar"],
+      availableActions: [],
+    });
+  });
+
+  it("emits capability_result availableActions when approval returns them", () => {
+    const { agent, events } = createTestAgent();
+    const result = {
+      version: 1,
+      requestId: "req-2",
+      status: "approved",
+      subject: "fitness",
+      capability: "read",
+      providers: ["device.health"],
+      availableActions: [
+        {
+          providerId: "device.health",
+          kind: "health",
+          actionName: "fetch_summary_last_24h",
+          summary: "Fetch health summary",
+          inputs: [],
+          outputs: [
+            {
+              name: "summary",
+              type: "string",
+              description: "Human-readable summary",
+              isRequired: true,
+            },
+          ],
+        },
+      ],
+    };
+    const message = mockDecoded("capability_request_result", result);
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "capability_result" && e.requestId === "req-2");
+    expect(evt).toMatchObject({
+      event: "capability_result",
+      requestId: "req-2",
+      availableActions: result.availableActions,
+    });
+  });
+
+  it("flags catchup events with catchup: true", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("connection_payload", {
+      id: "11111111-1111-1111-1111-111111111112",
+      schemaVersion: 1,
+      source: "calendar",
+      capturedAt: 0,
+      body: { type: "calendar", data: { summary: "x" } },
+    });
+
+    agent.routeConvosContentType(message, conv(), true);
+    expect(events[0]!.catchup).toBe(true);
+  });
+
+  it("dedupes across live ↔ catchup so a message id only emits once", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("connection_payload", {
+      id: "11111111-1111-1111-1111-111111111113",
+      schemaVersion: 1,
+      source: "calendar",
+      capturedAt: 0,
+      body: { type: "calendar", data: { summary: "x" } },
+    });
+
+    agent.routeConvosContentType(message, conv(), false);
+    agent.routeConvosContentType(message, conv(), true);
+
+    expect(events.filter((e) => e.event === "connection_payload")).toHaveLength(1);
+  });
+
+  it("advances lastMessageTimestampNs so subsequent catchup queries skip the same message", () => {
+    const { agent } = createTestAgent();
+    const message = mockDecoded("capability_request_result", {
+      version: 1,
+      requestId: "req-1",
+      status: "approved",
+      subject: "calendar",
+      capability: "read",
+      providers: ["device.calendar"],
+      availableActions: [],
+    });
+
+    agent.routeConvosContentType(message, conv(), false);
+
+    expect(agent.lastMessageTimestampNs).toBe(sentAtNs);
+  });
+
+  it("emits typing on the live stream but skips it on catchup", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("typing_indicator", { isTyping: true });
+
+    agent.routeConvosContentType(message, conv(), false);
+    expect(events.find((e) => e.event === "typing")).toBeDefined();
+
+    events.length = 0;
+    agent.routeConvosContentType(message, conv(), true);
+    expect(events.find((e) => e.event === "typing")).toBeUndefined();
+  });
+
+  it("emits explode_notice and tags catchup runs", () => {
+    const { agent, events } = createTestAgent();
+    const expiresAt = "2026-05-01T00:00:00.000Z";
+    const message = mockDecoded("explode_settings", { expiresAt });
+
+    agent.routeConvosContentType(message, conv(), true);
+    const evt = events.find((e) => e.event === "explode_notice");
+    expect(evt).toMatchObject({ event: "explode_notice", expiresAt, catchup: true });
+  });
+
+  it("returns false for content types it doesn't know about", () => {
+    const { agent } = createTestAgent();
+    const message = {
+      id: "msg-text",
+      senderInboxId: "other",
+      contentType: { authorityId: "xmtp.org", typeId: "text", versionMajor: 1, versionMinor: 0 },
+      content: "hello",
+      sentAt,
+    } as any;
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(false);
+  });
+
+  it("emits profile_update with the changed fields and skips unset ones", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", {
+      name: "Alice (she/her)",
+      memberKind: 1,
+      metadata: {
+        timezone: { type: "string", value: "America/Los_Angeles" },
+      },
+    });
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt).toMatchObject({
+      event: "profile_update",
+      id: message.id,
+      senderInboxId: "other",
+      conversationId: "conv-123",
+      name: "Alice (she/her)",
+      memberKind: 1,
+      metadata: {
+        timezone: { type: "string", value: "America/Los_Angeles" },
+      },
+      sentAt: sentAt.toISOString(),
+    });
+    expect(evt!.encryptedImage).toBeUndefined();
+  });
+
+  it("profile_update with only encryptedImage carries just that field", () => {
+    const { agent, events } = createTestAgent();
+    const encryptedImage = {
+      url: "https://example.com/blob",
+      salt: "AAAA",
+      nonce: "BBBB",
+    };
+    const message = mockDecoded("profile_update", { encryptedImage });
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt).toMatchObject({ encryptedImage });
+    expect(evt!.name).toBeUndefined();
+    expect(evt!.metadata).toBeUndefined();
+    expect(evt!.memberKind).toBeUndefined();
+  });
+
+  it("profile_update with empty metadata object omits the metadata field", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", { name: "Bob", metadata: {} });
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt!.name).toBe("Bob");
+    expect(evt!.metadata).toBeUndefined();
+  });
+
+  it("profile_update flags catchup runs", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", { name: "Carol" });
+
+    agent.routeConvosContentType(message, conv(), true);
+    expect(events[0]!.catchup).toBe(true);
+  });
+
+  it("clearing a name (empty string) is preserved on profile_update", () => {
+    const { agent, events } = createTestAgent();
+    const message = mockDecoded("profile_update", { name: "" });
+
+    agent.routeConvosContentType(message, conv(), false);
+    const evt = events.find((e) => e.event === "profile_update");
+    expect(evt!.name).toBe("");
+  });
+
+  function readReceiptMessage(overrides: any = {}) {
+    return {
+      id: `msg-rr-${Math.random().toString(36).slice(2, 8)}`,
+      senderInboxId: "other",
+      contentType: { authorityId: "xmtp.org", typeId: "read_receipt", versionMajor: 1, versionMinor: 0 },
+      content: {},
+      sentAt,
+      ...overrides,
+    } as any;
+  }
+
+  it("emits read_receipt for inbound xmtp.org/read_receipt", () => {
+    const { agent, events } = createTestAgent();
+    const message = readReceiptMessage();
+
+    expect(agent.routeConvosContentType(message, conv(), false)).toBe(true);
+    const evt = events.find((e) => e.event === "read_receipt");
+    expect(evt).toMatchObject({
+      event: "read_receipt",
+      id: message.id,
+      senderInboxId: "other",
+      conversationId: "conv-123",
+      sentAt: sentAt.toISOString(),
+    });
+  });
+
+  it("skips read_receipt on catchup but still consumes it", () => {
+    const { agent, events } = createTestAgent();
+    const message = readReceiptMessage();
+
+    expect(agent.routeConvosContentType(message, conv(), true)).toBe(true);
+    expect(events.find((e) => e.event === "read_receipt")).toBeUndefined();
+  });
+
+  it("does not advance the watermark for read_receipt traffic", () => {
+    const { agent } = createTestAgent();
+    agent.routeConvosContentType(readReceiptMessage(), conv(), false);
+    expect(agent.lastMessageTimestampNs).toBe(0n);
   });
 });

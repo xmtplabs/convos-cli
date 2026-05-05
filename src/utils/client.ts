@@ -11,11 +11,18 @@ import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
 import { JoinRequestCodec } from "./joinRequest.js";
 import { TypingIndicatorCodec } from "./typingIndicator.js";
 import { ExplodeSettingsCodec } from "./explodeSettings.js";
+import { ConnectionPayloadCodec } from "./connectionPayload.js";
+import { ConnectionInvocationCodec } from "./connectionInvocation.js";
+import { ConnectionInvocationResultCodec } from "./connectionInvocationResult.js";
+import { ConnectionEventCodec } from "./connectionEvent.js";
+import { CapabilityRequestCodec } from "./capabilityRequest.js";
+import { CapabilityRequestResultCodec } from "./capabilityRequestResult.js";
+import { CloudConnectionGrantRequestCodec } from "./cloudConnectionGrantRequest.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
 import type { Identity } from "./identities.js";
-import { createIdentityStore } from "./identities.js";
+import { createIdentityStore, DEFAULT_CONVOS_HOME } from "./identities.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const pkg = JSON.parse(
@@ -53,25 +60,28 @@ export async function getClient(
   config: ConvosConfig,
   homeDir?: string,
 ): Promise<Client<any>> {
-  const store = createIdentityStore(homeDir);
+  const resolvedHome = homeDir ?? DEFAULT_CONVOS_HOME;
+  const store = createIdentityStore(resolvedHome);
   const env = config.env ?? "dev";
-  const key = cacheKey(homeDir ?? "", env);
+  const key = cacheKey(resolvedHome, env);
 
   const cached = clientCache.get(key);
   if (cached) return cached;
 
-  const promise = buildClient(store.loadOrUpsert(), config, homeDir).then(
-    (client) => {
+  // .then(onSuccess, onError) doesn't catch throws from onSuccess — so a
+  // post-build store.load/update failure would leave a rejected promise
+  // permanently cached. Chain .then().catch() so any throw clears the entry.
+  const promise = buildClient(store.loadOrUpsert(), config, resolvedHome)
+    .then((client) => {
       if (!store.load()?.inboxId) {
         store.update({ inboxId: client.inboxId });
       }
       return client;
-    },
-    (error) => {
+    })
+    .catch((error) => {
       clientCache.delete(key);
       throw error;
-    },
-  );
+    });
 
   clientCache.set(key, promise);
   return promise;
@@ -128,6 +138,13 @@ async function buildClient(
       new JoinRequestCodec() as any,
       new TypingIndicatorCodec() as any,
       new ExplodeSettingsCodec() as any,
+      new ConnectionPayloadCodec() as any,
+      new ConnectionInvocationCodec() as any,
+      new ConnectionInvocationResultCodec() as any,
+      new ConnectionEventCodec() as any,
+      new CapabilityRequestCodec() as any,
+      new CapabilityRequestResultCodec() as any,
+      new CloudConnectionGrantRequestCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,

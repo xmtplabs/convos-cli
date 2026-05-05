@@ -26,6 +26,10 @@ import QRCode from "qrcode";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { getIdentityAndClient } from "../../utils/client.js";
 import {
+  attestationToProfileMetadata,
+  resolveAttestationFromFlags,
+} from "../../utils/attestation.js";
+import {
   encodeExplodeSettings,
   getExplodeSettingsContent,
   isExplodeSettingsMessage,
@@ -42,6 +46,8 @@ import { getMimeType } from "../../utils/mime.js";
 import { parseAppData, parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
 import { emojiForIdentifier } from "../../utils/emoji.js";
 import {
+  getProfileUpdateContent,
+  isProfileUpdateMessage,
   sendProfileSnapshot,
   sendProfileUpdate,
   resolveProfilesFromMessages,
@@ -75,6 +81,59 @@ import {
   TypingIndicatorCodec,
   type TypingIndicatorContent,
 } from "../../utils/typingIndicator.js";
+import { randomUUID } from "node:crypto";
+import {
+  ConnectionInvocationCodec,
+  CONNECTION_INVOCATION_CURRENT_SCHEMA_VERSION,
+  type ConnectionInvocation,
+} from "../../utils/connectionInvocation.js";
+import {
+  ALL_CONNECTION_CAPABILITIES,
+  ALL_CONNECTION_KINDS,
+  assertArgumentValue,
+  dateToSwiftReference,
+  type ArgumentValue,
+  type ConnectionCapability,
+  type ConnectionKind,
+} from "../../utils/connectionTypes.js";
+import {
+  CapabilityRequestCodec,
+  CAPABILITY_REQUEST_SUPPORTED_VERSION,
+  getCapabilityRequestContent,
+  isCapabilityRequestMessage,
+  type CapabilityRequest,
+} from "../../utils/capabilityRequest.js";
+import {
+  getCapabilityRequestResultContent,
+  isCapabilityRequestResultMessage,
+} from "../../utils/capabilityRequestResult.js";
+import {
+  getConnectionPayloadContent,
+  isConnectionPayloadMessage,
+} from "../../utils/connectionPayload.js";
+import {
+  getConnectionInvocationContent,
+  isConnectionInvocationMessage,
+} from "../../utils/connectionInvocation.js";
+import {
+  getConnectionInvocationResultContent,
+  isConnectionInvocationResultMessage,
+} from "../../utils/connectionInvocationResult.js";
+import {
+  getConnectionEventContent,
+  isConnectionEventMessage,
+} from "../../utils/connectionEvent.js";
+import {
+  CloudConnectionGrantRequestCodec,
+  CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION,
+  getCloudConnectionGrantRequestContent,
+  isCloudConnectionGrantRequestMessage,
+  type CloudConnectionGrantRequest,
+} from "../../utils/cloudConnectionGrantRequest.js";
+import {
+  ALL_CAPABILITY_SUBJECTS,
+  type CapabilitySubject,
+} from "../../utils/capabilityTypes.js";
 
 interface SendCommand { type: "send"; text: string; replyTo?: string; }
 interface ReactCommand { type: "react"; messageId: string; emoji: string; action?: "add" | "remove"; }
@@ -102,6 +161,30 @@ interface UpdateProfileCommand {
 }
 interface ReadReceiptCommand { type: "read-receipt"; }
 interface TypingCommand { type: "typing"; isTyping?: boolean; }
+interface ConnectionInvokeCommand {
+  type: "connection-invoke";
+  kind: string;
+  action: string;
+  arguments?: Record<string, unknown>;
+  invocationId?: string;
+  issuedAt?: string;
+}
+interface CapabilityRequestCommand {
+  type: "capability-request";
+  subject: string;
+  capability: string;
+  rationale: string;
+  requestId?: string;
+  preferredProviders?: string[];
+}
+interface CloudConnectionGrantRequestCommand {
+  type: "cloud-connection-grant-request";
+  service: string;
+  targetInboxId: string;
+  reason: string;
+  /** Defaults to the agent's own inbox ID when omitted. */
+  requestedByInboxId?: string;
+}
 interface StopCommand { type: "stop"; }
 
 export type AgentCommand =
@@ -116,6 +199,9 @@ export type AgentCommand =
   | ExplodeCommand
   | ReadReceiptCommand
   | TypingCommand
+  | ConnectionInvokeCommand
+  | CapabilityRequestCommand
+  | CloudConnectionGrantRequestCommand
   | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
@@ -229,6 +315,15 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       helpValue: "<kid>",
       env: "CONVOS_ATTESTATION_KID",
     }),
+    "attestation-private-key": Flags.string({
+      description:
+        "Path to an Ed25519 private key (PEM). When set with --attestation-kid, " +
+        "the CLI signs the attestation at startup against the resolved XMTP inbox " +
+        "id, so the same command works whether the inbox already exists locally or " +
+        "needs to be materialized first. Mutually exclusive with --attestation / --attestation-ts.",
+      helpValue: "<path>",
+      env: "CONVOS_ATTESTATION_PRIVATE_KEY",
+    }),
   };
 
   private streams: AsyncStreamProxy<DecodedMessage>[] = [];
@@ -253,6 +348,269 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
   private emitError(message: string, details?: Record<string, unknown>): void {
     this.emit({ event: "error", message, ...details });
+  }
+
+  /**
+   * Route a message carrying a `convos.org` content type that the chat
+   * stream filters out (`shouldPush=false`) into a structured stdout
+   * event. Returns true if the message was a known Convos content type
+   * (handled or attempted-and-malformed); the caller should not fall
+   * through to the generic `message` path.
+   *
+   * Shared between the live stream and the catchup path so reconnects
+   * don't drop connection/capability traffic on the floor. Dedupes
+   * across the two paths via `trackMessageId` and advances
+   * `lastMessageTimestampNs` so a subsequent catchup query won't
+   * re-fetch the same message.
+   */
+  private routeConvosContentType(
+    message: DecodedMessage,
+    conversation: Group,
+    catchup: boolean,
+  ): boolean {
+    if (isTypingIndicatorMessage(message)) {
+      // Typing indicators are ephemeral — only emit on the live stream.
+      // Replaying them on catchup would surface stale "is typing" state.
+      // Also skip dedupe / watermark so the recent-ids cache isn't
+      // churned by high-volume typing traffic.
+      if (!catchup) {
+        const typingContent = getTypingIndicatorContent(message);
+        if (typingContent) {
+          this.emit({
+            event: "typing",
+            senderInboxId: message.senderInboxId,
+            isTyping: typingContent.isTyping,
+            conversationId: conversation.id,
+            timestamp: message.sentAt.toISOString(),
+          });
+        }
+      }
+      return true;
+    }
+
+    // Read receipts are high-frequency ephemeral signals — like typing,
+    // only the latest matters. Skip on catchup so reconnects don't replay
+    // every receipt that fired while we were offline; agents that want
+    // historical read state can query `last-read-times`.
+    if (
+      message.contentType.authorityId === "xmtp.org" &&
+      message.contentType.typeId === "read_receipt"
+    ) {
+      if (!catchup) {
+        this.emit({
+          event: "read_receipt",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          sentAt: message.sentAt.toISOString(),
+        });
+      }
+      return true;
+    }
+
+    // For non-ephemeral types: dedupe across live ↔ catchup, then
+    // advance the watermark so subsequent catchup queries skip this id.
+    const handled = (() => {
+      if (isExplodeSettingsMessage(message)) return "explode" as const;
+      if (isProfileUpdateMessage(message)) return "profile_update" as const;
+      if (isConnectionPayloadMessage(message)) return "connection_payload" as const;
+      if (isConnectionInvocationMessage(message)) return "connection_invocation" as const;
+      if (isConnectionInvocationResultMessage(message)) return "connection_result" as const;
+      if (isConnectionEventMessage(message)) return "connection_event" as const;
+      if (isCloudConnectionGrantRequestMessage(message)) return "cloud_connection_grant_request" as const;
+      if (isCapabilityRequestMessage(message)) return "capability_request" as const;
+      if (isCapabilityRequestResultMessage(message)) return "capability_result" as const;
+      return undefined;
+    })();
+    if (!handled) return false;
+
+    if (!this.trackMessageId(message.id)) return true;
+    const sentAtNs = message.sentAtNs;
+    if (sentAtNs > this.lastMessageTimestampNs) {
+      this.lastMessageTimestampNs = sentAtNs;
+    }
+
+    if (handled === "explode") {
+      const explode = getExplodeSettingsContent(message);
+      if (explode) {
+        this.emit({
+          event: "explode_notice",
+          conversationId: conversation.id,
+          senderInboxId: message.senderInboxId,
+          expiresAt: explode.expiresAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "profile_update") {
+      const update = getProfileUpdateContent(message);
+      if (update) {
+        this.emit({
+          event: "profile_update",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          ...(update.name !== undefined && { name: update.name }),
+          ...(update.encryptedImage && { encryptedImage: update.encryptedImage }),
+          ...(update.memberKind !== undefined && { memberKind: update.memberKind }),
+          ...(update.metadata && Object.keys(update.metadata).length > 0 && { metadata: update.metadata }),
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_payload") {
+      const payload = getConnectionPayloadContent(message);
+      if (payload) {
+        this.emit({
+          event: "connection_payload",
+          id: message.id,
+          envelopeId: payload.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          source: payload.source,
+          schemaVersion: payload.schemaVersion,
+          capturedAt: payload.capturedAt,
+          body: payload.body,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_invocation") {
+      const invocation = getConnectionInvocationContent(message);
+      if (invocation) {
+        this.emit({
+          event: "connection_invocation",
+          id: message.id,
+          envelopeId: invocation.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          invocationId: invocation.invocationId,
+          kind: invocation.kind,
+          schemaVersion: invocation.schemaVersion,
+          action: invocation.action,
+          issuedAt: invocation.issuedAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_result") {
+      const result = getConnectionInvocationResultContent(message);
+      if (result) {
+        this.emit({
+          event: "connection_result",
+          id: message.id,
+          envelopeId: result.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          invocationId: result.invocationId,
+          kind: result.kind,
+          actionName: result.actionName,
+          status: result.status,
+          schemaVersion: result.schemaVersion,
+          result: result.result,
+          ...(result.errorMessage && { errorMessage: result.errorMessage }),
+          completedAt: result.completedAt,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "connection_event") {
+      const event = getConnectionEventContent(message);
+      if (event) {
+        this.emit({
+          event: "connection_event",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: event.version,
+          providerId: event.providerId,
+          action: event.action,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "cloud_connection_grant_request") {
+      const request = getCloudConnectionGrantRequestContent(message);
+      if (request) {
+        this.emit({
+          event: "cloud_connection_grant_request",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: request.version,
+          service: request.service,
+          requestedByInboxId: request.requestedByInboxId,
+          targetInboxId: request.targetInboxId,
+          reason: request.reason,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "capability_request") {
+      const request = getCapabilityRequestContent(message);
+      if (request) {
+        this.emit({
+          event: "capability_request",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: request.version,
+          requestId: request.requestId,
+          subject: request.subject,
+          capability: request.capability,
+          rationale: request.rationale,
+          ...(request.preferredProviders && { preferredProviders: request.preferredProviders }),
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "capability_result") {
+      const result = getCapabilityRequestResultContent(message);
+      if (result) {
+        this.emit({
+          event: "capability_result",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          version: result.version,
+          requestId: result.requestId,
+          status: result.status,
+          subject: result.subject,
+          capability: result.capability,
+          providers: result.providers,
+          availableActions: result.availableActions,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    return false;
   }
 
   private trackMessageId(id: string): boolean {
@@ -470,7 +828,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
           for (const message of messages) {
             try {
-              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              const sentAtNs = message.sentAtNs;
               const result = await this.processJoinMessage(
                 message,
                 client,
@@ -522,7 +880,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         try {
           for await (const message of stream) {
             try {
-              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              const sentAtNs = message.sentAtNs;
               if (sentAtNs > this.lastDmTimestampNs) {
                 this.lastDmTimestampNs = sentAtNs;
               }
@@ -614,10 +972,11 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
       for (const message of missed) {
         if (message.senderInboxId === client.inboxId) continue;
+        if (this.routeConvosContentType(message, conversation, true)) continue;
         if (!isDisplayableMessage(message)) continue;
         if (!this.trackMessageId(message.id)) continue;
 
-        const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+        const sentAtNs = message.sentAtNs;
         if (sentAtNs > this.lastMessageTimestampNs) {
           this.lastMessageTimestampNs = sentAtNs;
         }
@@ -670,38 +1029,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           for await (const message of stream) {
             if (message.senderInboxId === client.inboxId) continue;
 
-            if (isExplodeSettingsMessage(message)) {
-              const explode = getExplodeSettingsContent(message);
-              if (explode) {
-                this.emit({
-                  event: "explode_notice",
-                  conversationId: conversation.id,
-                  senderInboxId: message.senderInboxId,
-                  expiresAt: explode.expiresAt,
-                  sentAt: message.sentAt.toISOString(),
-                });
-              }
-              continue;
-            }
-
-            if (isTypingIndicatorMessage(message)) {
-              const typingContent = getTypingIndicatorContent(message);
-              if (typingContent) {
-                this.emit({
-                  event: "typing",
-                  senderInboxId: message.senderInboxId,
-                  isTyping: typingContent.isTyping,
-                  conversationId: conversation.id,
-                  timestamp: message.sentAt.toISOString(),
-                });
-              }
-              continue;
-            }
+            if (this.routeConvosContentType(message, conversation, false)) continue;
 
             if (!isDisplayableMessage(message)) continue;
             if (!this.trackMessageId(message.id)) continue;
 
-            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            const sentAtNs = message.sentAtNs;
             if (sentAtNs > this.lastMessageTimestampNs) {
               this.lastMessageTimestampNs = sentAtNs;
             }
@@ -1226,6 +1559,194 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           break;
         }
 
+        case "connection-invoke": {
+          if (!cmd.kind) {
+            this.emitError("connection-invoke command requires 'kind' field");
+            return;
+          }
+          if (!ALL_CONNECTION_KINDS.includes(cmd.kind as ConnectionKind)) {
+            this.emitError(
+              `connection-invoke 'kind' must be one of: ${ALL_CONNECTION_KINDS.join(", ")}`,
+              { kind: cmd.kind },
+            );
+            return;
+          }
+          if (!cmd.action) {
+            this.emitError("connection-invoke command requires 'action' field");
+            return;
+          }
+
+          const argumentsTyped: Record<string, ArgumentValue> = {};
+          const rawArgs = cmd.arguments ?? {};
+          if (typeof rawArgs !== "object" || Array.isArray(rawArgs)) {
+            this.emitError(
+              "connection-invoke 'arguments' must be a JSON object mapping names to ArgumentValue tagged objects",
+            );
+            return;
+          }
+          for (const [key, value] of Object.entries(rawArgs)) {
+            try {
+              assertArgumentValue(value, `arguments.${key}`);
+            } catch (error) {
+              this.emitError(
+                error instanceof Error ? error.message : `arguments.${key}: invalid`,
+              );
+              return;
+            }
+            argumentsTyped[key] = value as ArgumentValue;
+          }
+
+          let issuedAtDate: Date;
+          if (cmd.issuedAt) {
+            issuedAtDate = new Date(cmd.issuedAt);
+            if (isNaN(issuedAtDate.getTime())) {
+              this.emitError(`Invalid 'issuedAt' timestamp: ${cmd.issuedAt}`);
+              return;
+            }
+          } else {
+            issuedAtDate = new Date();
+          }
+
+          const invocation: ConnectionInvocation = {
+            id: randomUUID().toUpperCase(),
+            schemaVersion: CONNECTION_INVOCATION_CURRENT_SCHEMA_VERSION,
+            invocationId: cmd.invocationId ?? `agent-${randomUUID().slice(0, 8)}`,
+            kind: cmd.kind as ConnectionKind,
+            action: { name: cmd.action, arguments: argumentsTyped },
+            issuedAt: dateToSwiftReference(issuedAtDate),
+          };
+
+          const codec = new ConnectionInvocationCodec();
+          const encoded = codec.encode(invocation);
+          const invocationMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: invocationMessageId,
+            type: "connection-invoke",
+            invocationId: invocation.invocationId,
+            envelopeId: invocation.id,
+            kind: invocation.kind,
+            action: invocation.action.name,
+            issuedAt: issuedAtDate.toISOString(),
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "capability-request": {
+          if (!cmd.subject) {
+            this.emitError("capability-request command requires 'subject' field");
+            return;
+          }
+          if (!ALL_CAPABILITY_SUBJECTS.includes(cmd.subject as CapabilitySubject)) {
+            this.emitError(
+              `capability-request 'subject' must be one of: ${ALL_CAPABILITY_SUBJECTS.join(", ")}`,
+              { subject: cmd.subject },
+            );
+            return;
+          }
+          if (!cmd.capability) {
+            this.emitError("capability-request command requires 'capability' field");
+            return;
+          }
+          if (!ALL_CONNECTION_CAPABILITIES.includes(cmd.capability as ConnectionCapability)) {
+            this.emitError(
+              `capability-request 'capability' must be one of: ${ALL_CONNECTION_CAPABILITIES.join(", ")}`,
+              { capability: cmd.capability },
+            );
+            return;
+          }
+          if (typeof cmd.rationale !== "string" || cmd.rationale.length === 0) {
+            this.emitError("capability-request command requires non-empty 'rationale' field");
+            return;
+          }
+          let preferredProviders: string[] | undefined;
+          if (cmd.preferredProviders !== undefined) {
+            if (!Array.isArray(cmd.preferredProviders)) {
+              this.emitError("capability-request 'preferredProviders' must be an array of strings");
+              return;
+            }
+            for (const id of cmd.preferredProviders) {
+              if (typeof id !== "string") {
+                this.emitError("capability-request 'preferredProviders' entries must be strings");
+                return;
+              }
+            }
+            preferredProviders = cmd.preferredProviders;
+          }
+
+          const request: CapabilityRequest = {
+            version: CAPABILITY_REQUEST_SUPPORTED_VERSION,
+            requestId: cmd.requestId ?? `agent-${randomUUID().slice(0, 8)}`,
+            subject: cmd.subject as CapabilitySubject,
+            capability: cmd.capability as ConnectionCapability,
+            rationale: cmd.rationale,
+            ...(preferredProviders && { preferredProviders }),
+          };
+
+          const codec = new CapabilityRequestCodec();
+          const encoded = codec.encode(request);
+          const requestMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: requestMessageId,
+            type: "capability-request",
+            requestId: request.requestId,
+            subject: request.subject,
+            capability: request.capability,
+            ...(request.preferredProviders && { preferredProviders: request.preferredProviders }),
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "cloud-connection-grant-request": {
+          if (typeof cmd.service !== "string" || cmd.service.length === 0) {
+            this.emitError("cloud-connection-grant-request command requires non-empty 'service' field");
+            return;
+          }
+          if (typeof cmd.targetInboxId !== "string" || cmd.targetInboxId.length === 0) {
+            this.emitError("cloud-connection-grant-request command requires non-empty 'targetInboxId' field");
+            return;
+          }
+          if (typeof cmd.reason !== "string" || cmd.reason.length === 0) {
+            this.emitError("cloud-connection-grant-request command requires non-empty 'reason' field");
+            return;
+          }
+          if (cmd.requestedByInboxId !== undefined && typeof cmd.requestedByInboxId !== "string") {
+            this.emitError("cloud-connection-grant-request 'requestedByInboxId' must be a string");
+            return;
+          }
+
+          const request: CloudConnectionGrantRequest = {
+            version: CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION,
+            service: cmd.service,
+            requestedByInboxId: cmd.requestedByInboxId ?? client.inboxId,
+            targetInboxId: cmd.targetInboxId,
+            reason: cmd.reason,
+          };
+
+          const codec = new CloudConnectionGrantRequestCodec();
+          const encoded = codec.encode(request);
+          const grantMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: grantMessageId,
+            type: "cloud-connection-grant-request",
+            service: request.service,
+            requestedByInboxId: request.requestedByInboxId,
+            targetInboxId: request.targetInboxId,
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
         case "stop":
           this.shutdown();
           break;
@@ -1328,6 +1849,30 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           inviteUrl = `${baseUrl}?i=${encodeURIComponent(inviteSlug)}`;
         }
       }
+
+      // Publish a ProfileUpdate at startup so this agent's identity (name,
+      // memberKind, attestation) is visible to other members without an
+      // out-of-band `update-profile` stdin nudge. Attach mode previously
+      // emitted nothing here, so --attestation* flags were silently ignored.
+      try {
+        const profileName = flags["profile-name"] ?? identity.profileName;
+        const attestation = await resolveAttestationFromFlags(flags, client.inboxId);
+        const attestationMetadata = attestation
+          ? (attestationToProfileMetadata(attestation) as ProfileMetadata)
+          : undefined;
+
+        if (profileName || attestationMetadata) {
+          await sendProfileUpdate(group, {
+            ...(profileName && { name: profileName }),
+            memberKind: MemberKind.Agent,
+            ...(attestationMetadata && { metadata: attestationMetadata }),
+          });
+        }
+      } catch (error) {
+        this.verboseWarn(
+          `Could not send startup ProfileUpdate (attach): ${error instanceof Error ? error.message : "unknown"}`,
+        );
+      }
     } else {
       // ─── Create new conversation ───
       const permissionsMap: Record<string, GroupPermissionsOptions> = {
@@ -1357,23 +1902,22 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
       try {
         const profileName = flags["profile-name"] ?? identity.profileName;
-
-        let attestationMetadata: ProfileMetadata | undefined;
-        if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
-          attestationMetadata = {
-            attestation: { type: "string", value: flags.attestation },
-            attestation_ts: { type: "string", value: flags["attestation-ts"] },
-            attestation_kid: { type: "string", value: flags["attestation-kid"] },
-          };
-        }
+        const attestation = await resolveAttestationFromFlags(flags, client.inboxId);
+        const attestationMetadata = attestation
+          ? (attestationToProfileMetadata(attestation) as ProfileMetadata)
+          : undefined;
 
         await sendProfileUpdate(group, {
           ...(profileName && { name: profileName }),
           memberKind: MemberKind.Agent,
           ...(attestationMetadata && { metadata: attestationMetadata }),
         });
-      } catch {
-        // Non-fatal
+      } catch (error) {
+        // Non-fatal — but surface the failure on stderr so a misconfigured
+        // attestation flag set doesn't silently produce an empty profile.
+        this.verboseWarn(
+          `Could not send startup ProfileUpdate: ${error instanceof Error ? error.message : "unknown"}`,
+        );
       }
 
       inviteSlug = await createInviteSlug(
