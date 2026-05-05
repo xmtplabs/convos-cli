@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// We need to mock the identities dir before importing
 let testDir: string;
 
 beforeEach(() => {
@@ -15,112 +14,110 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("identity store", () => {
-  it("creates, lists, and removes identities", async () => {
-    // Dynamic import after setting env
+describe("identity store (single-inbox, ADR 011)", () => {
+  it("starts empty until loadOrUpsert is called", async () => {
     vi.stubEnv("CONVOS_HOME", testDir);
     const { createIdentityStore } = await import(
       "../../src/utils/identities.js"
     );
     const store = createIdentityStore(testDir);
 
-    // Start empty
-    expect(store.list()).toHaveLength(0);
+    expect(store.exists()).toBe(false);
+    expect(store.load()).toBeUndefined();
 
-    // Create
-    const id1 = store.create({ label: "test-1", profileName: "Alice" });
-    expect(id1.id).toBeDefined();
-    expect(id1.walletKey).toMatch(/^0x[a-f0-9]{64}$/);
-    expect(id1.dbEncryptionKey).toMatch(/^[a-f0-9]{64}$/);
-    expect(id1.profileName).toBe("Alice");
-
-    // List
-    expect(store.list()).toHaveLength(1);
-
-    // Get by ID
-    const fetched = store.get(id1.id);
-    expect(fetched).toBeDefined();
-    expect(fetched!.id).toBe(id1.id);
-
-    // Create another
-    const id2 = store.create({ label: "test-2" });
-    expect(store.list()).toHaveLength(2);
-
-    // Update
-    const updated = store.update(id1.id, {
-      conversationId: "conv-123",
-      profileName: "Alice Smith",
+    const identity = store.loadOrUpsert({
+      label: "test",
+      profileName: "Alice",
     });
-    expect(updated.conversationId).toBe("conv-123");
-    expect(updated.profileName).toBe("Alice Smith");
+    expect(identity.id).toMatch(/^[a-f0-9]+$/);
+    expect(identity.walletKey).toMatch(/^0x[a-f0-9]{64}$/);
+    expect(identity.dbEncryptionKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(identity.label).toBe("test");
+    expect(identity.profileName).toBe("Alice");
 
-    // Get by conversation ID
-    const byConv = store.getByConversationId("conv-123");
-    expect(byConv).toBeDefined();
-    expect(byConv!.id).toBe(id1.id);
-
-    // Remove
-    store.remove(id2.id);
-    expect(store.list()).toHaveLength(1);
-
-    // Remove last
-    store.remove(id1.id);
-    expect(store.list()).toHaveLength(0);
+    expect(store.exists()).toBe(true);
+    expect(store.load()?.id).toBe(identity.id);
   });
 
-  it("getByConversationId returns oldest identity when duplicates exist", async () => {
+  it("loadOrUpsert returns the existing identity on subsequent calls", async () => {
     vi.stubEnv("CONVOS_HOME", testDir);
     const { createIdentityStore } = await import(
       "../../src/utils/identities.js"
     );
     const store = createIdentityStore(testDir);
 
-    // Create two identities linked to the same conversation
-    const id1 = store.create({ label: "first" });
-    // Small delay to ensure different createdAt timestamps
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    const id2 = store.create({ label: "second" });
+    const first = store.loadOrUpsert({ label: "first" });
+    const second = store.loadOrUpsert({ label: "second" });
 
-    store.update(id1.id, { conversationId: "conv-dup" });
-    store.update(id2.id, { conversationId: "conv-dup" });
-
-    // getByConversationId should return the oldest (first-created)
-    const result = store.getByConversationId("conv-dup");
-    expect(result).toBeDefined();
-    expect(result!.id).toBe(id1.id);
-
-    // getAllByConversationId should return both
-    const all = store.getAllByConversationId("conv-dup");
-    expect(all).toHaveLength(2);
-    expect(all.map((i) => i.id).sort()).toEqual([id1.id, id2.id].sort());
+    // Same identity, same keys — the second call just patched the label
+    expect(second.id).toBe(first.id);
+    expect(second.walletKey).toBe(first.walletKey);
+    expect(second.label).toBe("second");
   });
 
-  it("getByInviteTag finds identity by invite tag", async () => {
+  it("update merges fields onto the stored identity", async () => {
     vi.stubEnv("CONVOS_HOME", testDir);
     const { createIdentityStore } = await import(
       "../../src/utils/identities.js"
     );
     const store = createIdentityStore(testDir);
 
-    const id1 = store.create({ label: "tagged" });
-    store.update(id1.id, { inviteTag: "abc123" });
+    const identity = store.loadOrUpsert({ label: "original" });
+    const updated = store.update({
+      inboxId: "inbox-abc",
+      profileName: "Bob",
+    });
 
-    const id2 = store.create({ label: "untagged" });
+    expect(updated.id).toBe(identity.id);
+    expect(updated.inboxId).toBe("inbox-abc");
+    expect(updated.profileName).toBe("Bob");
+    expect(updated.label).toBe("original");
+  });
 
-    // Find by tag
-    const found = store.getByInviteTag("abc123");
-    expect(found).toBeDefined();
-    expect(found!.id).toBe(id1.id);
+  it("update throws when no identity exists", async () => {
+    vi.stubEnv("CONVOS_HOME", testDir);
+    const { createIdentityStore } = await import(
+      "../../src/utils/identities.js"
+    );
+    const store = createIdentityStore(testDir);
 
-    // Non-existent tag
-    const notFound = store.getByInviteTag("nonexistent");
-    expect(notFound).toBeUndefined();
+    expect(() => store.update({ inboxId: "x" })).toThrow(
+      /No identity exists/,
+    );
+  });
 
-    // Second identity has no tag
-    const noTag = store.getByInviteTag("");
-    expect(noTag).toBeUndefined();
+  it("delete wipes the identity and the db directory", async () => {
+    vi.stubEnv("CONVOS_HOME", testDir);
+    const { createIdentityStore } = await import(
+      "../../src/utils/identities.js"
+    );
+    const { mkdirSync, writeFileSync, existsSync } = await import("node:fs");
+    const store = createIdentityStore(testDir);
 
-    store.remove(id1.id);
-    store.remove(id2.id);
+    store.loadOrUpsert({ label: "to-delete" });
+    const dbPath = store.getDbPath("dev");
+    mkdirSync(join(testDir, "db", "dev"), { recursive: true });
+    writeFileSync(dbPath, "fake-db");
+
+    expect(store.exists()).toBe(true);
+    expect(existsSync(dbPath)).toBe(true);
+
+    store.delete();
+
+    expect(store.exists()).toBe(false);
+    expect(existsSync(join(testDir, "db"))).toBe(false);
+  });
+
+  it("getDbPath is stable across calls for the same env", async () => {
+    vi.stubEnv("CONVOS_HOME", testDir);
+    const { createIdentityStore } = await import(
+      "../../src/utils/identities.js"
+    );
+    const store = createIdentityStore(testDir);
+    store.loadOrUpsert();
+
+    const a = store.getDbPath("dev");
+    const b = store.getDbPath("dev");
+    expect(a).toBe(b);
   });
 });

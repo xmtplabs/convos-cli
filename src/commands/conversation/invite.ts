@@ -2,8 +2,7 @@ import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import qrcode from "qrcode-terminal";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getIdentityAndClient } from "../../utils/client.js";
 import { createInviteSlug } from "../../utils/invite.js";
 import { parseAppData, serializeAppData } from "../../utils/metadata.js";
 import { randomAlphanumeric } from "../../utils/random.js";
@@ -78,14 +77,10 @@ Invite URLs use the format:
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationInvite);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
-
-    const identity = store.getByConversationId(args.id);
-    if (!identity) {
-      this.error(`No identity found for conversation: ${args.id}`);
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const { identity, client } = await getIdentityAndClient(
+      config,
+      this.getConvosHome(),
+    );
     const conversation = await client.conversations.getConversationById(args.id);
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -143,8 +138,9 @@ Invite URLs use the format:
         : "https://dev.convos.org/v2";
     const inviteUrl = `${baseUrl}?i=${encodeURIComponent(slug)}`;
 
-    // Display QR code unless --no-qr or --json
-    if (flags.qr && !flags.json) {
+    // Display QR code unless --no-qr or any JSON mode (--json, --fields,
+    // or CONVOS_JSON_OUTPUT); printing it would corrupt the JSON stream.
+    if (flags.qr && !this.jsonOutput) {
       this.log(""); // blank line before QR
       await new Promise<void>((resolve) => {
         qrcode.generate(inviteUrl, { small: true }, (code: string) => {

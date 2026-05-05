@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/convos-cli",
-  "version": "0.7.6",
+  "version": "0.8.0",
   "description": "A command-line interface for Convos — privacy-focused messaging built on XMTP",
   "keywords": [
     "convos",
@@ -74,7 +74,7 @@
         "description": "Agent mode — long-running sessions with streaming I/O"
       },
       "identity": {
-        "description": "Manage per-conversation identities (inboxes)"
+        "description": "Manage this install's singleton XMTP inbox identity"
       },
       "conversation": {
         "description": "Interact with a specific conversation"

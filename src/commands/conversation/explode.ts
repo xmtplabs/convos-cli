@@ -1,55 +1,24 @@
 import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
+import { encodeExplodeSettings } from "../../utils/explodeSettings.js";
 import { parseAppDataForWrite, serializeAppData } from "../../utils/metadata.js";
-import type { EncodedContent } from "@xmtp/node-bindings";
-
-/**
- * Encode an ExplodeSettings message matching the iOS content type.
- *
- * Content type: convos.org/explode_settings:1.0
- * Payload: JSON-encoded { expiresAt: ISO8601 string }
- * Fallback: "Conversation expires at {date}"
- */
-function encodeExplodeSettings(expiresAt: Date): EncodedContent {
-  const payload = JSON.stringify({
-    expiresAt: expiresAt.toISOString(),
-  });
-
-  return {
-    type: {
-      authorityId: "convos.org",
-      typeId: "explode_settings",
-      versionMajor: 1,
-      versionMinor: 0,
-    },
-    parameters: {},
-    fallback: `Conversation expires at ${expiresAt.toISOString()}`,
-    content: new TextEncoder().encode(payload),
-  };
-}
 
 export default class ConversationExplode extends ConvosBaseCommand {
   static description = `Explode (permanently destroy) a conversation.
 
 Sends an ExplodeSettings message to notify all members, updates the
-group metadata with the expiration timestamp, removes all members,
-then deletes the local identity including wallet key, database
-encryption key, and XMTP database. This is irreversible.
+group metadata with the expiration timestamp, and removes every other
+member from the MLS group (per ADR 011 / ADR 004 C9 amendment).
 
-Per ADR 004: destroying the per-conversation identity destroys the
-cryptographic material needed to decrypt messages. Recovery is
-impossible.
+Receiving clients drop the conversation locally on whichever arrives
+first: the ExplodeSettings message or the MLS remove commit.
 
-Steps:
-1. Send ExplodeSettings message (notifies iOS/other clients)
-2. Update group metadata with expiresAtUnix
-3. Remove all other members from the XMTP group
-4. Delete the local identity (private keys + database)
+The install's identity is NOT destroyed — one identity now covers
+every conversation on this install.
 
-Only the conversation creator (super admin) should explode.`;
+Only the conversation creator (super admin) can explode.`;
 
   static examples = [
     {
@@ -84,12 +53,7 @@ Only the conversation creator (super admin) should explode.`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ConversationExplode);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
-    const identity = store.getByConversationId(args.id);
-    if (!identity) this.error(`No identity found for conversation: ${args.id}`);
-
-    // Determine expiration time
     let expiresAt: Date;
     if (flags.scheduled) {
       expiresAt = new Date(flags.scheduled);
@@ -105,14 +69,16 @@ Only the conversation creator (super admin) should explode.`;
 
     const isImmediate = !flags.scheduled;
     const confirmMessage = isImmediate
-      ? "This will permanently destroy the conversation and delete all cryptographic keys.\n" +
-        "All members will be removed. Messages cannot be recovered."
+      ? "This will send ExplodeSettings and remove all other members from the group. " +
+        "Members drop the conversation locally on whichever arrives first: the MLS " +
+        "remove commit or the ExplodeSettings message. This install's identity is " +
+        "preserved; the CLI cannot leave the group itself (node-sdk limitation)."
       : `This will schedule the conversation to explode at ${expiresAt.toISOString()}.\n` +
         "All members will be notified. When the time arrives, clients will destroy their local data.";
 
     await this.confirmAction(confirmMessage, flags.force);
 
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );
@@ -143,7 +109,6 @@ Only the conversation creator (super admin) should explode.`;
       this.verboseWarn(
         `Skipping explode appData update: ${error instanceof Error ? error.message : "unknown error"}`,
       );
-      // Non-fatal: metadata update is secondary to the message
     }
 
     if (isImmediate) {
@@ -154,19 +119,16 @@ Only the conversation creator (super admin) should explode.`;
         await group.removeMembers(others.map((m) => m.inboxId));
       }
 
-      // Step 4: Delete local identity
-      store.remove(identity.id);
-
       this.output({
         success: true,
         conversationId: args.id,
-        identityDestroyed: identity.id,
         membersRemoved: others.length,
         expiresAt: expiresAt.toISOString(),
-        message: "Conversation exploded. All cryptographic keys destroyed.",
+        message:
+          "Conversation exploded. All other members removed. " +
+          "This install's identity is preserved.",
       });
     } else {
-      // Scheduled: don't remove members or destroy identity yet
       this.output({
         success: true,
         conversationId: args.id,

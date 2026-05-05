@@ -20,13 +20,17 @@ import {
   type Group,
   type Reaction,
 } from "@xmtp/node-sdk";
-import type { EncodedContent } from "@xmtp/node-bindings";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import QRCode from "qrcode";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore, type Identity } from "../../utils/identities.js";
+import { getIdentityAndClient } from "../../utils/client.js";
+import {
+  encodeExplodeSettings,
+  getExplodeSettingsContent,
+  isExplodeSettingsMessage,
+} from "../../utils/explodeSettings.js";
+import type { Identity } from "../../utils/identities.js";
 import {
   createInviteSlug,
   decryptConversationToken,
@@ -59,7 +63,6 @@ import {
 import {
   buildProfileMap,
   getAccountAddress,
-  getSenderProfile,
   getSenderProfileFromResolved,
   isDisplayableMessage,
   jsonStringify,
@@ -73,29 +76,9 @@ import {
   type TypingIndicatorContent,
 } from "../../utils/typingIndicator.js";
 
-/**
- * Stdin command types the agent can send.
- */
-interface SendCommand {
-  type: "send";
-  text: string;
-  replyTo?: string;
-}
-
-interface ReactCommand {
-  type: "react";
-  messageId: string;
-  emoji: string;
-  action?: "add" | "remove";
-}
-
-interface AttachCommand {
-  type: "attach";
-  file: string;
-  mimeType?: string;
-  replyTo?: string;
-}
-
+interface SendCommand { type: "send"; text: string; replyTo?: string; }
+interface ReactCommand { type: "react"; messageId: string; emoji: string; action?: "add" | "remove"; }
+interface AttachCommand { type: "attach"; file: string; mimeType?: string; replyTo?: string; }
 interface RemoteAttachCommand {
   type: "remote-attach";
   url: string;
@@ -107,78 +90,44 @@ interface RemoteAttachCommand {
   filename?: string;
   scheme?: string;
 }
-
-interface RenameCommand {
-  type: "rename";
-  name: string;
-}
-
-interface LockCommand {
-  type: "lock";
-}
-
-interface UnlockCommand {
-  type: "unlock";
-}
-
-interface ExplodeCommand {
-  type: "explode";
-  scheduled?: string;
-}
-
+interface RenameCommand { type: "rename"; name: string; }
+interface LockCommand { type: "lock"; }
+interface UnlockCommand { type: "unlock"; }
+interface ExplodeCommand { type: "explode"; scheduled?: string; }
 interface UpdateProfileCommand {
   type: "update-profile";
   name?: string;
   image?: string;
   metadata?: Record<string, string | number | boolean>;
 }
+interface ReadReceiptCommand { type: "read-receipt"; }
+interface TypingCommand { type: "typing"; isTyping?: boolean; }
+interface StopCommand { type: "stop"; }
 
-interface ReadReceiptCommand {
-  type: "read-receipt";
-}
-
-interface TypingCommand {
-  type: "typing";
-  isTyping?: boolean;
-}
-
-interface StopCommand {
-  type: "stop";
-}
-
-export type AgentCommand = SendCommand | ReactCommand | AttachCommand | RemoteAttachCommand | RenameCommand | UpdateProfileCommand | LockCommand | UnlockCommand | ExplodeCommand | ReadReceiptCommand | TypingCommand | StopCommand;
-
-/**
- * Encode an ExplodeSettings message matching the iOS content type.
- *
- * Content type: convos.org/explode_settings:1.0
- * Payload: JSON-encoded { expiresAt: ISO8601 string }
- * Fallback: "Conversation expires at {date}"
- */
-export function encodeExplodeSettings(expiresAt: Date): EncodedContent {
-  const payload = JSON.stringify({
-    expiresAt: expiresAt.toISOString(),
-  });
-
-  return {
-    type: {
-      authorityId: "convos.org",
-      typeId: "explode_settings",
-      versionMajor: 1,
-      versionMinor: 0,
-    },
-    parameters: {},
-    fallback: `Conversation expires at ${expiresAt.toISOString()}`,
-    content: new TextEncoder().encode(payload),
-  };
-}
+export type AgentCommand =
+  | SendCommand
+  | ReactCommand
+  | AttachCommand
+  | RemoteAttachCommand
+  | RenameCommand
+  | UpdateProfileCommand
+  | LockCommand
+  | UnlockCommand
+  | ExplodeCommand
+  | ReadReceiptCommand
+  | TypingCommand
+  | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
   static description = `Run an agent server for a conversation.
 
-Starts a long-running process that combines message streaming,
-join request processing, and stdin command handling into a single
-session — ideal for AI agents and bots.
+Starts a long-running process bound to one conversation, combining
+message streaming, join-request processing, and stdin command handling
+into a single session — ideal for AI agents and bots.
+
+Uses this install's singleton identity (per ADR 011) for every
+conversation. To run multiple agents independently, point each at a
+different CONVOS_HOME.
 
 If no conversation ID is provided, creates a new conversation.
 Displays the QR code invite on stderr so agents can share it.
@@ -253,16 +202,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       default: "all-members" as const,
     })(),
     "profile-name": Flags.string({
-      description: "Profile display name for this conversation",
+      description: "Profile display name to use in this conversation",
       helpValue: "<name>",
-    }),
-    identity: Flags.string({
-      description: "Use an existing unlinked identity ID (when creating new)",
-      helpValue: "<id>",
-    }),
-    label: Flags.string({
-      description: "Local label for the identity",
-      helpValue: "<label>",
     }),
     "no-invite": Flags.boolean({
       description: "Skip generating an invite (attach mode only)",
@@ -293,44 +234,30 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   private streams: AsyncStreamProxy<DecodedMessage>[] = [];
   private shutdownResolve?: () => void;
   private heartbeatInterval?: NodeJS.Timeout;
-  /** Timestamp (ns) of the last message we emitted — used for catchup on reconnect. */
   private lastMessageTimestampNs: bigint = 0n;
-  /** Timestamp (ns) of the last DM message we processed — used for catchup on reconnect. */
   private lastDmTimestampNs: bigint = 0n;
-  /** IDs of recently emitted messages — used to deduplicate catchup vs live stream. */
   private recentMessageIds: Set<string> = new Set();
-  /** Guards against concurrent catchup operations during connection flapping. */
   private isCatchingUpMessages = false;
+  private isMessagesCatchupPending = false;
   private isCatchingUpDms = false;
-  /** Serializes command execution to prevent concurrent appData read-modify-write. */
+  private isDmsCatchupPending = false;
   private commandQueue: Promise<void> = Promise.resolve();
-  /** Cached message-sourced profiles, refreshed periodically. */
   private resolvedProfiles: Map<string, ResolvedProfile> = new Map();
   private lastProfileRefreshMs = 0;
 
   private static readonly MAX_RECENT_IDS = 1000;
 
-  /**
-   * Emit a JSON event to stdout (one line).
-   */
   private emit(event: Record<string, unknown>): void {
     process.stdout.write(jsonStringify(event) + "\n");
   }
 
-  /**
-   * Emit an error event.
-   */
   private emitError(message: string, details?: Record<string, unknown>): void {
     this.emit({ event: "error", message, ...details });
   }
 
-  /**
-   * Track a message ID as emitted. Returns false if already seen (duplicate).
-   */
   private trackMessageId(id: string): boolean {
     if (this.recentMessageIds.has(id)) return false;
     this.recentMessageIds.add(id);
-    // Evict oldest entries when the set grows too large
     if (this.recentMessageIds.size > AgentServe.MAX_RECENT_IDS) {
       const first = this.recentMessageIds.values().next().value!;
       this.recentMessageIds.delete(first);
@@ -339,16 +266,17 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   }
 
   /**
-   * Process a single DM message as a potential join request.
+   * Process a single DM message as a potential join request for the
+   * conversation this agent is bound to.
    */
   private async processJoinMessage(
     message: DecodedMessage,
     client: Client,
     identity: Identity,
+    boundConversationId: string,
   ): Promise<{ conversationId: string; joinerInboxId: string } | undefined> {
     if (message.senderInboxId === client.inboxId) return;
 
-    // Try JoinRequestContent first (new format), then fall back to plain text
     let slug: string | undefined;
 
     if (isJoinRequestMessage(message)) {
@@ -404,6 +332,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       return;
     }
 
+    // Only honor join requests for the conversation this agent is bound to.
+    if (conversationId !== boundConversationId) return;
+
     const conversation = await client.conversations.getConversationById(conversationId);
     if (!conversation) return;
 
@@ -433,12 +364,10 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     return { conversationId, joinerInboxId: message.senderInboxId };
   }
 
-  /**
-   * Process any pending DM join requests (batch, on startup).
-   */
   private async processPendingJoinRequests(
     client: Client,
     identity: Identity,
+    boundConversationId: string,
   ): Promise<void> {
     try {
       await client.conversations.sync();
@@ -453,7 +382,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           const messages = await dm.messages({ limit: 10 });
           for (const message of messages) {
             try {
-              const result = await this.processJoinMessage(message, client, identity);
+              const result = await this.processJoinMessage(
+                message,
+                client,
+                identity,
+                boundConversationId,
+              );
               if (result) {
                 this.emit({
                   event: "member_joined",
@@ -479,17 +413,44 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   }
 
   /**
-   * Catch up on DM join requests that may have arrived while disconnected.
-   * Guarded against concurrent invocations during connection flapping.
+   * Schedule a DM catchup run. Coalesces concurrent restarts: a call during
+   * an in-flight catchup sets a pending flag so one more pass runs after the
+   * current one completes, picking up anything that arrived in between.
    */
+  private scheduleDmJoinRequestsCatchup(
+    client: Client,
+    identity: Identity,
+    boundConversationId: string,
+  ): void {
+    if (this.isCatchingUpDms) {
+      this.isDmsCatchupPending = true;
+      return;
+    }
+    this.isCatchingUpDms = true;
+    void (async () => {
+      try {
+        do {
+          this.isDmsCatchupPending = false;
+          await this.catchUpDmJoinRequests(
+            client,
+            identity,
+            boundConversationId,
+            this.lastDmTimestampNs,
+          );
+        } while (this.isDmsCatchupPending);
+      } finally {
+        this.isCatchingUpDms = false;
+      }
+    })();
+  }
+
   private async catchUpDmJoinRequests(
     client: Client,
     identity: Identity,
+    boundConversationId: string,
     sinceNs: bigint,
   ): Promise<void> {
     if (sinceNs === 0n) return;
-    if (this.isCatchingUpDms) return;
-    this.isCatchingUpDms = true;
 
     try {
       await client.conversations.sync();
@@ -510,7 +471,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           for (const message of messages) {
             try {
               const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
-              const result = await this.processJoinMessage(message, client, identity);
+              const result = await this.processJoinMessage(
+                message,
+                client,
+                identity,
+                boundConversationId,
+              );
               if (result) {
                 if (sentAtNs > this.lastDmTimestampNs) {
                   this.lastDmTimestampNs = sentAtNs;
@@ -536,26 +502,18 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       this.emitError(
         `Failed to catch up DM join requests: ${error instanceof Error ? error.message : "unknown"}`,
       );
-    } finally {
-      this.isCatchingUpDms = false;
     }
   }
 
-  /**
-   * Start streaming DM messages for join request processing.
-   */
   private async startJoinRequestStream(
     client: Client,
     identity: Identity,
+    boundConversationId: string,
   ): Promise<void> {
     try {
       const stream = await client.conversations.streamAllDmMessages({
         onRestart: () => {
-          void this.catchUpDmJoinRequests(
-            client,
-            identity,
-            this.lastDmTimestampNs,
-          );
+          this.scheduleDmJoinRequestsCatchup(client, identity, boundConversationId);
         },
       });
       this.streams.push(stream);
@@ -564,13 +522,17 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         try {
           for await (const message of stream) {
             try {
-              // Track last DM timestamp for catchup on reconnect
               const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
               if (sentAtNs > this.lastDmTimestampNs) {
                 this.lastDmTimestampNs = sentAtNs;
               }
 
-              const result = await this.processJoinMessage(message, client, identity);
+              const result = await this.processJoinMessage(
+                message,
+                client,
+                identity,
+                boundConversationId,
+              );
               if (result) {
                 this.emit({
                   event: "member_joined",
@@ -579,12 +541,17 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
                   timestamp: new Date().toISOString(),
                 });
               }
-            } catch {
-              // skip individual message errors
+            } catch (error) {
+              this.emitError(
+                `Failed to handle DM message: ${error instanceof Error ? error.message : "unknown"}`,
+                { messageId: message.id },
+              );
             }
           }
-        } catch {
-          // stream ended
+        } catch (error) {
+          this.emitError(
+            `DM stream ended: ${error instanceof Error ? error.message : "unknown"}`,
+          );
         }
       })();
     } catch (error) {
@@ -595,17 +562,42 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   }
 
   /**
-   * Fetch and emit any messages that arrived while the stream was disconnected.
-   * Guarded against concurrent invocations during connection flapping.
+   * Schedule a message catchup run. Coalesces concurrent restarts: a call
+   * during an in-flight catchup sets a pending flag so one more pass runs
+   * after the current one completes, picking up anything that arrived in
+   * between.
    */
+  private scheduleMessagesCatchup(
+    conversation: Group,
+    client: Client,
+  ): void {
+    if (this.isCatchingUpMessages) {
+      this.isMessagesCatchupPending = true;
+      return;
+    }
+    this.isCatchingUpMessages = true;
+    void (async () => {
+      try {
+        do {
+          this.isMessagesCatchupPending = false;
+          await this.catchUpMessages(
+            conversation,
+            client,
+            this.lastMessageTimestampNs,
+          );
+        } while (this.isMessagesCatchupPending);
+      } finally {
+        this.isCatchingUpMessages = false;
+      }
+    })();
+  }
+
   private async catchUpMessages(
     conversation: Group,
     client: Client,
     sinceNs: bigint,
   ): Promise<void> {
     if (sinceNs === 0n) return;
-    if (this.isCatchingUpMessages) return;
-    this.isCatchingUpMessages = true;
 
     try {
       await conversation.sync();
@@ -614,7 +606,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         direction: SortDirection.Ascending,
       });
 
-      // Refresh resolved profiles for catchup
       try {
         this.resolvedProfiles = await resolveProfilesFromMessages(conversation);
       } catch {
@@ -632,13 +623,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         const appData = conversation.appData ?? "";
-        // Build a merged profile map: message-sourced profiles + appData fallback
         const profiles = buildProfileMap(appData);
         for (const [inboxId, profile] of this.resolvedProfiles) {
           if (profile.name) profiles.set(inboxId, profile.name);
         }
         const content = normalizeMessageContent(message, profiles);
-        if (!content) continue; // skip no-op group updates
+        if (!content) continue;
         const senderProfile = getSenderProfileFromResolved(
           this.resolvedProfiles,
           appData,
@@ -660,14 +650,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       this.emitError(
         `Failed to catch up messages: ${error instanceof Error ? error.message : "unknown"}`,
       );
-    } finally {
-      this.isCatchingUpMessages = false;
     }
   }
 
-  /**
-   * Start streaming conversation messages with reconnection catchup.
-   */
   private async startMessageStream(
     conversation: Group,
     client: Client,
@@ -675,12 +660,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     try {
       const stream = await conversation.stream({
         onRestart: () => {
-          // On reconnect, fetch missed messages
-          void this.catchUpMessages(
-            conversation,
-            client,
-            this.lastMessageTimestampNs,
-          );
+          this.scheduleMessagesCatchup(conversation, client);
         },
       });
       this.streams.push(stream);
@@ -688,10 +668,22 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       (async () => {
         try {
           for await (const message of stream) {
-            // Skip our own messages (they get a "sent" event instead)
             if (message.senderInboxId === client.inboxId) continue;
 
-            // Intercept typing indicators before the displayable filter
+            if (isExplodeSettingsMessage(message)) {
+              const explode = getExplodeSettingsContent(message);
+              if (explode) {
+                this.emit({
+                  event: "explode_notice",
+                  conversationId: conversation.id,
+                  senderInboxId: message.senderInboxId,
+                  expiresAt: explode.expiresAt,
+                  sentAt: message.sentAt.toISOString(),
+                });
+              }
+              continue;
+            }
+
             if (isTypingIndicatorMessage(message)) {
               const typingContent = getTypingIndicatorContent(message);
               if (typingContent) {
@@ -706,21 +698,16 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               continue;
             }
 
-            // Skip content types we can't display cleanly
             if (!isDisplayableMessage(message)) continue;
-            // Skip if already emitted by catchup
             if (!this.trackMessageId(message.id)) continue;
 
-            // Track last message timestamp for catchup on reconnect
             const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
             if (sentAtNs > this.lastMessageTimestampNs) {
               this.lastMessageTimestampNs = sentAtNs;
             }
 
-            // Rebuild profiles — use message-sourced profiles with appData fallback
             const appData = conversation.appData ?? "";
             const profiles = buildProfileMap(appData);
-            // Refresh message-sourced profiles with time-based caching (max once per 30s)
             const now = Date.now();
             if (now - this.lastProfileRefreshMs > 30_000) {
               try {
@@ -734,7 +721,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               if (profile.name) profiles.set(inboxId, profile.name);
             }
             const content = normalizeMessageContent(message, profiles);
-            if (!content) continue; // skip no-op group updates
+            if (!content) continue;
             const senderProfile = getSenderProfileFromResolved(
               this.resolvedProfiles,
               appData,
@@ -752,8 +739,10 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               deliveryStatus: message.deliveryStatus,
             });
           }
-        } catch {
-          // stream ended
+        } catch (error) {
+          this.emitError(
+            `Message stream ended: ${error instanceof Error ? error.message : "unknown"}`,
+          );
         }
       })();
     } catch (error) {
@@ -763,15 +752,11 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     }
   }
 
-  /**
-   * Read and process stdin commands.
-   */
   private async startStdinReader(
     conversation: Group,
     client: Client,
     identity: Identity,
   ): Promise<void> {
-    // If stdin is a TTY, skip the reader (no piped input)
     if (process.stdin.isTTY) return;
 
     const rl = createInterface({
@@ -791,21 +776,16 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         return;
       }
 
-      // Serialize commands to prevent concurrent appData read-modify-write
       this.commandQueue = this.commandQueue.then(() =>
         this.handleCommand(cmd, conversation, client, identity),
       );
     });
 
     rl.on("close", () => {
-      // stdin closed — trigger shutdown
       this.shutdown();
     });
   }
 
-  /**
-   * Handle a parsed stdin command.
-   */
   private async handleCommand(
     cmd: AgentCommand,
     conversation: Group,
@@ -1002,10 +982,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
           await conversation.updateName(cmd.name);
 
-          // Also update the identity store label
-          const store = createIdentityStore(this.getConvosHome());
-          store.update(identity.id, { label: cmd.name });
-
           this.emit({
             event: "sent",
             type: "rename",
@@ -1022,7 +998,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             return;
           }
 
-          // Merge with existing profile so partial updates don't clear fields
           const profiles = this.resolvedProfiles.size > 0
             ? this.resolvedProfiles
             : await resolveProfilesFromMessages(conversation);
@@ -1033,14 +1008,11 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             : existing?.name;
           const memberKind = existing?.memberKind ?? MemberKind.Agent;
 
-          // Handle image: encrypt + upload if URL provided, preserve existing, or clear
           let encryptedImage: EncryptedProfileImageRef | undefined;
           if (cmd.image !== undefined) {
             if (cmd.image === "") {
-              // Empty string → clear the image
               encryptedImage = undefined;
             } else {
-              // New image URL — download, encrypt, upload
               const uploadProvider = getUploadProvider(this.getConvosConfig());
               if (!uploadProvider) {
                 this.emitError(
@@ -1057,11 +1029,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               );
             }
           } else {
-            // Preserve existing encrypted image
             encryptedImage = existing?.encryptedImage;
           }
 
-          // Parse metadata: convert raw JSON values to typed ProfileMetadata
           let parsedMetadata: ProfileMetadata | undefined;
           if (cmd.metadata != null) {
             parsedMetadata = {};
@@ -1076,7 +1046,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             }
           }
 
-          // Merge metadata: existing + new (new keys overwrite existing)
           const mergedMetadata: ProfileMetadata | undefined = parsedMetadata
             ? { ...(existing?.metadata ?? {}), ...parsedMetadata }
             : existing?.metadata;
@@ -1088,7 +1057,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             ...(mergedMetadata && Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
           });
 
-          // Update cached profiles so sequential commands don't revert prior changes
           this.resolvedProfiles.set(client.inboxId.toLowerCase(), {
             inboxId: client.inboxId,
             name: profileName,
@@ -1096,12 +1064,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             ...(encryptedImage && { encryptedImage }),
             ...(mergedMetadata && Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
           });
-
-          // Update local identity store
-          if (cmd.name !== undefined) {
-            const profileStore = createIdentityStore(this.getConvosHome());
-            profileStore.update(identity.id, { profileName: cmd.name || undefined });
-          }
 
           this.emit({
             event: "sent",
@@ -1116,7 +1078,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         case "lock": {
-          // Step 1: Rotate the invite tag to invalidate all existing invites
           let appData = "";
           try {
             appData = conversation.appData ?? "";
@@ -1127,7 +1088,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           lockMetadata.tag = randomAlphanumeric(10);
           await conversation.updateAppData(serializeAppData(lockMetadata));
 
-          // Step 2: Set addMember permission to deny
           await conversation.updatePermission(
             PermissionUpdateType.AddMember,
             PermissionPolicy.Deny,
@@ -1143,7 +1103,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         case "unlock": {
-          // Rotate invite tag first
           let appData = "";
           try {
             appData = conversation.appData ?? "";
@@ -1154,7 +1113,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           unlockMetadata.tag = randomAlphanumeric(10);
           await conversation.updateAppData(serializeAppData(unlockMetadata));
 
-          // Restore addMember permission
           await conversation.updatePermission(
             PermissionUpdateType.AddMember,
             PermissionPolicy.Allow,
@@ -1170,7 +1128,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         case "explode": {
-          // Determine expiration time
           let expiresAt: Date;
           const isImmediate = !cmd.scheduled;
           if (cmd.scheduled) {
@@ -1187,11 +1144,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             expiresAt = new Date();
           }
 
-          // Step 1: Send ExplodeSettings message
           const encodedContent = encodeExplodeSettings(expiresAt);
           await conversation.send(encodedContent, { shouldPush: true });
 
-          // Step 2: Update group metadata with expiresAtUnix
           try {
             let appData = "";
             try {
@@ -1206,32 +1161,26 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             explodeMetadata.expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
             await conversation.updateAppData(serializeAppData(explodeMetadata));
           } catch {
-            // Non-fatal: metadata update is secondary to the message
+            // Non-fatal
           }
 
           if (isImmediate) {
-            // Step 3: Remove all other members
             const members = await conversation.members();
             const others = members.filter((m) => m.inboxId !== client.inboxId);
             if (others.length > 0) {
               await conversation.removeMembers(others.map((m) => m.inboxId));
             }
 
-            // Step 4: Delete local identity
-            const store = createIdentityStore(this.getConvosHome());
-            store.remove(identity.id);
-
             this.emit({
               event: "sent",
               type: "explode",
               conversationId: conversation.id,
-              identityDestroyed: identity.id,
               membersRemoved: others.length,
               expiresAt: expiresAt.toISOString(),
               timestamp: new Date().toISOString(),
             });
 
-            // Explode triggers shutdown
+            // Exploded conversation is gone — shut down the agent process
             this.shutdown();
           } else {
             this.emit({
@@ -1260,7 +1209,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
         }
 
         case "typing": {
-          const isTyping = cmd.isTyping !== false; // default to true
+          const isTyping = cmd.isTyping !== false;
           const content: TypingIndicatorContent = { isTyping };
           const codec = new TypingIndicatorCodec();
           const encoded = codec.encode(content);
@@ -1292,9 +1241,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
     }
   }
 
-  /**
-   * Start emitting periodic heartbeat events.
-   */
   private startHeartbeat(intervalSeconds: number, conversationId: string): void {
     if (intervalSeconds <= 0) return;
 
@@ -1307,13 +1253,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       });
     }, intervalSeconds * 1000);
 
-    // Don't let the heartbeat timer keep the process alive on its own
     this.heartbeatInterval.unref();
   }
 
-  /**
-   * Trigger graceful shutdown.
-   */
   private shutdown(): void {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
@@ -1327,10 +1269,12 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(AgentServe);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
-    let identity: Identity;
-    let client: Client;
+    const { identity, client } = await getIdentityAndClient(
+      config,
+      this.getConvosHome(),
+    );
+
     let group: Group;
     let conversationId: string;
     let inviteUrl: string | undefined;
@@ -1339,13 +1283,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
     if (args.id) {
       // ─── Attach to existing conversation ───
-      const existing = store.getByConversationId(args.id);
-      if (!existing) {
-        this.error(`No identity found for conversation: ${args.id}`);
-      }
-      identity = existing;
-      client = await createClientForIdentity(identity, config, this.getConvosHome());
-
       const conv = await client.conversations.getConversationById(args.id);
       if (!conv) {
         this.error(`Conversation not found: ${args.id}`);
@@ -1393,24 +1330,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       }
     } else {
       // ─── Create new conversation ───
-      if (flags.identity) {
-        const existing = store.get(flags.identity);
-        if (!existing) this.error(`Identity not found: ${flags.identity}`);
-        if (existing.conversationId) {
-          this.error(
-            `Identity ${flags.identity} is already linked to conversation ${existing.conversationId}`,
-          );
-        }
-        identity = existing;
-      } else {
-        identity = store.create({
-          label: flags.label ?? flags.name,
-          profileName: flags["profile-name"],
-        });
-      }
-
-      client = await createClientForIdentity(identity, config, this.getConvosHome());
-
       const permissionsMap: Record<string, GroupPermissionsOptions> = {
         "all-members": GroupPermissionsOptions.Default,
         "admin-only": GroupPermissionsOptions.AdminOnly,
@@ -1426,20 +1345,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       conversationId = group.id;
 
       inviteTag = randomAlphanumeric(10);
-
-      store.update(identity.id, {
-        conversationId,
-        inboxId: client.inboxId,
-        inviteTag,
-        label: flags.label ?? flags.name ?? identity.label,
-        profileName: flags["profile-name"] ?? identity.profileName,
-      });
-
-      // Generate a stable conversation emoji from the group ID
       const conversationEmoji = emojiForIdentifier(group.id);
 
-      // Store invite tag + emoji in appData (no profiles — profiles go via messages only
-      // to avoid read-modify-write races that corrupt tags and erase profiles)
       const metadata = {
         tag: inviteTag,
         profiles: [] as never[],
@@ -1448,13 +1355,10 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
       await group.updateAppData(serializeAppData(metadata));
 
-      // Send ProfileUpdate message (primary profile source)
-      // Always send to set memberKind: Agent (and name + attestation metadata if provided)
       try {
-        const profileName = flags["profile-name"];
+        const profileName = flags["profile-name"] ?? identity.profileName;
 
-        // Build attestation metadata if provided
-        let attestationMetadata: import("../../utils/profileMessages.js").ProfileMetadata | undefined;
+        let attestationMetadata: ProfileMetadata | undefined;
         if (flags.attestation && flags["attestation-ts"] && flags["attestation-kid"]) {
           attestationMetadata = {
             attestation: { type: "string", value: flags.attestation },
@@ -1469,10 +1373,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           ...(attestationMetadata && { metadata: attestationMetadata }),
         });
       } catch {
-        // Non-fatal: profile will be visible once a ProfileUpdate is sent
+        // Non-fatal
       }
 
-      // Generate invite
       inviteSlug = await createInviteSlug(
         conversationId,
         client.inboxId,
@@ -1493,7 +1396,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       inviteUrl = `${baseUrl}?i=${encodeURIComponent(inviteSlug)}`;
     }
 
-    // Generate QR code image (PNG) so agents can display it instantly
     let qrCodePath: string | undefined;
     if (inviteUrl) {
       qrCodePath = join(tmpdir(), `convos-invite-${conversationId}.png`);
@@ -1506,7 +1408,6 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       process.stderr.write(`Invite URL: ${inviteUrl}\n`);
     }
 
-    // Emit ready event
     this.emit({
       event: "ready",
       conversationId,
@@ -1521,20 +1422,16 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       timestamp: new Date().toISOString(),
     });
 
-    // Process any pending join requests from before we started
-    await this.processPendingJoinRequests(client, identity);
+    await this.processPendingJoinRequests(client, identity, conversationId);
 
-    // Start all concurrent streams
     await this.startMessageStream(group, client);
-    await this.startJoinRequestStream(client, identity);
+    await this.startJoinRequestStream(client, identity, conversationId);
     this.startStdinReader(group, client, identity);
 
-    // Start heartbeat if configured
     if (flags.heartbeat && flags.heartbeat > 0) {
       this.startHeartbeat(flags.heartbeat, conversationId);
     }
 
-    // Keep running until shutdown
     await new Promise<void>((resolve) => {
       this.shutdownResolve = resolve;
 
@@ -1549,9 +1446,14 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       });
     });
 
-    // Clean up streams
-    for (const stream of this.streams) {
-      void stream.return();
-    }
+    await Promise.all(
+      this.streams.map((stream) =>
+        stream.return().catch((error: unknown) => {
+          this.emitError(
+            `Stream shutdown failed: ${error instanceof Error ? error.message : "unknown"}`,
+          );
+        }),
+      ),
+    );
   }
 }

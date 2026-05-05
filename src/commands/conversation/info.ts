@@ -1,14 +1,13 @@
 import { Args } from "@oclif/core";
 import { getAccountAddress, isGroup, formatSections } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getIdentityAndClient } from "../../utils/client.js";
 
 export default class ConversationInfo extends ConvosBaseCommand {
   static description = `Get detailed information about a conversation.
 
-Resolves the per-conversation identity and shows full details
-including members, permissions, metadata, and identity info.`;
+Shows full details including members, permissions, metadata, and the
+identity this install uses.`;
 
   static examples = [
     {
@@ -28,14 +27,10 @@ including members, permissions, metadata, and identity info.`;
   async run(): Promise<void> {
     const { args } = await this.parse(ConversationInfo);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
-
-    const identity = store.getByConversationId(args.id);
-    if (!identity) {
-      this.error(`No identity found for conversation: ${args.id}`);
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const { identity, client } = await getIdentityAndClient(
+      config,
+      this.getConvosHome(),
+    );
     const conversation = await client.conversations.getConversationById(args.id);
     if (!conversation) {
       this.error(`Conversation not found on network: ${args.id}`);

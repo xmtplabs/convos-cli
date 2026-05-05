@@ -10,6 +10,7 @@ import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
 import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
 import { JoinRequestCodec } from "./joinRequest.js";
 import { TypingIndicatorCodec } from "./typingIndicator.js";
+import { ExplodeSettingsCodec } from "./explodeSettings.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -31,22 +32,75 @@ const LOG_LEVELS: Record<string, LogLevel> = {
   trace: LogLevel.Trace,
 };
 
+/** Process-wide cache: one XMTP client per (home, env). */
+const clientCache = new Map<string, Promise<Client<any>>>();
+
+function cacheKey(homeDir: string, env: string): string {
+  return `${homeDir}::${env}`;
+}
+
 /**
- * Create an XMTP client for a specific Convos identity.
- * Each conversation gets its own identity and client (ADR 002).
+ * Get the XMTP client for this install's singleton identity.
+ * Creates the identity and registers the client on first call;
+ * returns the cached client on subsequent calls within the process.
  *
- * @param identity - The identity to create a client for
+ * Per ADR 011: one XMTP inbox per install, shared across all conversations.
+ *
  * @param config - Convos configuration
- * @param homeDir - Optional Convos home directory (default: $CONVOS_HOME or ~/.convos)
+ * @param homeDir - Convos home directory (default: $CONVOS_HOME or ~/.convos)
  */
-export async function createClientForIdentity(
+export async function getClient(
+  config: ConvosConfig,
+  homeDir?: string,
+): Promise<Client<any>> {
+  const store = createIdentityStore(homeDir);
+  const env = config.env ?? "dev";
+  const key = cacheKey(homeDir ?? "", env);
+
+  const cached = clientCache.get(key);
+  if (cached) return cached;
+
+  const promise = buildClient(store.loadOrUpsert(), config, homeDir).then(
+    (client) => {
+      if (!store.load()?.inboxId) {
+        store.update({ inboxId: client.inboxId });
+      }
+      return client;
+    },
+    (error) => {
+      clientCache.delete(key);
+      throw error;
+    },
+  );
+
+  clientCache.set(key, promise);
+  return promise;
+}
+
+/**
+ * Get the singleton identity and its XMTP client together.
+ * Convenience for commands that need both.
+ */
+export async function getIdentityAndClient(
+  config: ConvosConfig,
+  homeDir?: string,
+): Promise<{ identity: Identity; client: Client<any> }> {
+  const client = await getClient(config, homeDir);
+  const identity = createIdentityStore(homeDir).load();
+  if (!identity) {
+    throw new Error("Identity was unexpectedly missing after client creation");
+  }
+  return { identity, client };
+}
+
+async function buildClient(
   identity: Identity,
   config: ConvosConfig,
   homeDir?: string,
 ): Promise<Client<any>> {
   const store = createIdentityStore(homeDir);
   const env = config.env ?? "dev";
-  const dbPath = store.getDbPath(identity.id, env);
+  const dbPath = store.getDbPath(env);
 
   const account = privateKeyToAccount(identity.walletKey as `0x${string}`);
 
@@ -64,7 +118,7 @@ export async function createClientForIdentity(
 
   await mkdir(dirname(dbPath), { recursive: true });
 
-  const client = await Client.create(signer, {
+  return Client.create(signer, {
     env,
     codecs: [
       new AttachmentCodec(),
@@ -73,20 +127,13 @@ export async function createClientForIdentity(
       new ProfileSnapshotCodec() as any,
       new JoinRequestCodec() as any,
       new TypingIndicatorCodec() as any,
+      new ExplodeSettingsCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,
     gatewayHost: config.gatewayHost,
     loggingLevel: config.logLevel ? LOG_LEVELS[config.logLevel] : undefined,
     structuredLogging: config.structuredLogging,
-    disableDeviceSync: true, // Per ADR 002: each conversation is independent
     appVersion: config.appVersion ?? DEFAULT_APP_VERSION,
   });
-
-  // Cache the inbox ID on the identity
-  if (!identity.inboxId) {
-    store.update(identity.id, { inboxId: client.inboxId });
-  }
-
-  return client;
 }

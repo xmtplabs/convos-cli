@@ -1,7 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
+import { getClient } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 import {
   sendProfileUpdate,
@@ -73,7 +73,6 @@ a legacy fallback). Profile messages are the primary source of truth.`;
   async run(): Promise<void> {
     const { args, flags } = await this.parse(UpdateProfile);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
     if (flags.name === undefined && flags.image === undefined && (!flags.metadata || flags.metadata.length === 0)) {
       this.error("At least one of --name, --image, or --metadata must be provided");
@@ -82,12 +81,7 @@ a legacy fallback). Profile messages are the primary source of truth.`;
     const parsedMetadata = parseMetadataFlags(flags.metadata, (msg) => this.error(msg))
       ?.parsedMetadata;
 
-    const identity = store.getByConversationId(args.id);
-    if (!identity) {
-      this.error(`No identity found for conversation ${args.id}`);
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     await client.conversations.sync();
 
     const conversation = await client.conversations.getConversationById(args.id);
@@ -139,11 +133,9 @@ a legacy fallback). Profile messages are the primary source of truth.`;
       ? { ...(existing?.metadata ?? {}), ...parsedMetadata }
       : existing?.metadata;
 
-    // Send ProfileUpdate message — this is the primary source of truth.
-    // We intentionally do NOT write profiles to appData to avoid the
-    // read-modify-write race that can corrupt invite tags and erase
-    // other members' profiles (see convos-ios PR #552 for context).
-    // Preserve memberKind from existing profile, defaulting to Agent for CLI
+    // Profiles travel via ProfileUpdate messages only. Writing them to appData
+    // would read-modify-write a field concurrent writers also touch, which can
+    // erase invite tags and other members' profiles.
     const memberKind = existing?.memberKind ?? MemberKind.Agent;
 
     await sendProfileUpdate(group, {
@@ -153,9 +145,12 @@ a legacy fallback). Profile messages are the primary source of truth.`;
       ...(mergedMetadata && Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
     });
 
-    // Also update local identity store
+    // Update the install's default profile name for future conversations
     if (flags.name !== undefined) {
-      store.update(identity.id, { profileName: flags.name || undefined });
+      const store = createIdentityStore(this.getConvosHome());
+      if (store.exists()) {
+        store.update({ profileName: flags.name || undefined });
+      }
     }
 
     this.output({

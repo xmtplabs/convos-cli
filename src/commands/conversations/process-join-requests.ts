@@ -1,35 +1,55 @@
 import { Flags } from "@oclif/core";
-import { ConsentState, ConversationType } from "@xmtp/node-sdk";
-import type { AsyncStreamProxy, Client, DecodedMessage, Dm } from "@xmtp/node-sdk";
+import { ConsentState, ConversationType, SortDirection } from "@xmtp/node-sdk";
+import type { Client, DecodedMessage, Dm } from "@xmtp/node-sdk";
 import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore, type Identity } from "../../utils/identities.js";
+import { getIdentityAndClient } from "../../utils/client.js";
+import type { Identity } from "../../utils/identities.js";
 import { parseInvite, decryptConversationToken, verifyInvite, verifyInviteSignature } from "../../utils/invite.js";
 import { parseAppData } from "../../utils/metadata.js";
 import { sendProfileSnapshot } from "../../utils/profileMessages.js";
 import {
   isJoinRequestMessage,
   getJoinRequestContent,
-  type JoinRequestContent,
   type JoinRequestProfile,
 } from "../../utils/joinRequest.js";
 
 export default class ProcessJoinRequests extends ConvosBaseCommand {
-  static description = `Process pending join requests for all conversations.
+  /** Timestamp (ns) of the last DM message we processed — used for onRestart catchup. */
+  private lastDmTimestampNs: bigint = 0n;
+  private isCatchingUp = false;
+  private isCatchupPending = false;
+  /** IDs of DM messages we've already fully processed — prevents the batch
+   *  pass and the live stream from double-firing for the same invite. */
+  private processedMessageIds: Set<string> = new Set();
+  private static readonly MAX_PROCESSED_IDS = 1000;
 
-Scans DMs for each identity looking for join requests (text messages
-containing signed invite slugs). When a valid join request is found:
+  /** Returns true the first time we see `id`; false on duplicate. */
+  private markProcessed(id: string): boolean {
+    if (this.processedMessageIds.has(id)) return false;
+    this.processedMessageIds.add(id);
+    if (this.processedMessageIds.size > ProcessJoinRequests.MAX_PROCESSED_IDS) {
+      const oldest = this.processedMessageIds.values().next().value!;
+      this.processedMessageIds.delete(oldest);
+    }
+    return true;
+  }
+
+  static description = `Process pending join requests for this install's conversations.
+
+Scans DMs addressed to this install's singleton inbox for signed
+invite slugs. When a valid join request is found:
 
 1. Verify the invite signature
 2. Decrypt the conversation token to get the conversation ID
-3. Verify the creator inbox ID matches
+3. Verify the creator inbox ID matches this install
 4. Add the requester to the conversation
-5. Block invalid/spam requests
+5. Send a ProfileSnapshot so the joiner has everyone's profile
+6. Block invalid/spam requests
 
 Without --watch, processes all pending DMs and exits.
-With --watch, streams DM messages in real-time and processes
-join requests as they arrive (recommended for always-on usage).`;
+With --watch, streams DM messages in real-time (recommended for
+always-on usage).`;
 
   static examples = [
     {
@@ -38,7 +58,7 @@ join requests as they arrive (recommended for always-on usage).`;
     },
     {
       command: "<%= config.bin %> <%= command.id %> --watch",
-      description: "Continuously stream and process join requests in real-time",
+      description: "Continuously stream and process join requests",
     },
     {
       command:
@@ -59,26 +79,21 @@ join requests as they arrive (recommended for always-on usage).`;
     }),
   };
 
-  /**
-   * Attempt to process a single DM message as a join request.
-   * Returns the result if successfully processed, or undefined.
-   */
   private async processMessage(
     message: DecodedMessage,
     client: Client,
     identity: Identity,
+    filterConversationId?: string,
   ): Promise<{
     conversationId: string;
     joinerInboxId: string;
-    identityId: string;
     tag: string;
     profile?: JoinRequestProfile;
     metadata?: Record<string, string>;
   } | undefined> {
-    // Skip our own messages
     if (message.senderInboxId === client.inboxId) return;
+    if (!this.markProcessed(message.id)) return;
 
-    // Try JoinRequestContent first (new format), then fall back to plain text
     let slug: string | undefined;
     let joinProfile: JoinRequestProfile | undefined;
     let joinMetadata: Record<string, string> | undefined;
@@ -102,40 +117,34 @@ join requests as they arrive (recommended for always-on usage).`;
     try {
       invite = parseInvite(slug);
     } catch {
-      return; // Not an invite, skip
+      return;
     }
 
-    // Look up the DM conversation to manage consent
     const dmConversation = await client.conversations.getConversationById(message.conversationId) as Dm | undefined;
 
-    // Step 1: Verify structural validity and signature recoverability
     if (!(await verifyInvite(invite))) {
       this.log(`Invalid invite structure/signature from ${message.senderInboxId} — blocking DM`);
       if (dmConversation) dmConversation.updateConsentState(ConsentState.Denied);
       return;
     }
 
-    // Step 2: Verify the signature was made by this identity's wallet key
     if (!(await verifyInviteSignature(invite, identity.walletKey))) {
       this.log(`Invite signature doesn't match our wallet key — blocking DM`);
       if (dmConversation) dmConversation.updateConsentState(ConsentState.Denied);
       return;
     }
 
-    // Step 3: Verify creator inbox ID matches us
     if (invite.creatorInboxId !== client.inboxId) {
       this.log(`Invite not for this inbox — blocking DM`);
       if (dmConversation) dmConversation.updateConsentState(ConsentState.Denied);
       return;
     }
 
-    // Step 4: Check expiration
     if (invite.expiresAt && invite.expiresAt < new Date()) {
       this.log(`Invite expired — skipping`);
       return;
     }
 
-    // Step 5: Decrypt conversation token
     let conversationId: string;
     try {
       conversationId = decryptConversationToken(
@@ -149,7 +158,10 @@ join requests as they arrive (recommended for always-on usage).`;
       return;
     }
 
-    // Step 6: Verify conversation exists
+    if (filterConversationId && conversationId !== filterConversationId) {
+      return;
+    }
+
     const conversation = await client.conversations.getConversationById(conversationId);
     if (!conversation) {
       this.log(`Conversation ${conversationId} not found — skipping`);
@@ -158,7 +170,6 @@ join requests as they arrive (recommended for always-on usage).`;
 
     const group = requireGroup(conversation);
 
-    // Step 7: Verify the invite tag matches the group's current tag
     try {
       const appData = group.appData ?? "";
       const metadata = parseAppData(appData);
@@ -170,13 +181,9 @@ join requests as they arrive (recommended for always-on usage).`;
       // If we can't read appData, skip tag check but continue
     }
 
-    // Step 8: Add the requester
-    this.log(
-      `Adding ${message.senderInboxId} to conversation ${conversationId}`,
-    );
+    this.log(`Adding ${message.senderInboxId} to conversation ${conversationId}`);
     await group.addMembers([message.senderInboxId]);
 
-    // Step 9: Send ProfileSnapshot so the new joiner has all profiles
     try {
       const allMembers = await group.members();
       const allMemberInboxIds = allMembers.map((m) => m.inboxId);
@@ -188,89 +195,156 @@ join requests as they arrive (recommended for always-on usage).`;
       );
     }
 
-    // Mark DM as allowed so we don't re-process
     if (dmConversation) dmConversation.updateConsentState(ConsentState.Allowed);
 
     return {
       conversationId,
       joinerInboxId: message.senderInboxId,
-      identityId: identity.id,
       tag: invite.tag,
       ...(joinProfile && { profile: joinProfile }),
       ...(joinMetadata && { metadata: joinMetadata }),
     };
   }
 
+  /**
+   * Schedule a DM catchup after a stream restart. Coalesces concurrent restarts:
+   * a call during an in-flight catchup sets a pending flag so one more pass runs
+   * after the current one completes.
+   */
+  private scheduleCatchup(
+    client: Client,
+    identity: Identity,
+    filterConversationId: string | undefined,
+  ): void {
+    if (this.isCatchingUp) {
+      this.isCatchupPending = true;
+      return;
+    }
+    this.isCatchingUp = true;
+    void (async () => {
+      try {
+        do {
+          this.isCatchupPending = false;
+          await this.catchUp(client, identity, filterConversationId, this.lastDmTimestampNs);
+        } while (this.isCatchupPending);
+      } finally {
+        this.isCatchingUp = false;
+      }
+    })();
+  }
+
+  private async catchUp(
+    client: Client,
+    identity: Identity,
+    filterConversationId: string | undefined,
+    sinceNs: bigint,
+  ): Promise<void> {
+    if (sinceNs === 0n) return;
+    try {
+      await client.conversations.sync();
+      const dms = await client.conversations.list({
+        conversationType: ConversationType.Dm,
+        consentStates: [ConsentState.Unknown],
+      });
+      for (const dm of dms) {
+        try {
+          await dm.sync();
+          const messages = await dm.messages({
+            sentAfterNs: sinceNs,
+            direction: SortDirection.Ascending,
+            limit: 10,
+          });
+          for (const message of messages) {
+            try {
+              const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+              const result = await this.processMessage(
+                message,
+                client,
+                identity,
+                filterConversationId,
+              );
+              if (result) {
+                if (sentAtNs > this.lastDmTimestampNs) {
+                  this.lastDmTimestampNs = sentAtNs;
+                }
+                this.streamOutput({
+                  event: "join_request_accepted",
+                  ...result,
+                  timestamp: new Date().toISOString(),
+                  catchup: true,
+                });
+                break;
+              }
+            } catch (error) {
+              this.log(
+                `Error processing catchup message: ${error instanceof Error ? error.message : "unknown"}`,
+              );
+            }
+          }
+        } catch (error) {
+          this.log(
+            `Error processing catchup DM: ${error instanceof Error ? error.message : "unknown"}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.log(
+        `Failed to catch up join requests: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
+  }
+
   async run(): Promise<void> {
     const { flags } = await this.parse(ProcessJoinRequests);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
 
-    const identities = flags.conversation
-      ? [store.getByConversationId(flags.conversation)].filter(Boolean)
-      : store.list().filter((i) => i.conversationId);
-
-    if (identities.length === 0) {
-      this.output({ message: "No linked identities found.", processed: 0 });
-      return;
-    }
+    const { identity, client } = await getIdentityAndClient(
+      config,
+      this.getConvosHome(),
+    );
 
     // ─── Batch mode: process all pending DMs ───
 
     const allResults = [];
+    await client.conversations.sync();
 
-    // Build clients for all identities (needed for both batch and watch)
-    const clientMap = new Map<string, { client: Client; identity: Identity }>();
+    const dms = await client.conversations.list({
+      conversationType: ConversationType.Dm,
+      consentStates: [ConsentState.Unknown],
+    });
 
-    for (const identity of identities) {
-      if (!identity) continue;
+    for (const dm of dms) {
       try {
-        const client = await createClientForIdentity(identity, config, this.getConvosHome());
-        clientMap.set(identity.id, { client, identity });
-      } catch (error) {
-        this.log(
-          `Error initializing identity ${identity.id}: ${error instanceof Error ? error.message : "unknown"}`,
-        );
-      }
-    }
-
-    for (const [, { client, identity }] of clientMap) {
-      try {
-        await client.conversations.sync();
-
-        // List DMs with unknown consent (potential join requests)
-        const dms = await client.conversations.list({
-          conversationType: ConversationType.Dm,
-          consentStates: [ConsentState.Unknown],
-        });
-
-        for (const dm of dms) {
+        await dm.sync();
+        const messages = await dm.messages({ limit: 10 });
+        for (const message of messages) {
           try {
-            await dm.sync();
-            const messages = await dm.messages({ limit: 10 });
-
-            for (const message of messages) {
-              try {
-                const result = await this.processMessage(message, client, identity);
-                if (result) {
-                  allResults.push(result);
-                  break; // Only process first valid invite per DM
-                }
-              } catch (error) {
-                this.log(
-                  `Error processing message: ${error instanceof Error ? error.message : "unknown"}`,
-                );
-              }
+            // Track the batch high-water mark so an onRestart fired before
+            // any live-stream message arrives still has a non-zero sinceNs
+            // for catchup to work against.
+            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            if (sentAtNs > this.lastDmTimestampNs) {
+              this.lastDmTimestampNs = sentAtNs;
+            }
+            const result = await this.processMessage(
+              message,
+              client,
+              identity,
+              flags.conversation,
+            );
+            if (result) {
+              allResults.push(result);
+              break; // Only process first valid invite per DM
             }
           } catch (error) {
             this.log(
-              `Error processing DM: ${error instanceof Error ? error.message : "unknown"}`,
+              `Error processing message: ${error instanceof Error ? error.message : "unknown"}`,
             );
           }
         }
       } catch (error) {
         this.log(
-          `Error with identity ${identity.id}: ${error instanceof Error ? error.message : "unknown"}`,
+          `Error processing DM: ${error instanceof Error ? error.message : "unknown"}`,
         );
       }
     }
@@ -290,62 +364,81 @@ join requests as they arrive (recommended for always-on usage).`;
     }
 
     this.log("\nStreaming DM messages for join requests (Ctrl+C to stop)...\n");
+    this.streamOutput({
+      event: "stream_started",
+      timestamp: new Date().toISOString(),
+    });
 
-    // Build an inboxId → { client, identity } lookup so we can route
-    // streamed messages to the correct identity
-    const inboxMap = new Map<string, { client: Client; identity: Identity }>();
-    for (const [, entry] of clientMap) {
-      inboxMap.set(entry.client.inboxId, entry);
-    }
+    const stream = await client.conversations.streamAllDmMessages({
+      onRestart: () => {
+        this.streamOutput({
+          event: "stream_restarted",
+          timestamp: new Date().toISOString(),
+        });
+        this.scheduleCatchup(client, identity, flags.conversation);
+      },
+    });
 
-    // Start a DM message stream for each identity
-    const streams: AsyncStreamProxy<DecodedMessage>[] = [];
-    for (const [, { client, identity }] of clientMap) {
+    (async () => {
       try {
-        const stream = await client.conversations.streamAllDmMessages();
-        streams.push(stream);
-
-        // Process messages from this stream in the background
-        (async () => {
+        for await (const message of stream) {
           try {
-            for await (const message of stream) {
-              try {
-                const result = await this.processMessage(message, client, identity);
-                if (result) {
-                  this.streamOutput({
-                    event: "join_request_accepted",
-                    ...result,
-                    timestamp: new Date().toISOString(),
-                  });
-                }
-              } catch (error) {
-                this.log(
-                  `Error processing streamed message: ${error instanceof Error ? error.message : "unknown"}`,
-                );
-              }
+            const sentAtNs = BigInt(message.sentAt.getTime()) * 1_000_000n;
+            if (sentAtNs > this.lastDmTimestampNs) {
+              this.lastDmTimestampNs = sentAtNs;
+            }
+            this.verboseLog(
+              `DM received: id=${message.id} from=${message.senderInboxId} contentType=${message.contentType.authorityId}/${message.contentType.typeId}`,
+            );
+            const result = await this.processMessage(
+              message,
+              client,
+              identity,
+              flags.conversation,
+            );
+            if (result) {
+              this.streamOutput({
+                event: "join_request_accepted",
+                ...result,
+                timestamp: new Date().toISOString(),
+              });
             }
           } catch (error) {
-            this.log(
-              `Stream ended for identity ${identity.id}: ${error instanceof Error ? error.message : "unknown"}`,
-            );
+            this.streamOutput({
+              event: "error",
+              message: `Error processing streamed message: ${error instanceof Error ? error.message : "unknown"}`,
+              messageId: message.id,
+              timestamp: new Date().toISOString(),
+            });
           }
-        })();
+        }
+        this.streamOutput({
+          event: "stream_ended",
+          reason: "iterator_exhausted",
+          timestamp: new Date().toISOString(),
+        });
       } catch (error) {
-        this.log(
-          `Failed to start stream for identity ${identity.id}: ${error instanceof Error ? error.message : "unknown"}`,
-        );
+        this.streamOutput({
+          event: "stream_ended",
+          reason: error instanceof Error ? error.message : "unknown",
+          timestamp: new Date().toISOString(),
+        });
       }
-    }
+    })();
 
-    // Keep running until interrupted
     await new Promise<void>((resolve) => {
       process.on("SIGINT", () => {
-        this.log("\nStopping streams...");
-        for (const stream of streams) {
-          void stream.return();
-        }
+        this.log("\nStopping stream...");
         resolve();
       });
     });
+
+    try {
+      await stream.return();
+    } catch (error) {
+      this.log(
+        `Stream shutdown failed: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
   }
 }

@@ -1,8 +1,7 @@
 import { Args } from "@oclif/core";
 import { requireGroup } from "../../utils/xmtp.js";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
 
 export default class ConversationAddMembers extends ConvosBaseCommand {
   static description = `Add members to a conversation by inbox ID.
@@ -24,11 +23,7 @@ invite links instead. Requires super admin permissions.`;
     if (inboxIds.length === 0) this.error("At least one inbox ID is required");
 
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
-    const identity = store.getByConversationId(args.id);
-    if (!identity) this.error(`No identity found for conversation: ${args.id}`);
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(args.id);
     if (!conversation) this.error(`Conversation not found: ${args.id}`);
 

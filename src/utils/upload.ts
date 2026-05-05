@@ -6,8 +6,6 @@ export interface UploadProvider {
   upload(data: Uint8Array, filename: string, mimeType: string): Promise<string>;
 }
 
-// ─── Pinata Provider ───
-
 interface PinataResponse {
   IpfsHash: string;
   PinSize: number;
@@ -53,8 +51,6 @@ class PinataProvider implements UploadProvider {
     return `${this.#gateway}/ipfs/${result.IpfsHash}`;
   }
 }
-
-// ─── S3 Provider (AWS Signature V4, zero deps) ───
 
 /**
  * S3-compatible upload provider using manual AWS Signature V4 signing.

@@ -1,19 +1,19 @@
 ---
 name: convos-cli
-description: Use when working with Convos messaging - privacy-focused ephemeral messaging with per-conversation identities, invites, profiles, and group management via the convos CLI tool
+description: Use when working with Convos messaging - single-inbox agent messaging with invites, per-conversation profiles, and group management via the convos CLI tool
 ---
 
 # Convos CLI
 
-The Convos CLI (`convos`) is a command-line tool for privacy-focused ephemeral messaging built on [XMTP](https://xmtp.org). Unlike standard XMTP, Convos creates a **unique identity per conversation** so conversations cannot be linked or correlated.
+The Convos CLI (`convos`) is a command-line tool for agent-focused messaging built on [XMTP](https://xmtp.org). Each install has a single XMTP inbox shared across every conversation (per ADR 011), matching the iOS app's single-inbox identity model.
 
-Key differences from standard XMTP:
+Key properties:
 
-- **Per-conversation identities**: Each conversation gets its own wallet, inbox, and database
-- **No global wallet key**: Identities are created automatically when creating/joining conversations
+- **One identity per install**: A single XMTP inbox is created on first use and reused for every conversation and DM
+- **Multiple agents per machine**: Run each agent under its own `CONVOS_HOME` to keep identities isolated
 - **Invite system**: Serverless QR code + URL invites for joining conversations
-- **Per-conversation profiles**: Different display name and avatar in each conversation
-- **Explode**: Permanently destroy a conversation and all cryptographic keys
+- **Per-conversation profiles**: Display a different name/avatar in each conversation (the identity stays the same)
+- **Explode**: Notify members and remove them from the group — does not destroy the install's identity
 - **Lock**: Prevent new members from being added
 
 ## Prerequisites
@@ -46,7 +46,7 @@ This creates a `.env` file with:
 - `CONVOS_API_KEY` - Agent API key for uploads (auto-selects `convos-api` provider)
 - `CONVOS_UPLOAD_PROVIDER` - Upload provider override (`convos-api`, `pinata`, `s3`)
 
-**Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
+**Note:** One identity per install lives at `~/.convos/identity.json`. To run multiple independent agents on one machine, give each a distinct `CONVOS_HOME`.
 
 ### Custom Data Directory
 
@@ -81,7 +81,7 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 | Topic | Purpose |
 | ----- | ------- |
 | `agent` | Agent mode — long-running sessions with streaming I/O |
-| `identity` | Manage per-conversation identities (inboxes) |
+| `identity` | Manage this install's singleton identity |
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
 
@@ -90,7 +90,7 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 | Command | Purpose |
 | ------- | ------- |
 | `init` | Initialize configuration and directory structure |
-| `reset` | Delete all identities and conversation data (preserves .env) |
+| `reset` | Delete this install's identity and conversation data (preserves .env) |
 | `schema` | Introspect CLI commands as machine-readable JSON (args, flags, examples) |
 
 ## Output Modes
@@ -118,7 +118,7 @@ convos conversations list --fields conversationId,name
 Use `--verbose` to see detailed client initialization logs. When combined with `--json`, verbose output goes to stderr:
 
 ```bash
-convos identity info <id> --verbose
+convos identity info --verbose
 convos conversations list --json --verbose 2>/dev/null
 ```
 
@@ -127,7 +127,7 @@ convos conversations list --json --verbose 2>/dev/null
 ### Create a Conversation
 
 ```bash
-# create a conversation (auto-creates a per-conversation identity)
+# create a conversation (uses this install's singleton identity, auto-created on first use)
 convos conversations create --name "My Group" --profile-name "Alice"
 
 # create with admin-only permissions
@@ -337,7 +337,7 @@ convos conversations process-join-requests --watch
 
 ### Per-Conversation Profiles
 
-Each conversation has independent profiles — you can have a different name and avatar in each.
+Profiles are per-conversation — the singleton identity can present a different display name and avatar in each conversation it participates in.
 
 Profile updates are sent as **ProfileUpdate messages** to the group. The CLI no longer writes profiles to `appData` (this was removed to fix a data corruption bug where concurrent read-modify-write cycles could erase invite tags and other members' profiles). When reading profiles, message-sourced profiles take precedence, with `appData` as a read-only fallback for profiles written by older clients (e.g., iOS).
 
@@ -368,25 +368,25 @@ convos conversation profiles <conversation-id> --json
 
 ### Identity Management
 
-Identities are created automatically when creating/joining conversations, but you can manage them directly.
+Each install has exactly one identity, created automatically on first use. To run multiple independent agents on one machine, give each its own `CONVOS_HOME`.
 
 ```bash
-# list all identities
+# show this install's identity (0 or 1 entries)
 convos identity list
 
-# create an identity manually
-convos identity create --label "Work Chat" --profile-name "Alice"
+# create the identity manually (errors if one already exists)
+convos identity create --label "My Bot" --profile-name "Alice"
 
-# view identity details (connects to XMTP to show inbox ID)
-convos identity info <identity-id>
+# view identity details (registers the XMTP client if needed)
+convos identity info
 
-# remove an identity (destroys all keys — irreversible)
-convos identity remove <identity-id> --force
+# remove the identity (destroys all keys and databases — irreversible)
+convos identity remove --force
 ```
 
 ### Reset All Data
 
-Delete all identities and conversation data. The `.env` configuration is preserved.
+Delete the install's identity and all conversation data. The `.env` configuration is preserved.
 
 ```bash
 # reset with confirmation prompt
@@ -432,7 +432,7 @@ convos conversation lock <conversation-id> --unlock
 
 ### Explode a Conversation
 
-Permanently destroy a conversation and all its cryptographic keys. Sends an ExplodeSettings notification to all members (so iOS and other clients can trigger their cleanup), updates group metadata with the expiration timestamp, removes all members, then destroys the local identity. **Irreversible.**
+Notify members and remove them from the MLS group. Sends an ExplodeSettings message (so iOS and other clients can trigger their cleanup), updates group metadata with the expiration timestamp, and removes every other member. Receiving clients drop the conversation on either the ExplodeSettings message or the MLS remove commit, whichever arrives first. **Irreversible for other members; the install's identity is preserved** (ADR 011 §5 / ADR 004 C9).
 
 ```bash
 # explode immediately
@@ -442,7 +442,7 @@ convos conversation explode <conversation-id> --force
 convos conversation explode <conversation-id> --scheduled "2025-03-01T00:00:00Z"
 ```
 
-When scheduled, the ExplodeSettings message is sent with a future `expiresAt` date. Members are notified but not removed — clients handle cleanup when the time arrives. When immediate (no `--scheduled`), members are removed and the local identity is destroyed right away.
+When scheduled, the ExplodeSettings message is sent with a future `expiresAt` date. Members are notified but not removed — clients handle cleanup when the time arrives. When immediate (no `--scheduled`), all other members are removed from the group right away.
 
 ### Assistant Attestation
 
@@ -580,7 +580,7 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 
 Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
 
-**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** permanently destroys the conversation — sends ExplodeSettings notification, removes members, and deletes the local identity. Immediate explode triggers agent shutdown. **Rename** updates the conversation name visible to all members.
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members.
 
 ### How It Works
 
@@ -632,30 +632,30 @@ done
 | `--description` | Conversation description (when creating new) |
 | `--permissions` | `all-members` or `admin-only` (when creating new) |
 | `--profile-name` | Display name for this conversation |
-| `--identity` | Use an existing unlinked identity |
-| `--label` | Local label for the identity |
 | `--no-invite` | Skip generating an invite (attach mode) |
 | `--heartbeat` | Emit heartbeat events every N seconds (0 to disable, default: 0) |
 
 ## Important Concepts
 
-### Per-Conversation Identities
+### Single-Inbox Identity Model (ADR 011)
 
-Every conversation has its own:
+Every install has exactly one identity, shared across every conversation and DM — matching the Convos iOS app after the single-inbox refactor.
 
-- **Wallet key** (secp256k1 private key)
+The identity owns:
+
+- **Wallet key** (secp256k1 private key) — signs XMTP + invites
 - **DB encryption key** (32-byte key)
-- **XMTP inbox** (unique inbox ID)
+- **XMTP inbox** (a single inbox ID that every conversation uses)
 - **Local database** (SQLite)
 
-Identities are stored in `<convos-home>/identities/<id>.json`. Databases are stored in `<convos-home>/db/<env>/<id>.db3`. The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`.
+Stored at `<convos-home>/identity.json`. The XMTP database is at `<convos-home>/db/<env>/main.db3`. The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`. To run multiple independent agents on one machine, give each its own `CONVOS_HOME`.
 
 ### Invite Flow
 
 1. **Creator** generates an invite URL/QR code (contains encrypted conversation token + creator's inbox ID)
-2. **Person opens the invite URL in Convos app** (or scans the QR code) — this creates a per-conversation identity and sends a DM join request to the creator
+2. **Person opens the invite URL** — their singleton inbox sends a DM join request to the creator
 3. **Creator processes the join request** — validates the invite signature, decrypts the conversation token, and adds the person to the group
-4. Person is now a member with their own isolated identity
+4. Person is now a member of that group inside their singleton inbox
 
 **Key point:** Step 3 must happen *after* step 2. The creator must either run `process-join-requests` after the invite has been opened, or use `--watch` to stream and process requests as they arrive.
 
@@ -706,15 +706,12 @@ The CLI sets `memberKind: "agent"` by default on all join requests so the creato
 The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`:
 
 ```
-<convos-home>/              # default: ~/.convos/
-├── .env                    # Global config (env only)
-├── identities/
-│   ├── <id-1>.json         # Identity: wallet key, db key, conversation link
-│   └── <id-2>.json
+<convos-home>/          # default: ~/.convos/
+├── .env                # Global config (env only)
+├── identity.json       # Singleton identity: wallet key, db key, inbox ID
 └── db/
-    └── dev/                # XMTP databases by environment
-        ├── <id-1>.db3
-        └── <id-2>.db3
+    └── dev/            # XMTP database for this install, by environment
+        └── main.db3
 ```
 
 ## Error Handling

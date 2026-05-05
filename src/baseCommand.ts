@@ -1,14 +1,7 @@
 /**
- * Base command for Convos CLI.
- *
- * Provides:
- *  - Common flags (--env, --json, --log-level, etc.)
- *  - output() and streamOutput() helpers
- *  - Config loading from .env files
- *
- * Convos adds: per-conversation identity resolution. Instead of a
- * single wallet key, each conversation has its own identity with
- * its own keys. Commands use getConvosConfig() + the identity store.
+ * Base command for the Convos CLI. Provides common flags, output/streamOutput
+ * helpers, and .env-file loading. Commands use getConvosConfig() to read the
+ * resolved config and getConvosHome() for the data directory.
  */
 
 import { env } from "node:process";
@@ -248,7 +241,7 @@ export class ConvosBaseCommand extends Command {
       output: process.stderr,
     });
     const answer = await new Promise<string>((resolve) => {
-      rl.question(`WARNING: ${message}\nAre you sure? (y/N) `, resolve);
+      rl.question(`${message}\n\nContinue? (y/N) `, resolve);
     });
     rl.close();
     if (answer.toLowerCase() !== "y") {

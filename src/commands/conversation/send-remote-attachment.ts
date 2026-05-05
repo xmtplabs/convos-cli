@@ -1,7 +1,6 @@
 import { Args, Flags } from "@oclif/core";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
 
 export default class ConversationSendRemoteAttachment extends ConvosBaseCommand {
   static description = `Send a remote attachment message to a conversation.
@@ -73,16 +72,7 @@ command to send the message.`;
       ConversationSendRemoteAttachment,
     );
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
-
-    const identity = store.getByConversationId(args.id);
-    if (!identity) {
-      this.error(
-        `No identity found for conversation: ${args.id}\nUse 'convos conversations list' to see available conversations.`,
-      );
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );

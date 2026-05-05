@@ -1,12 +1,12 @@
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
+import { getClient } from "../../utils/client.js";
 import { createIdentityStore } from "../../utils/identities.js";
 
 export default class ConversationsSync extends ConvosBaseCommand {
   static description = `Sync all conversations from the network.
 
-Synchronizes every linked identity with the XMTP network.
-Fetches new messages and membership changes for all conversations.`;
+Fetches new messages and membership changes for every conversation
+in this install's singleton XMTP inbox (per ADR 011).`;
 
   static examples = [
     {
@@ -22,34 +22,22 @@ Fetches new messages and membership changes for all conversations.`;
   async run(): Promise<void> {
     const config = this.getConvosConfig();
     const store = createIdentityStore(this.getConvosHome());
-    const identities = store.list().filter((i) => i.conversationId);
 
-    const results = [];
-    for (const identity of identities) {
-      try {
-        const client = await createClientForIdentity(identity, config, this.getConvosHome());
-        await client.conversations.sync();
-        results.push({
-          identityId: identity.id,
-          conversationId: identity.conversationId,
-          label: identity.label ?? "",
-          success: true,
-        });
-      } catch (error) {
-        results.push({
-          identityId: identity.id,
-          conversationId: identity.conversationId,
-          label: identity.label ?? "",
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-      }
+    if (!store.exists()) {
+      this.output({
+        message: "No identity found. Nothing to sync.",
+        synced: 0,
+      });
+      return;
     }
 
+    const client = await getClient(config, this.getConvosHome());
+    await client.conversations.sync();
+    const conversations = await client.conversations.list();
+
     this.output({
-      synced: results.filter((r) => r.success).length,
-      failed: results.filter((r) => !r.success).length,
-      results,
+      synced: conversations.length,
+      inboxId: client.inboxId,
     });
   }
 }

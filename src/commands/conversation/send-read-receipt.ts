@@ -1,7 +1,6 @@
 import { Args } from "@oclif/core";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
 import { requireGroup } from "../../utils/xmtp.js";
 
 export default class ConversationSendReadReceipt extends ConvosBaseCommand {
@@ -30,12 +29,7 @@ conversation and do not trigger push notifications.`;
   async run(): Promise<void> {
     const { args } = await this.parse(ConversationSendReadReceipt);
     const config = this.getConvosConfig();
-    const store = createIdentityStore(this.getConvosHome());
-
-    const identity = store.getByConversationId(args.id);
-    if (!identity) this.error(`No identity found for conversation: ${args.id}`);
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     await client.conversations.sync();
 
     const conversation = await client.conversations.getConversationById(args.id);

@@ -3,8 +3,7 @@ import { basename } from "node:path";
 import { Args, Flags } from "@oclif/core";
 import { encryptAttachment } from "@xmtp/node-sdk";
 import { ConvosBaseCommand } from "../../baseCommand.js";
-import { createClientForIdentity } from "../../utils/client.js";
-import { createIdentityStore } from "../../utils/identities.js";
+import { getClient } from "../../utils/client.js";
 import { getMimeType } from "../../utils/mime.js";
 import {
   getUploadProvider,
@@ -146,15 +145,7 @@ without sending (for manual upload workflows).`;
       return;
     }
 
-    const store = createIdentityStore(this.getConvosHome());
-    const identity = store.getByConversationId(args.id);
-    if (!identity) {
-      this.error(
-        `No identity found for conversation: ${args.id}\nUse 'convos conversations list' to see available conversations.`,
-      );
-    }
-
-    const client = await createClientForIdentity(identity, config, this.getConvosHome());
+    const client = await getClient(config, this.getConvosHome());
     const conversation = await client.conversations.getConversationById(
       args.id,
     );
