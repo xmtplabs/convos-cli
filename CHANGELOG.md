@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 - 2026-05-05
+
+### Added
+
+- **ConvosConnections content codecs** (mirrors convos-ios#767) — `convos.org/connection_payload:1.0`, `connection_invocation:1.0`, `connection_invocation_result:1.0`, plus the `convos.org/connection_event:1.0` grant/revoke notification.
+- **Capability resolution codecs** (mirrors convos-ios#771) — `convos.org/capability_request:1.0`, `capability_request_result:1.0` (latter carries `availableActions: AvailableAction[]`).
+- **CloudConnectionGrantRequest codec** — `convos.org/connection_grant_request:1.0`, agent → device prompt to link a cloud OAuth provider.
+- **CLI commands**:
+  - `convos conversation send-invocation` — send a `ConnectionInvocation` to a conversation.
+  - `convos conversation send-capability-request` — send a `CapabilityRequest`.
+  - `convos conversation send-cloud-connection-grant-request` — send a `CloudConnectionGrantRequest`.
+- **`agent serve` events**: `connection_payload`, `connection_invocation`, `connection_result`, `connection_event`, `cloud_connection_grant_request`, `capability_request`, `capability_result`, `profile_update`, `read_receipt`, plus the previously-undocumented `explode_notice`. All silent codecs are filtered from chat and surface as structured stdout events with catchup parity.
+- **`agent serve` stdin commands**: `connection-invoke`, `capability-request`, `cloud-connection-grant-request`.
+
 ## 0.8.0
 
 ### Breaking Changes: Single-Inbox Identity Model (ADR 011)
@@ -44,15 +58,6 @@ Existing `~/.convos/identities/*.json` files are no longer used. The CLI will cr
 ### Added
 
 - `conversations list --include-dms` — include DMs alongside groups in output.
-- **ConvosConnections content codecs** (mirrors convos-ios#767) — `convos.org/connection_payload:1.0`, `connection_invocation:1.0`, `connection_invocation_result:1.0`, plus the `convos.org/connection_event:1.0` grant/revoke notification.
-- **Capability resolution codecs** (mirrors convos-ios#771) — `convos.org/capability_request:1.0`, `capability_request_result:1.0` (latter carries `availableActions: AvailableAction[]`).
-- **CloudConnectionGrantRequest codec** — `convos.org/connection_grant_request:1.0`, agent → device prompt to link a cloud OAuth provider.
-- **CLI commands**:
-  - `convos conversation send-invocation` — send a `ConnectionInvocation` to a conversation.
-  - `convos conversation send-capability-request` — send a `CapabilityRequest`.
-  - `convos conversation send-cloud-connection-grant-request` — send a `CloudConnectionGrantRequest`.
-- **`agent serve` events**: `connection_payload`, `connection_invocation`, `connection_result`, `connection_event`, `cloud_connection_grant_request`, `capability_request`, `capability_result`, `profile_update`, `read_receipt`, plus the previously-undocumented `explode_notice`. All silent codecs are filtered from chat and surface as structured stdout events with catchup parity.
-- **`agent serve` stdin commands**: `connection-invoke`, `capability-request`, `cloud-connection-grant-request`.
 
 ### Fixed
 
