@@ -98,17 +98,18 @@ that may resolve to a device or cloud provider. iOS device kinds
       if (preferredProviders.length === 0) preferredProviders = undefined;
     }
 
+    const client = await getClient(config, this.getConvosHome());
+    await client.conversations.sync();
+
     const request: CapabilityRequest = {
       version: CAPABILITY_REQUEST_SUPPORTED_VERSION,
       requestId: flags["request-id"] ?? `cli-${randomUUID().slice(0, 8)}`,
+      askerInboxId: client.inboxId,
       subject: flags.subject,
       capability: flags.capability,
       rationale: flags.rationale,
       ...(preferredProviders && { preferredProviders }),
     };
-
-    const client = await getClient(config, this.getConvosHome());
-    await client.conversations.sync();
 
     const conversation = await client.conversations.getConversationById(args.id);
     if (!conversation) this.error(`Conversation not found: ${args.id}`);
@@ -123,6 +124,7 @@ that may resolve to a device or cloud provider. iOS device kinds
       messageId,
       conversationId: args.id,
       requestId: request.requestId,
+      askerInboxId: request.askerInboxId,
       subject: request.subject,
       capability: request.capability,
       rationale: request.rationale,
