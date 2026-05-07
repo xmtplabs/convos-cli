@@ -21,6 +21,7 @@ import { CloudConnectionGrantRequestCodec } from "./cloudConnectionGrantRequest.
 import { FocusModeControlCodec } from "./focusModeControl.js";
 import { StreamingTextCodec } from "./streamingText.js";
 import { StreamingClearCodec } from "./streamingClear.js";
+import { ConversationSnapshotCodec } from "./conversationSnapshot.js";
 import { toHexBytes, hexToBytes } from "./xmtp.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ConvosConfig } from "./config.js";
@@ -151,6 +152,7 @@ async function buildClient(
       new FocusModeControlCodec() as any,
       new StreamingTextCodec() as any,
       new StreamingClearCodec() as any,
+      new ConversationSnapshotCodec() as any,
     ],
     dbEncryptionKey: toHexBytes(identity.dbEncryptionKey),
     dbPath,

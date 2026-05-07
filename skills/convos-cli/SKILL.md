@@ -711,14 +711,26 @@ Mirrors the iOS `Build assistant` flow. The iOS user taps the hammer toolbar, co
 - `convos.org/focus_mode_control:1.0` — session lifecycle (`start` / `stop`, `focusedInboxId`, `sessionId`)
 - `convos.org/streaming_text:1.0` — full-snapshot bubble text with monotonic `revision` per `(sessionId, senderInboxId)`. Receivers drop any `revision <= existing.revision`. Decoder rejects > 1 KiB.
 - `convos.org/streaming_clear:1.0` — end-of-thought clear; shares the same monotonic counter as StreamingText. Receivers wait 600 ms before blanking the bubble.
+- `convos.org/conversation_snapshot:1.0` — sent by an existing member (typically the inviter, right after accepting a join) to a new joiner so they catch up on conversation-level state they missed. Payload is `{"focusSession": { "sessionId", "state", "focusedInboxId" } | null}` plus any future top-level extension blocks (locks, capability state, etc). Decoder is **strict-additive** — unknown top-level keys are preserved. The `focusSession` block, when non-null, mirrors `FocusModeControl` exactly; `agent focus` routes it through the same state machine and emits `focused` / `focus_pending` with `viaSnapshot: true`. Absent or null `focusSession` is a no-op.
 
-All three are `shouldPush: false` and are not stored in conversation history. The CLI registers the codecs but does not surface them through the normal `agent serve` `message` event — they only matter inside `agent focus`.
+All four are `shouldPush: false` and are not stored in conversation history. The CLI registers the codecs but does not surface them through the normal `agent serve` `message` event — they only matter inside `agent focus`.
 
 ```bash
 convos agent focus <invite-slug>            # join + wait for focus
 convos agent focus <slug> --persona ./p.txt # include persona contents in the joined event
 convos agent focus <slug> --auto-stop-after 60
+
+# join as a verified assistant — signs the attestation against the resolved inbox id
+# and ships it on the post-join ProfileUpdate so iOS renders the verified-avatar ring
+convos agent focus <slug> --profile-name "Bot" \
+  --attestation-kid <kid> --attestation-private-key ./signing.pem
+
+# fold extra profile metadata into the same post-join ProfileUpdate
+convos agent focus <slug> --profile-name "Travel Buddy" \
+  --profile-metadata "emoji=🔨" --profile-metadata "role=builder"
 ```
+
+`agent focus` accepts the same attestation flags as `agent serve` and `conversations join` (`--attestation` / `--attestation-ts` / `--attestation-kid`, or `--attestation-kid` + `--attestation-private-key` for runtime signing). It emits one `ProfileUpdate` after join carrying the `attestation` triple in `metadata`, plus `--profile-name` / `--profile-image` if provided. iOS uses the attestation triple in profile metadata to render the verified-avatar ring; without it the agent shows as unverified.
 
 **ndjson protocol** (symmetric with `agent serve`):
 
@@ -726,6 +738,7 @@ convos agent focus <slug> --auto-stop-after 60
 | --- | --- |
 | `{"type":"text","text":"..."}` | Publish a snapshot of your current bubble (auto-increments `revision`) |
 | `{"type":"clear"}` | Send `StreamingClear` (also auto-increments `revision`) |
+| `{"type":"profile","name":"X","image":"...","metadata":{...}}` | Mid-session `ProfileUpdate`. Merges with existing profile (partial updates don't clear other fields). Use `name: ""` / `image: ""` to clear. |
 | `{"type":"stop"}` | Send `FocusModeControl(.stop)` and exit |
 
 | Stdout event | Meaning |

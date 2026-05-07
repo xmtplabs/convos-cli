@@ -112,6 +112,15 @@ export {
   getStreamingClearContent,
   type StreamingClear,
 } from "./utils/streamingClear.js";
+export {
+  ConversationSnapshotCodec,
+  ContentTypeConversationSnapshot,
+  isConversationSnapshotMessage,
+  getConversationSnapshotContent,
+  buildConversationSnapshot,
+  type ConversationSnapshot,
+  type ConversationSnapshotFocusSession,
+} from "./utils/conversationSnapshot.js";
 
 // Explode settings content type
 export {

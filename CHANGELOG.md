@@ -18,6 +18,14 @@ and have no text fallback.
 - **`convos.org/streaming_clear:1.0`** — end-of-thought clear. Shares the same
   monotonic counter as StreamingText. Receivers apply a 600 ms readability delay
   before blanking the bubble.
+- **`convos.org/conversation_snapshot:1.0`** — conversation-level state restore
+  for new joiners. Carries an optional `focusSession` block
+  (`sessionId` / `state` / `focusedInboxId`) that mirrors `FocusModeControl`
+  exactly. Decoder is **strict-additive**: unknown top-level keys are
+  preserved so v1 readers survive future v1.x extensions (locks, capability
+  state, …). `agent focus` treats a non-null `focusSession` as a virtual
+  `FocusModeControl(.start)` and emits `focused`/`focus_pending` with
+  `viaSnapshot: true`. Absent or null `focusSession` is a no-op.
 
 ### Added: `convos agent focus <invite>` command
 
@@ -25,11 +33,21 @@ New long-running command that joins by invite, waits for the iOS-initiated
 `FocusModeControl(.start)`, then participates in the session via ndjson
 stdin/stdout — symmetric with `agent serve`.
 
-- **STDIN commands**: `{"type":"text","text":"..."}`, `{"type":"clear"}`, `{"type":"stop"}`
+- **STDIN commands**: `{"type":"text","text":"..."}`, `{"type":"clear"}`,
+  `{"type":"profile","name":"...","image":"...","metadata":{...}}` (mid-session
+  profile updates — mirrors `convos conversation update-profile` semantics),
+  `{"type":"stop"}`
 - **STDOUT events**: `joined`, `focus_pending`, `focused`, `streaming_text`,
-  `streaming_clear`, `focus_stopped`, `sent`, `auto_stop`, `shutdown`, `error`
+  `streaming_clear`, `focus_stopped`, `sent`, `profile_updated`, `auto_stop`,
+  `shutdown`, `error`
 - **Flags**: `--persona <file>`, `--auto-stop-after <seconds>`,
-  `--join-timeout`, `--focus-timeout`
+  `--join-timeout`, `--focus-timeout`, `--profile-name`, `--profile-image`,
+  `--profile-metadata <key=value>` (repeatable; folded into the post-join
+  `ProfileUpdate` alongside attestation), and the same attestation triple as
+  `agent serve` / `conversations join` (`--attestation` / `--attestation-ts` /
+  `--attestation-kid` *or* `--attestation-private-key` for runtime signing).
+  Attestation metadata is shipped on a single post-join `ProfileUpdate` so iOS
+  renders the verified-avatar ring during the focus session.
 - Refuses to publish StreamingText when focus is on a different member.
 - Applies the 600 ms clear delay locally so its in-memory bubble state mirrors
   iOS rendering.

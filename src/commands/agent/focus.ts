@@ -29,7 +29,25 @@ import {
   isStreamingClearMessage,
   type StreamingClear,
 } from "../../utils/streamingClear.js";
+import {
+  getConversationSnapshotContent,
+  isConversationSnapshotMessage,
+} from "../../utils/conversationSnapshot.js";
 import { isGroup, jsonStringify, requireGroup } from "../../utils/xmtp.js";
+import {
+  attestationToProfileMetadata,
+  resolveAttestationFromFlags,
+} from "../../utils/attestation.js";
+import {
+  MemberKind,
+  parseMetadataFlags,
+  resolveProfilesFromMessages,
+  sendProfileUpdate,
+  type EncryptedProfileImageRef,
+  type ProfileMetadata,
+} from "../../utils/profileMessages.js";
+import { encryptAndUploadProfileImage } from "../../utils/imageEncryption.js";
+import { getUploadProvider } from "../../utils/upload.js";
 
 interface RemoteBubble {
   text: string;
@@ -53,10 +71,32 @@ interface TextCommand {
 interface ClearCommand {
   type: "clear";
 }
+interface ProfileCommand {
+  type: "profile";
+  name?: string;
+  image?: string;
+  metadata?: Record<string, string | number | boolean>;
+}
 interface StopCommand {
   type: "stop";
 }
-type FocusCommand = TextCommand | ClearCommand | StopCommand;
+type FocusCommand =
+  | TextCommand
+  | ClearCommand
+  | ProfileCommand
+  | StopCommand;
+
+function toProfileMetadata(
+  raw: Record<string, string | number | boolean>,
+): ProfileMetadata {
+  const out: ProfileMetadata = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "boolean") out[key] = { type: "bool", value };
+    else if (typeof value === "number") out[key] = { type: "number", value };
+    else out[key] = { type: "string", value };
+  }
+  return out;
+}
 
 export default class AgentFocus extends ConvosBaseCommand {
   static description = `Run an agent in Assistant Builder Focus Mode.
@@ -77,9 +117,10 @@ StreamingText and StreamingClear.
 Uses an ndjson protocol on stdin / stdout — symmetric with 'agent serve'.
 
 STDIN commands (one JSON object per line):
-  {"type":"text","text":"Hello"}        Publish a snapshot of the current bubble
-  {"type":"clear"}                      Send StreamingClear (end of thought)
-  {"type":"stop"}                       Send FocusModeControl(.stop) and exit
+  {"type":"text","text":"Hello"}                     Publish a snapshot of the current bubble
+  {"type":"clear"}                                   Send StreamingClear (end of thought)
+  {"type":"profile","name":"X","metadata":{"k":"v"}} Update display name / metadata mid-session
+  {"type":"stop"}                                    Send FocusModeControl(.stop) and exit
 
 STDOUT events (ndjson):
   {"event":"joined","conversationId":"..."}
@@ -103,6 +144,12 @@ STDOUT events (ndjson):
     {
       command: "<%= config.bin %> <%= command.id %> <slug> --auto-stop-after 60",
       description: "Send FocusModeControl(.stop) after 60s of receiver silence",
+    },
+    {
+      command:
+        '<%= config.bin %> <%= command.id %> <slug> --profile-name "Bot" \\\n  --attestation-kid <kid> --attestation-private-key ./signing.pem',
+      description:
+        "Join as a verified assistant — signs an attestation against the resolved inbox id and ships it on the post-join ProfileUpdate",
     },
   ];
 
@@ -138,6 +185,45 @@ STDOUT events (ndjson):
         "before exiting with an error.",
       helpValue: "<seconds>",
       default: 120,
+    }),
+    "profile-name": Flags.string({
+      description: "Profile display name to send on the post-join ProfileUpdate",
+      helpValue: "<name>",
+    }),
+    "profile-image": Flags.string({
+      description: "Profile image URL to send on the post-join ProfileUpdate",
+      helpValue: "<url>",
+    }),
+    "profile-metadata": Flags.string({
+      description:
+        'Set a profile metadata field on the post-join ProfileUpdate (key=value). ' +
+        'Value is auto-typed: "true"/"false" → bool, numeric → number, else string. ' +
+        "Repeat for multiple fields. Folded in alongside attestation metadata.",
+      helpValue: "<key=value>",
+      multiple: true,
+    }),
+    attestation: Flags.string({
+      description: "Base64url-encoded Ed25519 attestation signature",
+      helpValue: "<signature>",
+      env: "CONVOS_ATTESTATION",
+    }),
+    "attestation-ts": Flags.string({
+      description: "ISO 8601 timestamp used in the attestation",
+      helpValue: "<iso8601>",
+      env: "CONVOS_ATTESTATION_TS",
+    }),
+    "attestation-kid": Flags.string({
+      description: "Key ID for the attestation",
+      helpValue: "<kid>",
+      env: "CONVOS_ATTESTATION_KID",
+    }),
+    "attestation-private-key": Flags.string({
+      description:
+        "Path to an Ed25519 private key (PEM). When set with --attestation-kid, " +
+        "the CLI signs the attestation against the resolved XMTP inbox id once the " +
+        "join is accepted. Mutually exclusive with --attestation / --attestation-ts.",
+      helpValue: "<path>",
+      env: "CONVOS_ATTESTATION_PRIVATE_KEY",
     }),
   };
 
@@ -194,11 +280,25 @@ STDOUT events (ndjson):
       invite,
       flags["join-timeout"],
     );
+
+    const attestation = await resolveAttestationFromFlags(flags, client.inboxId);
+    const startupMetadata = parseMetadataFlags(
+      flags["profile-metadata"],
+      (msg) => this.error(msg),
+    )?.parsedMetadata;
+    await this.publishProfileUpdate(conversation, {
+      profileName: flags["profile-name"],
+      profileImageUrl: flags["profile-image"],
+      profileMetadata: startupMetadata,
+      attestation,
+    });
+
     this.emit({
       event: "joined",
       conversationId: conversation.id,
       inboxId: client.inboxId,
       ...(persona && { persona }),
+      ...(attestation && { attestationKid: attestation.kid }),
     });
 
     process.on("SIGINT", () => this.shutdown("SIGINT"));
@@ -206,6 +306,146 @@ STDOUT events (ndjson):
 
     this.startStdinReader(conversation, client);
     await this.startMessageStream(conversation, client, flags["focus-timeout"]);
+  }
+
+  private async publishProfileUpdate(
+    conversation: Group,
+    opts: {
+      profileName?: string;
+      profileImageUrl?: string;
+      profileMetadata?: ProfileMetadata;
+      attestation?: Awaited<ReturnType<typeof resolveAttestationFromFlags>>;
+    },
+  ): Promise<void> {
+    const { profileName, profileImageUrl, profileMetadata, attestation } = opts;
+    const hasAttestation = attestation !== undefined && attestation !== null;
+    if (
+      !profileName &&
+      !profileImageUrl &&
+      !hasAttestation &&
+      (!profileMetadata || Object.keys(profileMetadata).length === 0)
+    ) {
+      // Nothing worth sending: leave it to identity defaults.
+      return;
+    }
+
+    // Attestation metadata wins on conflict — the attestation triple is
+    // signed against the inbox id and shouldn't be overridden by user flags.
+    const merged: ProfileMetadata = { ...(profileMetadata ?? {}) };
+    if (hasAttestation) {
+      Object.assign(merged, attestationToProfileMetadata(attestation));
+    }
+
+    try {
+      await conversation.sync();
+      await sendProfileUpdate(conversation, {
+        ...(profileName && { name: profileName }),
+        ...(profileImageUrl && { imageURL: profileImageUrl }),
+        ...(Object.keys(merged).length > 0 && { metadata: merged }),
+        memberKind: MemberKind.Agent,
+      });
+    } catch (error) {
+      this.emitError(
+        `ProfileUpdate failed: ${
+          error instanceof Error ? error.message : "unknown"
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Mid-session profile update triggered by a {"type":"profile",...} stdin
+   * command. Mirrors `convos conversation update-profile` semantics: existing
+   * profile is read first, partial updates merge in (don't clear other fields).
+   */
+  private async runProfileCommand(
+    conversation: Group,
+    client: Client<unknown>,
+    cmd: ProfileCommand,
+    config: ReturnType<ConvosBaseCommand["getConvosConfig"]>,
+  ): Promise<void> {
+    if (
+      cmd.name === undefined &&
+      cmd.image === undefined &&
+      (!cmd.metadata || Object.keys(cmd.metadata).length === 0)
+    ) {
+      this.emitError(
+        "profile command requires at least one of name, image, or metadata",
+      );
+      return;
+    }
+
+    let existing: import("../../utils/profileMessages.js").ResolvedProfile | undefined;
+    try {
+      const profiles = await resolveProfilesFromMessages(conversation);
+      existing = profiles.get(client.inboxId.toLowerCase());
+    } catch {
+      // Best-effort: if we can't read existing, send what we have.
+    }
+
+    const profileName =
+      cmd.name !== undefined ? cmd.name || undefined : existing?.name;
+
+    let encryptedImage: EncryptedProfileImageRef | undefined;
+    if (cmd.image !== undefined) {
+      if (cmd.image === "") {
+        encryptedImage = undefined;
+      } else {
+        const uploadProvider = getUploadProvider(config);
+        if (!uploadProvider) {
+          this.emitError(
+            "image update requires an upload provider (CONVOS_API_KEY or CONVOS_UPLOAD_PROVIDER)",
+          );
+          return;
+        }
+        try {
+          encryptedImage = await encryptAndUploadProfileImage(
+            cmd.image,
+            conversation,
+            (data, filename, mimeType) =>
+              uploadProvider.upload(data, filename, mimeType),
+            { verboseLog: (m) => this.verboseLog(m) },
+          );
+        } catch (error) {
+          this.emitError(
+            `image upload failed: ${error instanceof Error ? error.message : "unknown"}`,
+          );
+          return;
+        }
+      }
+    } else {
+      encryptedImage = existing?.encryptedImage;
+    }
+
+    const incomingMetadata = cmd.metadata
+      ? toProfileMetadata(cmd.metadata)
+      : undefined;
+    const mergedMetadata: ProfileMetadata | undefined =
+      incomingMetadata && Object.keys(incomingMetadata).length > 0
+        ? { ...(existing?.metadata ?? {}), ...incomingMetadata }
+        : existing?.metadata;
+
+    try {
+      await sendProfileUpdate(conversation, {
+        name: profileName,
+        memberKind: existing?.memberKind ?? MemberKind.Agent,
+        ...(encryptedImage && { encryptedImage }),
+        ...(mergedMetadata &&
+          Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
+      });
+      this.emit({
+        event: "profile_updated",
+        conversationId: conversation.id,
+        ...(profileName !== undefined && { name: profileName ?? null }),
+        ...(cmd.image !== undefined && { image: cmd.image || null }),
+        ...(mergedMetadata &&
+          Object.keys(mergedMetadata).length > 0 && { metadata: mergedMetadata }),
+      });
+    } catch (error) {
+      this.emitError(
+        `profile update failed: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
   }
 
   private async joinByInvite(
@@ -289,6 +529,10 @@ STDOUT events (ndjson):
           this.handleIncomingClear(message);
           continue;
         }
+        if (isConversationSnapshotMessage(message)) {
+          this.handleIncomingSnapshot(message, client);
+          continue;
+        }
         // Non-focus messages are ignored in focus mode. They will land in
         // the regular message history and can be picked up by `agent serve`
         // after focus ends.
@@ -354,6 +598,72 @@ STDOUT events (ndjson):
       event: "focus_stopped",
       sessionId: session.sessionId,
     });
+  }
+
+  /**
+   * Treat the focus-session block of an incoming ConversationSnapshot as
+   * equivalent to a FocusModeControl message. Snapshots arrive when we join
+   * mid-session and the existing member ships us the current state.
+   *
+   * Promotion rule from FocusModeControl applies: only overwrite focusedInboxId
+   * with non-null values, so a stale snapshot containing focusedInboxId=null
+   * cannot blow away a known focus we already learned about via a live
+   * FocusModeControl(.start).
+   */
+  private handleIncomingSnapshot(
+    message: DecodedMessage,
+    client: Client<unknown>,
+  ): void {
+    const snapshot = getConversationSnapshotContent(message);
+    if (!snapshot) return;
+    const focus = snapshot.focusSession;
+    if (focus === undefined || focus === null) {
+      // No live focus session at snapshot time — nothing to do.
+      return;
+    }
+
+    let session = this.sessions.get(focus.sessionId);
+    if (!session) {
+      session = {
+        sessionId: focus.sessionId,
+        focusedInboxId: focus.focusedInboxId,
+        state: focus.state === "stop" ? "stopped" : "started",
+        bubbles: new Map(),
+        localRevision: 0,
+      };
+      this.sessions.set(focus.sessionId, session);
+    } else {
+      if (focus.focusedInboxId !== null) {
+        session.focusedInboxId = focus.focusedInboxId;
+      }
+      session.state = focus.state === "stop" ? "stopped" : "started";
+    }
+
+    if (focus.state === "stop") {
+      this.emit({
+        event: "focus_stopped",
+        sessionId: session.sessionId,
+        viaSnapshot: true,
+      });
+      return;
+    }
+
+    if (session.focusedInboxId === null) {
+      this.emit({
+        event: "focus_pending",
+        sessionId: session.sessionId,
+        viaSnapshot: true,
+      });
+    } else {
+      this.emit({
+        event: "focused",
+        sessionId: session.sessionId,
+        focusedInboxId: session.focusedInboxId,
+        isUs: session.focusedInboxId === client.inboxId,
+        viaSnapshot: true,
+      });
+    }
+    this.armAutoStopTimer();
   }
 
   private handleIncomingText(message: DecodedMessage): void {
@@ -519,6 +829,16 @@ STDOUT events (ndjson):
         sessionId: payload.sessionId,
         revision: payload.revision,
       });
+      return;
+    }
+
+    if (cmd.type === "profile") {
+      await this.runProfileCommand(
+        conversation,
+        client,
+        cmd,
+        this.getConvosConfig(),
+      );
       return;
     }
 
