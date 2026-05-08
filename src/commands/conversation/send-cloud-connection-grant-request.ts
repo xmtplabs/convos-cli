@@ -29,7 +29,7 @@ chat stream and emits as a \`cloud_connection_grant_request\` event on
     },
     {
       command:
-        '<%= config.bin %> <%= command.id %> <conversation-id> --service google_calendar --target-inbox-id <inbox> --reason "To pull your calendar for scheduling" --json',
+        '<%= config.bin %> <%= command.id %> <conversation-id> --service googlecalendar --target-inbox-id <inbox> --reason "To pull your calendar for scheduling" --json',
       description: "Ask the user to link Google Calendar",
     },
   ];
@@ -45,7 +45,7 @@ chat stream and emits as a \`cloud_connection_grant_request\` event on
     ...ConvosBaseCommand.baseFlags,
     service: Flags.string({
       description:
-        "Cloud service identifier (e.g. \"strava\", \"google_calendar\"). Used by iOS to render a service-specific link card.",
+        "Cloud service identifier — the Composio toolkit slug (e.g. \"strava\", \"googlecalendar\"). Used by iOS to render a service-specific link card. iOS, the CLI, the agent runtime, the backend, and Composio all use the same slug end-to-end.",
       required: true,
     }),
     "target-inbox-id": Flags.string({

@@ -94,7 +94,9 @@ export function capabilitySubjectDisplayName(subject: CapabilitySubject): string
 /**
  * Stable identifier for a `CapabilityProvider`. Encoded as a dotted
  * string on the wire (e.g. `"device.calendar"`, `"composio.strava"`,
- * `"composio.google_calendar"`).
+ * `"composio.googlecalendar"`). For `composio.*` providers the second
+ * segment is the Composio toolkit slug — the same slug iOS, the CLI,
+ * the agent runtime, the backend, and Composio itself use end-to-end.
  *
  * Treat as opaque — the registry routes by lookup, not by parsing the
  * raw value. Aliased to `string` rather than wrapped in a nominal
