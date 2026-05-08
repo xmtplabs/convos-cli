@@ -2,6 +2,16 @@
 
 ## 0.9.1
 
+### Documentation: collapse to Composio toolkit slugs
+
+iOS now uses Composio toolkit slugs (`googlecalendar`, `strava`, …) end-to-end
+— DB, picker, display-name source, wire — with no canonical ↔ slug translation
+anywhere in the stack. CLI doc and example strings now match: `google_calendar`
+→ `googlecalendar` in JSDoc, `--service` flag examples, and SKILL.md. **No
+code change** — the wire field is a free-form string, the codec didn't enforce
+either format, and the agent runtime already passes
+`capability_request_result.providers` straight through to `tools.execute`.
+
 ### Multi-agent capability resolution (mirrors convos-ios#812)
 
 - **`CapabilityRequest.askerInboxId: string` is now required.** Identifies which

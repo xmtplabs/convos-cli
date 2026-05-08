@@ -37,9 +37,11 @@ export interface CloudConnectionGrantRequest {
   /** Schema version. Must equal `CLOUD_CONNECTION_GRANT_REQUEST_SUPPORTED_VERSION` (1). */
   version: number;
   /**
-   * Cloud service identifier (e.g. `"strava"`, `"google_calendar"`). Used
-   * by the device to render a service-specific link card and to resolve
-   * the OAuth provider implementation.
+   * Cloud service identifier — the Composio toolkit slug (e.g. `"strava"`,
+   * `"googlecalendar"`). Used by the device to render a service-specific
+   * link card and to resolve the OAuth provider implementation. iOS, the
+   * CLI, the agent runtime, the backend, and Composio all use the same
+   * slug end-to-end (no canonical ↔ slug translation layer).
    */
   service: string;
   /** Inbox ID of the agent (or other party) requesting the grant. */
