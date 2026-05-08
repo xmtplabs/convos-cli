@@ -52,6 +52,13 @@ export interface CapabilityRequest {
   version: number;
   /** Caller-supplied correlation ID echoed back on the result. */
   requestId: string;
+  /**
+   * Inbox ID of the agent that issued the request. Required so receivers
+   * (and any other agents in a multi-agent group) can distinguish whose
+   * request this is, and so subsequent grants can be targeted via
+   * `ConnectionEvent.grantedToInboxId`. Mirrors convos-ios#812.
+   */
+  askerInboxId: string;
   subject: CapabilitySubject;
   capability: ConnectionCapability;
   /** Free-form human-readable reason; rendered verbatim on the picker card. */
@@ -123,6 +130,9 @@ function validateCapabilityRequest(
     throw new Error(`Unsupported CapabilityRequest version ${r.version}`);
   }
   if (typeof r.requestId !== "string") throw new Error("CapabilityRequest: missing requestId");
+  if (typeof r.askerInboxId !== "string" || r.askerInboxId.length === 0) {
+    throw new Error("CapabilityRequest: missing askerInboxId");
+  }
   if (!isCapabilitySubject(r.subject)) {
     throw new Error(`CapabilityRequest: invalid subject ${JSON.stringify(r.subject)}`);
   }
@@ -213,6 +223,7 @@ function looksLikeCapabilityRequest(value: unknown): boolean {
   return (
     typeof r.version === "number" &&
     typeof r.requestId === "string" &&
+    typeof r.askerInboxId === "string" &&
     isCapabilitySubject(r.subject) &&
     isConnectionCapability(r.capability) &&
     typeof r.rationale === "string"

@@ -64,6 +64,30 @@ describe("ConnectionEventCodec", () => {
       } as any),
     ).toThrow(/Unsupported.*version/);
   });
+
+  it("round-trips an event with grantedToInboxId (mirrors convos-ios#812)", () => {
+    const original = makeEvent({ grantedToInboxId: "0xagent-a-inbox" });
+    const decoded = codec.decode(codec.encode(original));
+    expect(decoded.grantedToInboxId).toBe("0xagent-a-inbox");
+  });
+
+  it("decodes events without grantedToInboxId (backward compat)", () => {
+    const decoded = codec.decode(codec.encode(makeEvent()));
+    expect(decoded.grantedToInboxId).toBeUndefined();
+  });
+
+  it("rejects non-string grantedToInboxId", () => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ ...makeEvent(), grantedToInboxId: 42 }),
+    );
+    expect(() =>
+      codec.decode({
+        type: ContentTypeConnectionEvent,
+        parameters: {},
+        content: bytes,
+      } as any),
+    ).toThrow(/grantedToInboxId/);
+  });
 });
 
 describe("isConnectionEventMessage", () => {

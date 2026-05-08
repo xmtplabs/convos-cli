@@ -28,6 +28,13 @@ export interface ConnectionEvent {
   version: number;
   providerId: string;
   action: ConnectionEventAction;
+  /**
+   * Optional — when present, identifies which agent inbox this grant or
+   * revoke applies to. Lets an agent in a multi-agent group filter to only
+   * the entries meant for it. Absent on older grants for backward compat.
+   * Mirrors convos-ios#812.
+   */
+  grantedToInboxId?: string;
 }
 
 export class ConnectionEventCodec implements ContentCodec<ConnectionEvent> {
@@ -82,6 +89,9 @@ function validateConnectionEvent(value: unknown): asserts value is ConnectionEve
   if (typeof event.providerId !== "string") throw new Error("ConnectionEvent: missing providerId");
   if (event.action !== "granted" && event.action !== "revoked") {
     throw new Error("ConnectionEvent: invalid action");
+  }
+  if (event.grantedToInboxId !== undefined && typeof event.grantedToInboxId !== "string") {
+    throw new Error("ConnectionEvent: grantedToInboxId must be a string when present");
   }
 }
 

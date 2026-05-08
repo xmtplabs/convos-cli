@@ -766,6 +766,7 @@ describe("handleCommand capability-request", () => {
     expect(payload).toEqual({
       version: 1,
       requestId: "req-cap-1",
+      askerInboxId: "self",
       subject: "calendar",
       capability: "read",
       rationale: "To summarize your week",
@@ -776,6 +777,7 @@ describe("handleCommand capability-request", () => {
     expect(sent).toBeDefined();
     expect(sent!.id).toBe("msg-cap-1");
     expect(sent!.requestId).toBe("req-cap-1");
+    expect(sent!.askerInboxId).toBe("self");
   });
 
   it("auto-generates a requestId when none is supplied", async () => {
@@ -1044,6 +1046,7 @@ describe("routeConvosContentType", () => {
     const request = {
       version: 1,
       requestId: "req-1",
+      askerInboxId: "agent-asker",
       subject: "fitness",
       capability: "read",
       rationale: "Summarize training",
@@ -1056,6 +1059,7 @@ describe("routeConvosContentType", () => {
     expect(evt).toMatchObject({
       event: "capability_request",
       requestId: "req-1",
+      askerInboxId: "agent-asker",
       subject: "fitness",
       capability: "read",
       rationale: "Summarize training",

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.1
+
+### Multi-agent capability resolution (mirrors convos-ios#812)
+
+- **`CapabilityRequest.askerInboxId: string` is now required.** Identifies which
+  agent issued the request so receivers (and other agents in the same group)
+  can distinguish whose request this is, and so subsequent grants can be
+  targeted at the right agent. The `agent serve` `capability-request` stdin
+  command and `convos conversation send-capability-request` populate
+  `askerInboxId` automatically from `client.inboxId`; downstream consumers
+  using the codec directly must populate it themselves. Decoder rejects
+  payloads missing or with empty `askerInboxId`.
+- **`ConnectionEvent.grantedToInboxId?: string` (optional).** When present,
+  identifies which agent inbox a `granted` / `revoked` notification applies
+  to. Agents in multi-agent groups must filter to entries where
+  `grantedToInboxId === client.inboxId` (with a missing-field fallback for
+  pre-#812 grants) when reading `profile.metadata["connections"]`. Backward
+  compatible — older messages without the field still decode.
+- **`agent serve` event surface**: `capability_request` now carries
+  `askerInboxId`; `connection_event` carries `grantedToInboxId` when present.
+  The `sent` event for `capability-request` also echoes `askerInboxId`.
+
 ## 0.9.0 - 2026-05-05
 
 ### Added

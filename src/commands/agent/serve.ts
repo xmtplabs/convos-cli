@@ -540,6 +540,9 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           version: event.version,
           providerId: event.providerId,
           action: event.action,
+          ...(event.grantedToInboxId !== undefined && {
+            grantedToInboxId: event.grantedToInboxId,
+          }),
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });
@@ -577,6 +580,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           conversationId: conversation.id,
           version: request.version,
           requestId: request.requestId,
+          askerInboxId: request.askerInboxId,
           subject: request.subject,
           capability: request.capability,
           rationale: request.rationale,
@@ -1680,6 +1684,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           const request: CapabilityRequest = {
             version: CAPABILITY_REQUEST_SUPPORTED_VERSION,
             requestId: cmd.requestId ?? `agent-${randomUUID().slice(0, 8)}`,
+            askerInboxId: client.inboxId,
             subject: cmd.subject as CapabilitySubject,
             capability: cmd.capability as ConnectionCapability,
             rationale: cmd.rationale,
@@ -1695,6 +1700,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             id: requestMessageId,
             type: "capability-request",
             requestId: request.requestId,
+            askerInboxId: request.askerInboxId,
             subject: request.subject,
             capability: request.capability,
             ...(request.preferredProviders && { preferredProviders: request.preferredProviders }),

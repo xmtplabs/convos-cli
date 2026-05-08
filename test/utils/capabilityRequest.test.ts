@@ -22,6 +22,7 @@ function makeRequest(
   return {
     version: CAPABILITY_REQUEST_SUPPORTED_VERSION,
     requestId: "req-1",
+    askerInboxId: "agent-inbox-1",
     subject: "calendar",
     capability: "read",
     rationale: "To summarize your week",
@@ -133,10 +134,47 @@ describe("CapabilityRequestCodec", () => {
         type: ContentTypeCapabilityRequest,
         parameters: {},
         content: new TextEncoder().encode(
-          JSON.stringify({ version: 1, subject: "calendar", capability: "read" }),
+          JSON.stringify({
+            version: 1,
+            askerInboxId: "agent",
+            subject: "calendar",
+            capability: "read",
+          }),
         ),
       } as any),
     ).toThrow(/missing/);
+  });
+
+  it("rejects requests missing askerInboxId (mirrors convos-ios#812)", () => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({
+        version: 1,
+        requestId: "req-1",
+        subject: "calendar",
+        capability: "read",
+        rationale: "x",
+      }),
+    );
+    expect(() =>
+      codec.decode({
+        type: ContentTypeCapabilityRequest,
+        parameters: {},
+        content: bytes,
+      } as any),
+    ).toThrow(/askerInboxId/);
+  });
+
+  it("rejects empty askerInboxId on encode", () => {
+    expect(() => codec.encode(makeRequest({ askerInboxId: "" }))).toThrow(
+      /askerInboxId/,
+    );
+  });
+
+  it("round-trips askerInboxId verbatim", () => {
+    const original = makeRequest({ askerInboxId: "0xagent-inbox-hex" });
+    expect(codec.decode(codec.encode(original)).askerInboxId).toBe(
+      "0xagent-inbox-hex",
+    );
   });
 });
 
