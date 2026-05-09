@@ -54,8 +54,8 @@ describe("CloudConnectionGrantRequestCodec", () => {
       "The assistant asked to connect strava",
     );
     expect(
-      codec.fallback(makeRequest({ service: "google_calendar" })),
-    ).toBe("The assistant asked to connect google_calendar");
+      codec.fallback(makeRequest({ service: "googlecalendar" })),
+    ).toBe("The assistant asked to connect googlecalendar");
   });
 
   it("truncates an over-long reason symmetrically on encode and decode", () => {
