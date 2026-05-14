@@ -87,6 +87,16 @@ export {
   type TypingIndicatorContent,
 } from "./utils/typingIndicator.js";
 
+// Thinking content type
+export {
+  ThinkingCodec,
+  ContentTypeThinking,
+  isThinkingMessage,
+  getThinkingContent,
+  type Thinking,
+  type ThinkingState,
+} from "./utils/thinking.js";
+
 // Explode settings content type
 export {
   ExplodeSettingsCodec,

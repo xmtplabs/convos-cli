@@ -29,6 +29,7 @@ import { isConnectionEventMessage } from "./connectionEvent.js";
 import { isCapabilityRequestMessage } from "./capabilityRequest.js";
 import { isCapabilityRequestResultMessage } from "./capabilityRequestResult.js";
 import { isCloudConnectionGrantRequestMessage } from "./cloudConnectionGrantRequest.js";
+import { isThinkingMessage } from "./thinking.js";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -452,6 +453,9 @@ export function isDisplayableMessage(message: DecodedMessage): boolean {
   if (isCapabilityRequestResultMessage(message)) return false;
   // Cloud OAuth grant prompt — surfaces as a card on iOS, never as chat text.
   if (isCloudConnectionGrantRequestMessage(message)) return false;
+  // Thinking — silent status indicator (like reactions/read receipts);
+  // surfaces via a dedicated `thinking` event on agent serve.
+  if (isThinkingMessage(message)) return false;
 
   const ct = message.contentType;
   if (ct.authorityId !== "xmtp.org") return false;

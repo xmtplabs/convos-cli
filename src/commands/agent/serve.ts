@@ -85,6 +85,12 @@ import {
   TypingIndicatorCodec,
   type TypingIndicatorContent,
 } from "../../utils/typingIndicator.js";
+import {
+  ThinkingCodec,
+  getThinkingContent,
+  isThinkingMessage,
+  type Thinking,
+} from "../../utils/thinking.js";
 import { randomUUID } from "node:crypto";
 import {
   ConnectionInvocationCodec,
@@ -189,6 +195,12 @@ interface CloudConnectionGrantRequestCommand {
   /** Defaults to the agent's own inbox ID when omitted. */
   requestedByInboxId?: string;
 }
+interface ThinkingCommand {
+  type: "thinking";
+  state: "start" | "stop";
+  targetMessageId: string;
+  content: string;
+}
 interface StopCommand { type: "stop"; }
 
 export type AgentCommand =
@@ -206,6 +218,7 @@ export type AgentCommand =
   | ConnectionInvokeCommand
   | CapabilityRequestCommand
   | CloudConnectionGrantRequestCommand
+  | ThinkingCommand
   | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
@@ -424,6 +437,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       if (isCloudConnectionGrantRequestMessage(message)) return "cloud_connection_grant_request" as const;
       if (isCapabilityRequestMessage(message)) return "capability_request" as const;
       if (isCapabilityRequestResultMessage(message)) return "capability_result" as const;
+      if (isThinkingMessage(message)) return "thinking" as const;
       return undefined;
     })();
     if (!handled) return false;
@@ -611,6 +625,24 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           capability: result.capability,
           providers: result.providers,
           availableActions: result.availableActions,
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "thinking") {
+      const thinking = getThinkingContent(message);
+      if (thinking) {
+        this.emit({
+          event: "thinking",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          state: thinking.state,
+          targetMessageId: thinking.targetMessageId,
+          content: thinking.content,
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });
@@ -1569,6 +1601,45 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             id: typingMessageId,
             type: "typing",
             isTyping,
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "thinking": {
+          if (cmd.state !== "start" && cmd.state !== "stop") {
+            this.emitError(
+              "thinking command requires 'state' to be 'start' or 'stop'",
+            );
+            return;
+          }
+          if (typeof cmd.targetMessageId !== "string" || cmd.targetMessageId.length === 0) {
+            this.emitError(
+              "thinking command requires non-empty 'targetMessageId' field",
+            );
+            return;
+          }
+          if (typeof cmd.content !== "string" || cmd.content.length === 0) {
+            this.emitError("thinking command requires non-empty 'content' field");
+            return;
+          }
+          const thinking: Thinking = {
+            state: cmd.state,
+            targetMessageId: cmd.targetMessageId,
+            content: cmd.content,
+          };
+          const codec = new ThinkingCodec();
+          const encoded = codec.encode(thinking);
+          const thinkingMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: thinkingMessageId,
+            type: "thinking",
+            state: thinking.state,
+            targetMessageId: thinking.targetMessageId,
+            content: thinking.content,
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });

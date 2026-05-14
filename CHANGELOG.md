@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added: Thinking content type
+
+New silent codec for ambient agent thinking-status indicators, anchored to
+a specific message (like read receipts):
+
+- **`convos.org/thinking:1.0`** — JSON payload `{state, targetMessageId, content}`.
+  `state` is `"start"` or `"stop"` — agents pair a `start` with a matching `stop`
+  on the same `targetMessageId`. `content` is a 3–5 word human-readable label
+  shown alongside the indicator (e.g. `"Designing your cycling guide"`).
+- Silent (`shouldPush: false`), no fallback. Filtered from the chat stream by
+  `isDisplayableMessage`.
+- `agent serve` event surface: receive path emits a `thinking` event; live and
+  catchup both surface, deduped by message id. Stdin command `{"type":"thinking","state":"start|stop","targetMessageId":"...","content":"..."}` sends a Thinking message.
+
+Exports: `ThinkingCodec`, `ContentTypeThinking`, `isThinkingMessage`,
+`getThinkingContent`, `Thinking`, `ThinkingState`.
+
 ### Added: Remote-attachment decode helpers
 
 `agent serve`'s `message` event now carries structured attachment metadata
