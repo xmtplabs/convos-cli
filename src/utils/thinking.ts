@@ -10,7 +10,8 @@
  *   {
  *     "state": "start" | "stop",
  *     "targetMessageId": "<message id this thinking anchors to>",
- *     "content": "<3–5 word human-readable label>"
+ *     "content": "<3–5 word human-readable label>",
+ *     "resultMessageId": "<optional: agent's reply that closed the thought>"
  *   }
  *
  * The `state` field follows the FocusModeControl pattern — `start` opens
@@ -20,6 +21,12 @@
  * `targetMessageId` and `content` are both required even on `stop`, so
  * receivers can disambiguate concurrent thinking sessions and render a
  * final label if they want.
+ *
+ * `resultMessageId` is optional and only meaningful on `stop` — when present,
+ * it identifies the agent's own reply message that resolved the thinking.
+ * Receivers can use it to link "thought about X" to "replied with Y" in the
+ * UI. Omitted when the thinking ended without a reply (interrupt, error,
+ * agent had nothing to say).
  */
 
 import type { ContentTypeId, EncodedContent } from "@xmtp/node-bindings";
@@ -43,6 +50,8 @@ export interface Thinking {
   state: ThinkingState;
   targetMessageId: string;
   content: string;
+  /** Optional — only meaningful on `stop`. The agent's reply that closed the thinking. */
+  resultMessageId?: string;
 }
 
 // ─── Codec ───
@@ -60,6 +69,11 @@ function validate(value: unknown): asserts value is Thinking {
   }
   if (typeof t.content !== "string" || t.content.length === 0) {
     throw new Error("Missing Thinking.content");
+  }
+  if (t.resultMessageId !== undefined) {
+    if (typeof t.resultMessageId !== "string" || t.resultMessageId.length === 0) {
+      throw new Error("Invalid Thinking.resultMessageId");
+    }
   }
 }
 
@@ -113,7 +127,11 @@ export function getThinkingContent(message: DecodedMessage): Thinking | undefine
     "content" in content &&
     ((content as any).state === "start" || (content as any).state === "stop") &&
     typeof (content as any).targetMessageId === "string" &&
-    typeof (content as any).content === "string"
+    typeof (content as any).content === "string" &&
+    // Tolerate either an absent resultMessageId or a string one; structural
+    // pre-check stays in sync with the validator.
+    ((content as any).resultMessageId === undefined ||
+      typeof (content as any).resultMessageId === "string")
   ) {
     try {
       validate(content);

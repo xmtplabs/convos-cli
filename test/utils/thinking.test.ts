@@ -82,6 +82,33 @@ describe("ThinkingCodec", () => {
     expect(codec.shouldPush(make())).toBe(false);
     expect(codec.fallback(make())).toBeUndefined();
   });
+
+  it("round-trips a stop with resultMessageId", () => {
+    const original = make({ state: "stop", resultMessageId: "reply-789" });
+    expect(codec.decode(codec.encode(original))).toEqual(original);
+  });
+
+  it("omits resultMessageId when not provided", () => {
+    const decoded = codec.decode(codec.encode(make()));
+    expect(decoded.resultMessageId).toBeUndefined();
+  });
+
+  it("rejects empty resultMessageId on encode", () => {
+    expect(() => codec.encode(make({ resultMessageId: "" }))).toThrow(
+      /resultMessageId/,
+    );
+  });
+
+  it("rejects non-string resultMessageId on decode", () => {
+    const bad = {
+      type: ContentTypeThinking,
+      parameters: {},
+      content: new TextEncoder().encode(
+        JSON.stringify({ ...make(), resultMessageId: 42 }),
+      ),
+    } as any;
+    expect(() => codec.decode(bad)).toThrow(/resultMessageId/);
+  });
 });
 
 describe("isThinkingMessage", () => {

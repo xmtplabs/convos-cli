@@ -200,6 +200,8 @@ interface ThinkingCommand {
   state: "start" | "stop";
   targetMessageId: string;
   content: string;
+  /** Optional — only meaningful on `stop`. The agent's reply that closed the thinking. */
+  resultMessageId?: string;
 }
 interface StopCommand { type: "stop"; }
 
@@ -643,6 +645,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           state: thinking.state,
           targetMessageId: thinking.targetMessageId,
           content: thinking.content,
+          ...(thinking.resultMessageId && { resultMessageId: thinking.resultMessageId }),
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });
@@ -1624,10 +1627,25 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             this.emitError("thinking command requires non-empty 'content' field");
             return;
           }
+          if (cmd.resultMessageId !== undefined) {
+            if (typeof cmd.resultMessageId !== "string" || cmd.resultMessageId.length === 0) {
+              this.emitError(
+                "thinking command 'resultMessageId' must be a non-empty string when provided",
+              );
+              return;
+            }
+            if (cmd.state !== "stop") {
+              this.emitError(
+                "thinking command 'resultMessageId' is only meaningful with state: 'stop'",
+              );
+              return;
+            }
+          }
           const thinking: Thinking = {
             state: cmd.state,
             targetMessageId: cmd.targetMessageId,
             content: cmd.content,
+            ...(cmd.resultMessageId && { resultMessageId: cmd.resultMessageId }),
           };
           const codec = new ThinkingCodec();
           const encoded = codec.encode(thinking);
@@ -1640,6 +1658,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             state: thinking.state,
             targetMessageId: thinking.targetMessageId,
             content: thinking.content,
+            ...(thinking.resultMessageId && { resultMessageId: thinking.resultMessageId }),
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });

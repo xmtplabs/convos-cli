@@ -7,14 +7,17 @@
 New silent codec for ambient agent thinking-status indicators, anchored to
 a specific message (like read receipts):
 
-- **`convos.org/thinking:1.0`** — JSON payload `{state, targetMessageId, content}`.
+- **`convos.org/thinking:1.0`** — JSON payload `{state, targetMessageId, content, resultMessageId?}`.
   `state` is `"start"` or `"stop"` — agents pair a `start` with a matching `stop`
   on the same `targetMessageId`. `content` is a 3–5 word human-readable label
   shown alongside the indicator (e.g. `"Designing your cycling guide"`).
+  `resultMessageId` is optional and only meaningful on `stop` — the agent's own
+  reply message that closed the thought, so receivers can link "thought about X"
+  to "replied with Y".
 - Silent (`shouldPush: false`), no fallback. Filtered from the chat stream by
   `isDisplayableMessage`.
 - `agent serve` event surface: receive path emits a `thinking` event; live and
-  catchup both surface, deduped by message id. Stdin command `{"type":"thinking","state":"start|stop","targetMessageId":"...","content":"..."}` sends a Thinking message.
+  catchup both surface, deduped by message id. Stdin command `{"type":"thinking","state":"start|stop","targetMessageId":"...","content":"...","resultMessageId":"..."}` sends a Thinking message. `resultMessageId` only valid with `state: "stop"`.
 
 Exports: `ThinkingCodec`, `ContentTypeThinking`, `isThinkingMessage`,
 `getThinkingContent`, `Thinking`, `ThinkingState`.
