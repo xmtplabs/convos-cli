@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added: Remote-attachment decode helpers
+
+`agent serve`'s `message` event now carries structured attachment metadata
+when the content type is one of XMTP's native remote-attachment types:
+
+- **`xmtp.org/remoteStaticAttachment:1.0`** — emits a `remoteAttachment`
+  object alongside `content`.
+- **`xmtp.org/multiRemoteStaticAttachment:1.0`** — emits a
+  `multiRemoteAttachment: { attachments: [...] }` object.
+
+Each entry has `url`, `contentDigest`, `scheme`, `secret`/`salt`/`nonce`
+(base64-encoded), and optional `contentLength`/`filename` — enough for
+an agent to fetch and decrypt the bytes with `decryptAttachment`. Bytes
+were previously `Uint8Array` on `message.content`, which doesn't
+serialize to JSON cleanly. Encoding matches the `agent serve` `remote-attach`
+stdin command so agents send and receive attachments through one mental
+model. Live and catchup `message` paths both populate the new fields.
+
+New exports: `extractRemoteAttachment`, `extractMultiRemoteAttachment`,
+`RemoteAttachmentJson`, `RemoteAttachmentInfoJson`, `MultiRemoteAttachmentJson`.
+
 ## 0.9.1
 
 ### Multi-agent capability resolution (mirrors convos-ios#812)

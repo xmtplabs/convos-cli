@@ -566,7 +566,7 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | Event | Description | Key Fields |
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
-| `message` | New chat message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `message` | New chat message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional). For `xmtp.org/remoteStaticAttachment:1.0` messages a `remoteAttachment` object is included; for `xmtp.org/multiRemoteStaticAttachment:1.0` a `multiRemoteAttachment: { attachments: [...] }` is included. Each attachment entry carries `url`, `contentDigest`, `scheme`, `secret`/`salt`/`nonce` (base64), and optional `contentLength`/`filename` — enough to fetch and decrypt with `decryptAttachment`. |
 | `typing` | Member typing status changed | `senderInboxId`, `isTyping`, `conversationId`, `timestamp` |
 | `read_receipt` | Member sent an `xmtp.org/read_receipt` (they've read up to messages dated before `sentAt`) | `id`, `senderInboxId`, `conversationId`, `sentAt`. Live-only — not replayed on catchup, since only the latest receipt matters. Agents that need historical read state should call `convos conversation last-read-times`. |
 | `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |

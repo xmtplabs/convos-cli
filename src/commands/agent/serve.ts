@@ -76,6 +76,10 @@ import {
   requireGroup,
 } from "../../utils/xmtp.js";
 import {
+  extractMultiRemoteAttachment,
+  extractRemoteAttachment,
+} from "../../utils/remoteAttachment.js";
+import {
   isTypingIndicatorMessage,
   getTypingIndicatorContent,
   TypingIndicatorCodec,
@@ -997,6 +1001,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           appData,
           message.senderInboxId,
         );
+        const remoteAttachment = extractRemoteAttachment(message);
+        const multiRemoteAttachment = extractMultiRemoteAttachment(message);
         this.emit({
           event: "message",
           id: message.id,
@@ -1004,6 +1010,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           ...(senderProfile && { senderProfile }),
           contentType: message.contentType,
           content,
+          ...(remoteAttachment && { remoteAttachment }),
+          ...(multiRemoteAttachment && { multiRemoteAttachment }),
           sentAt: message.sentAt.toISOString(),
           deliveryStatus: message.deliveryStatus,
           catchup: true,
@@ -1064,6 +1072,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               appData,
               message.senderInboxId,
             );
+            const remoteAttachment = extractRemoteAttachment(message);
+            const multiRemoteAttachment = extractMultiRemoteAttachment(message);
 
             this.emit({
               event: "message",
@@ -1072,6 +1082,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
               ...(senderProfile && { senderProfile }),
               contentType: message.contentType,
               content,
+              ...(remoteAttachment && { remoteAttachment }),
+              ...(multiRemoteAttachment && { multiRemoteAttachment }),
               sentAt: message.sentAt.toISOString(),
               deliveryStatus: message.deliveryStatus,
             });
