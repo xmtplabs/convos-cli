@@ -120,6 +120,15 @@ export {
   type EncryptedPayload,
 } from "./utils/imageEncryption.js";
 
+// Remote attachment JSON-safe extractors
+export {
+  extractRemoteAttachment,
+  extractMultiRemoteAttachment,
+  type RemoteAttachmentJson,
+  type RemoteAttachmentInfoJson,
+  type MultiRemoteAttachmentJson,
+} from "./utils/remoteAttachment.js";
+
 // Emoji utilities
 export { emojiForIdentifier, EMOJIS } from "./utils/emoji.js";
 
