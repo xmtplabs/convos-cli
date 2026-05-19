@@ -2,6 +2,20 @@
 
 ## 0.10.1 - 2026-05-19
 
+### Breaking: attachments are always sent as remote attachments
+
+`agent serve`'s `attach` command, `conversation send-attachment`, and
+`conversation send-reply --file` now always encrypt and upload via the
+configured upload provider — the 1 MB inline-attachment threshold and
+code path are gone.
+
+- The `--remote` flag is removed from `send-attachment` and `send-reply`
+  (it's now the only behavior).
+- These commands error immediately if no upload provider is configured,
+  instead of silently routing small files inline.
+- `download-attachment` still decodes inline messages transparently for
+  backward compatibility with messages from other senders.
+
 ### Added: Thinking content type
 
 New silent codec for ambient agent thinking-status indicators, anchored to
