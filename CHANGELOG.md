@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 - 2026-05-19
 
 ### Added: Remote-attachment decode helpers
 
@@ -22,6 +22,14 @@ model. Live and catchup `message` paths both populate the new fields.
 
 New exports: `extractRemoteAttachment`, `extractMultiRemoteAttachment`,
 `RemoteAttachmentJson`, `RemoteAttachmentInfoJson`, `MultiRemoteAttachmentJson`.
+
+## 0.10.0 - 2026-05-15
+
+### Breaking
+
+- **Bumps `@xmtp/node-sdk` 5.3.0 → 6.0.0-nightly.20260515.1fc0c5c** ([npm](https://www.npmjs.com/package/@xmtp/node-sdk/v/6.0.0-nightly.20260515.1fc0c5c)), pulling in `@xmtp/node-bindings` 1.9.1 → 1.10.0-nightly. CLI commands, flags, and output are unchanged.
+- **On-disk database**: libxmtp may run forward-only migrations against the local `xmtp-<env>-<inbox>.db3` on first open. After upgrading, do not flip back to a 0.9.x binary against the same DB. Recovery if a DB ends up incompatible: `convos identity remove` + recreate.
+- **For library consumers of `./utils/*` / `./baseCommand`**: no signature changes here, but if a downstream package also imports `@xmtp/node-sdk` directly it will see 6.x types (`ClientOptions` is now a discriminated union `(NetworkOptions | { backend: Backend }) & …`, `RemoteAttachmentInfo` is no longer exported, `ApiUrls` is deprecated in favor of `createBackend()`). `Client.create(signer, { env, … })` inline-literal calls now fail with TS2353; construct the options as a `ClientOptions` first.
 
 ## 0.9.1
 

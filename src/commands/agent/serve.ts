@@ -58,10 +58,7 @@ import {
 } from "../../utils/profileMessages.js";
 import { encryptAndUploadProfileImage } from "../../utils/imageEncryption.js";
 import { randomAlphanumeric } from "../../utils/random.js";
-import {
-  getUploadProvider,
-  INLINE_ATTACHMENT_MAX_BYTES,
-} from "../../utils/upload.js";
+import { getUploadProvider } from "../../utils/upload.js";
 import {
   isJoinRequestMessage,
   getJoinRequestContent,
@@ -1209,68 +1206,48 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           const mimeType = cmd.mimeType ?? getMimeType(cmd.file);
           const attachment = { mimeType, content, filename };
 
-          const needsRemote = content.length > INLINE_ATTACHMENT_MAX_BYTES;
+          const config = this.getConvosConfig();
+          const provider = getUploadProvider(config);
+          if (!provider) {
+            this.emitError(
+              "Configure an upload provider (CONVOS_API_KEY or CONVOS_UPLOAD_PROVIDER) to send attachments.",
+            );
+            return;
+          }
+
+          const encrypted = encryptAttachment(attachment);
+          const url = await provider.upload(encrypted.payload, filename, mimeType);
 
           let messageId: string;
-          let sendType: string;
-          let url: string | undefined;
-
-          if (needsRemote) {
-            const config = this.getConvosConfig();
-            const provider = getUploadProvider(config);
-            if (!provider) {
-              this.emitError(
-                `File is ${content.length} bytes (>${INLINE_ATTACHMENT_MAX_BYTES}). ` +
-                  `Configure an upload provider (CONVOS_UPLOAD_PROVIDER) to send large files.`,
-              );
-              return;
-            }
-
-            const encrypted = encryptAttachment(attachment);
-            url = await provider.upload(encrypted.payload, filename, mimeType);
-
-            if (cmd.replyTo) {
-              const { encodeRemoteAttachment } = await import("@xmtp/node-sdk");
-              messageId = await conversation.sendReply({
-                reference: cmd.replyTo,
-                content: encodeRemoteAttachment({
-                  url,
-                  contentDigest: encrypted.contentDigest,
-                  secret: encrypted.secret,
-                  salt: encrypted.salt,
-                  nonce: encrypted.nonce,
-                  scheme: "https",
-                  contentLength: encrypted.payload.length,
-                  filename,
-                }),
-              });
-            } else {
-              messageId = await conversation.sendRemoteAttachment(
-                {
-                  url,
-                  contentDigest: encrypted.contentDigest,
-                  secret: encrypted.secret,
-                  salt: encrypted.salt,
-                  nonce: encrypted.nonce,
-                  scheme: "https",
-                  contentLength: encrypted.payload.length,
-                  filename,
-                },
-                false,
-              );
-            }
-            sendType = "remote";
+          if (cmd.replyTo) {
+            const { encodeRemoteAttachment } = await import("@xmtp/node-sdk");
+            messageId = await conversation.sendReply({
+              reference: cmd.replyTo,
+              content: encodeRemoteAttachment({
+                url,
+                contentDigest: encrypted.contentDigest,
+                secret: encrypted.secret,
+                salt: encrypted.salt,
+                nonce: encrypted.nonce,
+                scheme: "https",
+                contentLength: encrypted.payload.length,
+                filename,
+              }),
+            });
           } else {
-            if (cmd.replyTo) {
-              const { encodeAttachment } = await import("@xmtp/node-sdk");
-              messageId = await conversation.sendReply({
-                reference: cmd.replyTo,
-                content: encodeAttachment(attachment),
-              });
-            } else {
-              messageId = await conversation.sendAttachment(attachment, false);
-            }
-            sendType = "inline";
+            messageId = await conversation.sendRemoteAttachment(
+              {
+                url,
+                contentDigest: encrypted.contentDigest,
+                secret: encrypted.secret,
+                salt: encrypted.salt,
+                nonce: encrypted.nonce,
+                scheme: "https",
+                contentLength: encrypted.payload.length,
+                filename,
+              },
+              false,
+            );
           }
 
           this.emit({
@@ -1280,8 +1257,8 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             filename,
             mimeType,
             size: content.length,
-            sendType,
-            ...(url && { url }),
+            sendType: "remote",
+            url,
             ...(cmd.replyTo && { replyTo: cmd.replyTo }),
             timestamp: new Date().toISOString(),
           });

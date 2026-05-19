@@ -377,7 +377,3 @@ export function getUploadProvider(config: UploadConfig): UploadProvider | null {
 
   return PROVIDER_FACTORIES[config.uploadProvider](config);
 }
-
-/** Max size for inline attachments (bytes). Files larger than this
- *  are automatically sent as remote attachments when a provider is configured. */
-export const INLINE_ATTACHMENT_MAX_BYTES = 1_000_000;

@@ -7,6 +7,7 @@ import {
   RemoteAttachmentCodec,
 } from "@xmtp/content-type-remote-attachment";
 import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
+import type { ClientOptions } from "@xmtp/node-sdk";
 import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
 import { JoinRequestCodec } from "./joinRequest.js";
 import { TypingIndicatorCodec } from "./typingIndicator.js";
@@ -128,7 +129,10 @@ async function buildClient(
 
   await mkdir(dirname(dbPath), { recursive: true });
 
-  return Client.create(signer, {
+  // ClientOptions is a discriminated union `(NetworkOptions | { backend }) & ...`
+  // in node-sdk >=6.0; pass the network-arm options as a typed value so `env`
+  // and `gatewayHost` survive the type system.
+  const options: ClientOptions = {
     env,
     codecs: [
       new AttachmentCodec(),
@@ -152,5 +156,7 @@ async function buildClient(
     loggingLevel: config.logLevel ? LOG_LEVELS[config.logLevel] : undefined,
     structuredLogging: config.structuredLogging,
     appVersion: config.appVersion ?? DEFAULT_APP_VERSION,
-  });
+  };
+
+  return Client.create(signer, options);
 }
