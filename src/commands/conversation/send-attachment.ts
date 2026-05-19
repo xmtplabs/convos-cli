@@ -5,20 +5,15 @@ import { encryptAttachment } from "@xmtp/node-sdk";
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { getClient } from "../../utils/client.js";
 import { getMimeType } from "../../utils/mime.js";
-import {
-  getUploadProvider,
-  INLINE_ATTACHMENT_MAX_BYTES,
-} from "../../utils/upload.js";
+import { getUploadProvider } from "../../utils/upload.js";
 
 export default class ConversationSendAttachment extends ConvosBaseCommand {
   static description = `Send a file attachment to a conversation.
 
-Reads a file from disk and sends it as an attachment message. Small
-files (≤1MB) are sent inline; large files are automatically encrypted
-and uploaded via the configured upload provider, then sent as a remote
-attachment.
+Reads a file from disk, encrypts it, uploads it via the configured
+upload provider, and sends it as a remote attachment message.
 
-To configure an upload provider for large files, add to your .env:
+To configure an upload provider, add to your .env:
 
   CONVOS_API_KEY=<your-agent-api-key>
 
@@ -37,12 +32,7 @@ without sending (for manual upload workflows).`;
     {
       command:
         "<%= config.bin %> <%= command.id %> <conversation-id> ./photo.jpg",
-      description: "Send a photo (auto-detects inline vs remote)",
-    },
-    {
-      command:
-        "<%= config.bin %> <%= command.id %> <conversation-id> ./photo.jpg --remote",
-      description: "Force remote upload even for small files",
+      description: "Send a photo as a remote attachment",
     },
     {
       command:
@@ -91,11 +81,6 @@ without sending (for manual upload workflows).`;
     "upload-provider-gateway": Flags.string({
       description: "Custom gateway URL for the upload provider",
       helpValue: "<url>",
-    }),
-    remote: Flags.boolean({
-      description:
-        "Force sending as a remote attachment (encrypt + upload), even for small files",
-      default: false,
     }),
   };
 
@@ -154,62 +139,44 @@ without sending (for manual upload workflows).`;
       this.error(`Conversation not found: ${args.id}`);
     }
 
-    const needsRemote =
-      flags.remote || content.length > INLINE_ATTACHMENT_MAX_BYTES;
+    const provider = getUploadProvider(config);
 
-    if (needsRemote) {
-      const provider = getUploadProvider(config);
-
-      if (!provider) {
-        this.error(
-          `File is ${content.length} bytes (>${INLINE_ATTACHMENT_MAX_BYTES}). ` +
-            `Configure an upload provider to send large files.\n\n` +
-            `Set in your .env:\n` +
-            `  CONVOS_API_KEY=<your-agent-api-key>\n\n` +
-            `Or use --encrypt to manually encrypt and upload.`,
-        );
-      }
-
-      const encrypted = encryptAttachment(attachment);
-      const url = await provider.upload(encrypted.payload, filename, mimeType);
-
-      const messageId = await conversation.sendRemoteAttachment(
-        {
-          url,
-          contentDigest: encrypted.contentDigest,
-          secret: encrypted.secret,
-          salt: encrypted.salt,
-          nonce: encrypted.nonce,
-          scheme: "https",
-          contentLength: encrypted.payload.length,
-          filename,
-        },
-        false,
+    if (!provider) {
+      this.error(
+        `Configure an upload provider to send attachments.\n\n` +
+          `Set in your .env:\n` +
+          `  CONVOS_API_KEY=<your-agent-api-key>\n\n` +
+          `Or use --encrypt to manually encrypt and upload.`,
       );
-
-      this.output({
-        success: true,
-        messageId,
-        conversationId: args.id,
-        filename,
-        mimeType,
-        size: content.length,
-        type: "remote",
-        provider: provider.name,
-        url,
-      });
-    } else {
-      const messageId = await conversation.sendAttachment(attachment, false);
-
-      this.output({
-        success: true,
-        messageId,
-        conversationId: args.id,
-        filename,
-        mimeType,
-        size: content.length,
-        type: "inline",
-      });
     }
+
+    const encrypted = encryptAttachment(attachment);
+    const url = await provider.upload(encrypted.payload, filename, mimeType);
+
+    const messageId = await conversation.sendRemoteAttachment(
+      {
+        url,
+        contentDigest: encrypted.contentDigest,
+        secret: encrypted.secret,
+        salt: encrypted.salt,
+        nonce: encrypted.nonce,
+        scheme: "https",
+        contentLength: encrypted.payload.length,
+        filename,
+      },
+      false,
+    );
+
+    this.output({
+      success: true,
+      messageId,
+      conversationId: args.id,
+      filename,
+      mimeType,
+      size: content.length,
+      type: "remote",
+      provider: provider.name,
+      url,
+    });
   }
 }
