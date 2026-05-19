@@ -352,7 +352,7 @@ convos conversation send-remote-attachment <id> <url> \
   --content-digest <hex> --secret <base64> --salt <base64> \
   --nonce <base64> --content-length <bytes>
 
-# Download an attachment (handles remote attachments transparently)
+# Download an attachment (handles both inline and remote transparently)
 convos conversation download-attachment <id> <message-id>
 
 # Download to a specific path
