@@ -190,11 +190,8 @@ convos conversation send-capability-request <conversation-id> \
 ### Send Attachments
 
 ```bash
-# send a photo (small files ≤1MB sent inline, large files auto-uploaded via provider)
+# send a photo (encrypted, uploaded via provider, sent as a remote attachment)
 convos conversation send-attachment <conversation-id> ./photo.jpg
-
-# force remote upload even for small files
-convos conversation send-attachment <conversation-id> ./photo.jpg --remote
 
 # override MIME type
 convos conversation send-attachment <conversation-id> ./file.bin --mime-type image/png
@@ -631,7 +628,7 @@ Events with `catchup: true` were fetched during stream reconnection (missed whil
 | `cloud-connection-grant-request` | `service`, `targetInboxId`, `reason` | `requestedByInboxId` (defaults to the agent's own `inboxId`) |
 | `stop` | — | — |
 
-Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
+Attachments are encrypted, uploaded via the configured upload provider (e.g., Pinata), and sent as remote attachments.
 
 **Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** sends ExplodeSettings and removes every other member — the install's identity is preserved. Immediate explode triggers agent shutdown (the agent was bound to that conversation). **Rename** updates the conversation name visible to all members. **connection-invoke** sends a ConvosConnections invocation (see ConvosConnections section under Important Concepts) — the device replies asynchronously with a `ConnectionInvocationResult` keyed on the same `invocationId`. The reply does not surface as a `message` event (the codec is silent and filtered from the chat stream); it surfaces as a dedicated `connection_result` event on stdout, so agents can correlate by reading lines and matching `invocationId`. **capability-request** is the same shape for capability resolution: agent posts a request naming a `(subject, capability)` pair plus a human rationale, and the device replies asynchronously with a `CapabilityRequestResult` (`approved` / `denied` / `cancelled`) — surfaced as a `capability_result` event with the persisted `providers` array and an `availableActions` array describing invocable provider actions. **cloud-connection-grant-request** is a one-way OAuth link prompt: agent names a cloud `service` (the Composio toolkit slug — `strava`, `googlecalendar`, …), a `targetInboxId`, and a `reason`; the receiving device renders a link card and runs OAuth itself. There is no on-wire reply — agents that need to know whether the link succeeded should watch for the next `profile_update` and re-read `metadata["connections"]`.
 

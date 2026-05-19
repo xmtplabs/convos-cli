@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { Args, Flags } from "@oclif/core";
 import {
-  encodeAttachment,
   encodeRemoteAttachment,
   encryptAttachment,
   encodeText,
@@ -11,18 +10,14 @@ import {
 import { ConvosBaseCommand } from "../../baseCommand.js";
 import { getClient } from "../../utils/client.js";
 import { getMimeType } from "../../utils/mime.js";
-import {
-  getUploadProvider,
-  INLINE_ATTACHMENT_MAX_BYTES,
-} from "../../utils/upload.js";
+import { getUploadProvider } from "../../utils/upload.js";
 
 export default class ConversationSendReply extends ConvosBaseCommand {
   static description = `Send a reply to a message.
 
 By default, sends a text reply. Use --file to reply with a file
-attachment instead. Small files (≤1MB) are sent inline; large files
-are automatically encrypted and uploaded via the configured upload
-provider, then sent as a remote attachment.`;
+attachment instead. File replies are encrypted and uploaded via the
+configured upload provider, then sent as a remote attachment.`;
 
   static examples = [
     {
@@ -56,11 +51,6 @@ provider, then sent as a remote attachment.`;
     "mime-type": Flags.string({
       description: "Override the auto-detected MIME type (with --file)",
       helpValue: "<type>",
-    }),
-    remote: Flags.boolean({
-      description:
-        "Force sending file as a remote attachment, even for small files",
-      default: false,
     }),
     "upload-provider": Flags.string({
       description: "Upload provider for remote attachments",
@@ -139,7 +129,6 @@ provider, then sent as a remote attachment.`;
     flags: {
       file?: string;
       "mime-type"?: string;
-      remote: boolean;
     },
     config: { uploadProvider?: string; uploadProviderToken?: string; uploadProviderGateway?: string },
     conversation: Awaited<
@@ -156,44 +145,29 @@ provider, then sent as a remote attachment.`;
     const mimeType = flags["mime-type"] ?? getMimeType(filePath);
 
     const attachment = { mimeType, content, filename };
-    const needsRemote =
-      flags.remote || content.length > INLINE_ATTACHMENT_MAX_BYTES;
 
-    let encodedContent;
-    let type: string;
-    let url: string | undefined;
-    let providerName: string | undefined;
-
-    if (needsRemote) {
-      const provider = getUploadProvider(config);
-      if (!provider) {
-        this.error(
-          `File is ${content.length} bytes (>${INLINE_ATTACHMENT_MAX_BYTES}). ` +
-            `Configure an upload provider to send large files.\n\n` +
-            `Set in your .env:\n` +
-            `  CONVOS_API_KEY=<your-agent-api-key>`,
-        );
-      }
-
-      const encrypted = encryptAttachment(attachment);
-      url = await provider.upload(encrypted.payload, filename, mimeType);
-      providerName = provider.name;
-
-      encodedContent = encodeRemoteAttachment({
-        url,
-        contentDigest: encrypted.contentDigest,
-        secret: encrypted.secret,
-        salt: encrypted.salt,
-        nonce: encrypted.nonce,
-        scheme: "https",
-        contentLength: encrypted.payload.length,
-        filename,
-      });
-      type = "remote";
-    } else {
-      encodedContent = encodeAttachment(attachment);
-      type = "inline";
+    const provider = getUploadProvider(config);
+    if (!provider) {
+      this.error(
+        `Configure an upload provider to send attachments.\n\n` +
+          `Set in your .env:\n` +
+          `  CONVOS_API_KEY=<your-agent-api-key>`,
+      );
     }
+
+    const encrypted = encryptAttachment(attachment);
+    const url = await provider.upload(encrypted.payload, filename, mimeType);
+
+    const encodedContent = encodeRemoteAttachment({
+      url,
+      contentDigest: encrypted.contentDigest,
+      secret: encrypted.secret,
+      salt: encrypted.salt,
+      nonce: encrypted.nonce,
+      scheme: "https",
+      contentLength: encrypted.payload.length,
+      filename,
+    });
 
     const reply: Reply = {
       reference: args["message-id"],
@@ -209,9 +183,9 @@ provider, then sent as a remote attachment.`;
       filename,
       mimeType,
       size: content.length,
-      type,
-      ...(url && { url }),
-      ...(providerName && { provider: providerName }),
+      type: "remote",
+      url,
+      provider: provider.name,
     });
   }
 }

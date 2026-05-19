@@ -83,10 +83,10 @@ Running `convos init` creates `~/.convos/.env` with:
 | Variable                       | Description                                      |
 | ------------------------------ | ------------------------------------------------ |
 | `CONVOS_ENV`                   | Network: `local`, `dev`, or `production`         |
-| `CONVOS_API_KEY`               | Agent API key — **required** for attachments >1MB and for profile images (auto-selects `convos-api` provider) |
+| `CONVOS_API_KEY`               | Agent API key — **required** for attachments and profile images (auto-selects `convos-api` provider) |
 | `CONVOS_UPLOAD_PROVIDER`       | Upload provider override (`convos-api`, `pinata`, `s3`) |
 
-Without `CONVOS_API_KEY` (or another `CONVOS_UPLOAD_PROVIDER`), `conversation send-attachment` fails for files over 1MB and `conversation update-profile --image` cannot encrypt and upload the image.
+Without `CONVOS_API_KEY` (or another `CONVOS_UPLOAD_PROVIDER`), `conversation send-attachment` fails and `conversation update-profile --image` cannot encrypt and upload the image. All attachments are encrypted and uploaded, then sent as remote attachments.
 
 The singleton identity for this install lives at `~/.convos/identity.json`. XMTP databases live at `~/.convos/db/<env>/main.db3`.
 
@@ -197,7 +197,7 @@ echo '{"type":"react","messageId":"abc123","emoji":"👍","action":"remove"}'
 ### Sending Attachments
 
 ```bash
-# Send a file (≤1MB sent inline, larger files auto-uploaded via provider)
+# Send a file (encrypted and uploaded via configured provider, then sent as a remote attachment)
 echo '{"type":"attach","file":"./chart.png"}'
 
 # Reply with an attachment
@@ -331,14 +331,11 @@ convos conversation stream <id> --timeout 60
 ### Attachments
 
 ```bash
-# Send a photo (small files ≤1MB sent inline)
+# Send a photo (encrypted, uploaded, sent as a remote attachment)
 convos conversation send-attachment <id> ./photo.jpg
 
-# Large files are automatically encrypted and uploaded via configured provider
+# Send a video the same way
 convos conversation send-attachment <id> ./video.mp4
-
-# Force remote upload even for small files
-convos conversation send-attachment <id> ./photo.jpg --remote
 
 # Override MIME type
 convos conversation send-attachment <id> ./file.bin --mime-type image/png
@@ -355,7 +352,7 @@ convos conversation send-remote-attachment <id> <url> \
   --content-digest <hex> --secret <base64> --salt <base64> \
   --nonce <base64> --content-length <bytes>
 
-# Download an attachment (handles both inline and remote transparently)
+# Download an attachment (handles remote attachments transparently)
 convos conversation download-attachment <id> <message-id>
 
 # Download to a specific path
