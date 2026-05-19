@@ -20,7 +20,6 @@ import {
   type DecodedMessage,
   type MultiRemoteAttachment,
   type RemoteAttachment,
-  type RemoteAttachmentInfo,
 } from "@xmtp/node-sdk";
 
 /** JSON-safe view of a single `RemoteAttachmentInfo`. */
@@ -51,7 +50,7 @@ function toBase64(bytes: Uint8Array | undefined | null): string {
   return Buffer.from(bytes).toString("base64");
 }
 
-function toJson(info: RemoteAttachmentInfo): RemoteAttachmentInfoJson {
+function toJson(info: RemoteAttachment): RemoteAttachmentInfoJson {
   return {
     url: info.url,
     contentDigest: info.contentDigest,
