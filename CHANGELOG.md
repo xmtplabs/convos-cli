@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.2 - 2026-05-27
+
+### Changed
+
+- Bumped `@xmtp/node-sdk` to `6.0.0-nightly.20260522.3d3b1e2`.
+
+### Fixed
+
+- `@xmtp/node-sdk` 6.x no longer exports `RemoteAttachmentInfo` (noted
+  in the 0.10.0 CHANGELOG). Replaced the remaining reference in
+  `toJson` with `RemoteAttachment`, whose shape is identical and
+  matches `MultiRemoteAttachment.attachments`.
+
+### Build
+
+- Switched dependency automation from Dependabot to Renovate so the
+  `@xmtp/node-sdk` `nightly` dist-tag is tracked directly (Dependabot
+  only follows `latest`).
+
 ## 0.10.1 - 2026-05-19
 
 ### Breaking: attachments are always sent as remote attachments
