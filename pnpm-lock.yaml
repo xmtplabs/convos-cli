@@ -30,8 +30,8 @@ importers:
         specifier: ^2.0.4
         version: 2.0.4
       '@xmtp/node-sdk':
-        specifier: 6.0.0-nightly.20260522.3d3b1e2
-        version: 6.0.0-nightly.20260522.3d3b1e2
+        specifier: 6.0.0-nightly.20260528.6451ef9
+        version: 6.0.0-nightly.20260528.6451ef9
       protobufjs:
         specifier: ^8.0.0
         version: 8.0.3
@@ -1078,16 +1078,16 @@ packages:
   '@xmtp/content-type-remote-attachment@2.0.4':
     resolution: {integrity: sha512-dHXXIsbn1y+PbNMXbQPkfjXr9LQ0QfQS8tIu/Hz6nL4h5QG5ECHsHfHVzVWE3P0eHlGfLVnQaKqg2dFiP8uwXw==}
 
-  '@xmtp/node-bindings@1.11.0-nightly.20260522.3d3b1e2':
-    resolution: {integrity: sha512-g7yqWFwl3DPlNnzuf3kGPKwipxSko29RYBKNDy89R/8dbZ346EmFFTjiyvwu1psDgZ17S9BXR5UGAWFUrKlKiA==}
+  '@xmtp/node-bindings@1.11.0-nightly.20260528.6451ef9':
+    resolution: {integrity: sha512-7NZhLK5wnYwdjAgzYMM6v6Kw3tms4sziL8GdX61Vd1SXdNO02isnaSDl6cZBFLXLhgh3Z0bzNMK9eK8aZRBLhg==}
     engines: {node: '>=22'}
 
   '@xmtp/node-bindings@1.8.0':
     resolution: {integrity: sha512-dyppg1pQNsEdGH13RfsbkbXdnUdjufak6ea1YahjCROgmaJClDpMHcMcSfMzoJzASanU58MwEdCgYUF638NKgw==}
     engines: {node: '>=22'}
 
-  '@xmtp/node-sdk@6.0.0-nightly.20260522.3d3b1e2':
-    resolution: {integrity: sha512-6icWCU3JVucz9ziH/qPU+SuCV4CTDnlGc/g22XfU5Le0KUzqgmIsyEtaVDRavX6i19wsgdDzZFmor8smLDm7hA==}
+  '@xmtp/node-sdk@6.0.0-nightly.20260528.6451ef9':
+    resolution: {integrity: sha512-Mf7spBrOWuN4hUpP+UZ9GbAr6KrvV/xajXt9PW9OUCnpi+SXk9jXqonQ8F0hDQGWAsGpSjimTS7OHV8WglfTkA==}
     engines: {node: '>=22'}
 
   '@xmtp/proto@3.78.0':
@@ -3494,14 +3494,14 @@ snapshots:
       '@xmtp/content-type-primitives': 2.0.3
       '@xmtp/proto': 3.78.0
 
-  '@xmtp/node-bindings@1.11.0-nightly.20260522.3d3b1e2': {}
+  '@xmtp/node-bindings@1.11.0-nightly.20260528.6451ef9': {}
 
   '@xmtp/node-bindings@1.8.0': {}
 
-  '@xmtp/node-sdk@6.0.0-nightly.20260522.3d3b1e2':
+  '@xmtp/node-sdk@6.0.0-nightly.20260528.6451ef9':
     dependencies:
       '@xmtp/content-type-primitives': 3.0.0
-      '@xmtp/node-bindings': 1.11.0-nightly.20260522.3d3b1e2
+      '@xmtp/node-bindings': 1.11.0-nightly.20260528.6451ef9
 
   '@xmtp/proto@3.78.0':
     dependencies:
