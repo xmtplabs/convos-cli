@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.3
+
+### Patch Changes
+
+- [#55](https://github.com/xmtplabs/convos-cli/pull/55) [`286753e`](https://github.com/xmtplabs/convos-cli/commit/286753ec6325718cd487e942e6a761820c833c84) Thanks [@insipx](https://github.com/insipx)! - make a release with the automated workflow
+
 ## 0.10.2 - 2026-05-27
 
 ### Changed
