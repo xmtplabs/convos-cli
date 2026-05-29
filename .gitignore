@@ -6,3 +6,4 @@ oclif.manifest.json
 .DS_Store
 .env
 .test-data/
+.claude/

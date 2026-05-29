@@ -622,3 +622,21 @@ npm start -- conversations list
 # Type check without emitting
 npm run typecheck
 ```
+
+## Releases
+
+Releases are automated via [Changesets](https://github.com/changesets/changesets) and GitHub Actions.
+
+**For contributors:**
+
+1. After making a user-facing change, run `pnpm changeset` in your PR branch.
+2. Pick the bump level (`patch` / `minor` / `major`) and write the changelog entry in the same narrative voice as existing `CHANGELOG.md` entries — full sentences, explain *why*, call out breaking changes.
+3. Commit the generated `.changeset/*.md` file with your PR.
+
+Renovate and other dependency-bump PRs typically skip the changeset step — those bumps batch silently into the next real release.
+
+**For maintainers:**
+
+When PRs with changesets land on `main`, the `Release` workflow opens (or updates) a `chore: release` PR that aggregates all pending changesets, bumps `package.json`, and prepends `CHANGELOG.md`. Merging that PR triggers the workflow again to publish to npm (via Trusted Publishing / OIDC), tag the release, and create a GitHub Release.
+
+To trigger a release manually after fixing a stuck publish, re-run the `Release` workflow from the Actions tab — `changeset publish` is idempotent.

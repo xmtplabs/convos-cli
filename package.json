@@ -52,6 +52,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsx bin/dev.js",
     "prepack": "npm run build && npx oclif manifest",
+    "release": "pnpm build && changeset publish",
     "start": "tsx bin/run.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -97,7 +98,9 @@
     "@oclif/plugin-help": "^6.2.37",
     "@oclif/plugin-not-found": "^3.2.74",
     "@oclif/plugin-warn-if-update-available": "^3.1.55",
+    "@xmtp/content-type-primitives": "3.0.0",
     "@xmtp/content-type-remote-attachment": "^2.0.4",
+    "@xmtp/node-bindings": "1.11.0-nightly.20260528.6451ef9",
     "@xmtp/node-sdk": "6.0.0-nightly.20260528.6451ef9",
     "protobufjs": "^8.0.0",
     "qrcode": "^1.5.4",
@@ -105,6 +108,8 @@
     "viem": "^2.44.4"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^24.10.9",
     "@types/qrcode": "^1.5.6",
     "@types/qrcode-terminal": "^0.12.2",
@@ -117,6 +122,7 @@
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
