@@ -1,8 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "schedule": ["before 6am"],
-  "prConcurrentLimit": 5,
+  "prConcurrentLimit": 3,
   "labels": ["dependencies"],
   "commitMessagePrefix": "chore(deps):",
   "packageRules": [
