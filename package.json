@@ -52,6 +52,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsx bin/dev.js",
     "prepack": "npm run build && npx oclif manifest",
+    "release": "pnpm build && changeset publish",
     "start": "tsx bin/run.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -105,6 +106,8 @@
     "viem": "^2.44.4"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^24.10.9",
     "@types/qrcode": "^1.5.6",
     "@types/qrcode-terminal": "^0.12.2",
