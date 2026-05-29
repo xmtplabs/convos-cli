@@ -32,17 +32,20 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
-
       - name: Build
         run: pnpm build
+
+      - name: Test
+        run: pnpm test
 
       - name: Create Release PR or Publish
         uses: changesets/action@v1
@@ -53,3 +56,4 @@ jobs:
           commit: "chore: release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
