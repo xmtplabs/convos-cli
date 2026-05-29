@@ -27,8 +27,8 @@ importers:
         specifier: ^3.1.55
         version: 3.1.61
       '@xmtp/content-type-primitives':
-        specifier: 3.0.0
-        version: 3.0.0
+        specifier: 3.0.1
+        version: 3.0.1
       '@xmtp/content-type-remote-attachment':
         specifier: ^2.0.4
         version: 2.0.4
@@ -1173,6 +1173,9 @@ packages:
   '@xmtp/content-type-primitives@3.0.0':
     resolution: {integrity: sha512-gxK6+k0ywOz39LFJjrUF3fOXWXR3aAmIkF7e0rFz7c27izDimZC5E2oja9iz/CYyzDS6lf9Pm31qRcGTMSYaHg==}
 
+  '@xmtp/content-type-primitives@3.0.1':
+    resolution: {integrity: sha512-qM8d3+9A2aKwYuHkkl84BnnECtKop21PMzu7l8NYsTX1qvEkM+sfIqCwiLw4CgYD87OMAzDVCxDNGj1E/g/pWg==}
+
   '@xmtp/content-type-remote-attachment@2.0.4':
     resolution: {integrity: sha512-dHXXIsbn1y+PbNMXbQPkfjXr9LQ0QfQS8tIu/Hz6nL4h5QG5ECHsHfHVzVWE3P0eHlGfLVnQaKqg2dFiP8uwXw==}
 
@@ -1182,6 +1185,10 @@ packages:
 
   '@xmtp/node-bindings@1.8.0':
     resolution: {integrity: sha512-dyppg1pQNsEdGH13RfsbkbXdnUdjufak6ea1YahjCROgmaJClDpMHcMcSfMzoJzASanU58MwEdCgYUF638NKgw==}
+    engines: {node: '>=22'}
+
+  '@xmtp/node-bindings@1.9.1':
+    resolution: {integrity: sha512-0cnAq7j8dPvxDZ5d7JpdbWTgSIKDiN421dxZj4sy1qw7QLOH4yTUKuuMY7CxoChoGa7/QPZGm+0sIIx/Gs2bAg==}
     engines: {node: '>=22'}
 
   '@xmtp/node-sdk@6.0.0-nightly.20260528.6451ef9':
@@ -3967,6 +3974,10 @@ snapshots:
     dependencies:
       '@xmtp/node-bindings': 1.8.0
 
+  '@xmtp/content-type-primitives@3.0.1':
+    dependencies:
+      '@xmtp/node-bindings': 1.9.1
+
   '@xmtp/content-type-remote-attachment@2.0.4':
     dependencies:
       '@noble/secp256k1': 2.3.0
@@ -3976,6 +3987,8 @@ snapshots:
   '@xmtp/node-bindings@1.11.0-nightly.20260528.6451ef9': {}
 
   '@xmtp/node-bindings@1.8.0': {}
+
+  '@xmtp/node-bindings@1.9.1': {}
 
   '@xmtp/node-sdk@6.0.0-nightly.20260528.6451ef9':
     dependencies:
