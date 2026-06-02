@@ -107,7 +107,7 @@
   },
   "peerDependencies": {
     "@xmtp/node-bindings": ">=1.11.0-nightly <2.0.0-0",
-    "@xmtp/node-sdk": ">=6.0.0-nightly <7.0.0-0"
+    "@xmtp/node-sdk": ">=6.0.0-nightly <6.1.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
@@ -115,8 +115,8 @@
     "@types/node": "^24.10.9",
     "@types/qrcode": "^1.5.6",
     "@types/qrcode-terminal": "^0.12.2",
-    "@xmtp/node-bindings": "1.11.0-nightly.20260528.6451ef9",
-    "@xmtp/node-sdk": "6.0.0-nightly.20260528.6451ef9",
+    "@xmtp/node-bindings": "1.11.0-nightly.20260602.7c72fff",
+    "@xmtp/node-sdk": "6.1.0-nightly.20260602.7c72fff",
     "execa": "^9.6.1",
     "oclif": "^4.22.70",
     "tsx": "^4.21.0",
