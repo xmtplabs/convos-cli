@@ -32,12 +32,6 @@ importers:
       '@xmtp/content-type-remote-attachment':
         specifier: ^2.0.4
         version: 2.0.4
-      '@xmtp/node-bindings':
-        specifier: 1.11.0-nightly.20260528.6451ef9
-        version: 1.11.0-nightly.20260528.6451ef9
-      '@xmtp/node-sdk':
-        specifier: 6.0.0-nightly.20260528.6451ef9
-        version: 6.0.0-nightly.20260528.6451ef9
       protobufjs:
         specifier: ^8.0.0
         version: 8.0.3
@@ -66,6 +60,12 @@ importers:
       '@types/qrcode-terminal':
         specifier: ^0.12.2
         version: 0.12.2
+      '@xmtp/node-bindings':
+        specifier: 1.11.0-nightly.20260528.6451ef9
+        version: 1.11.0-nightly.20260528.6451ef9
+      '@xmtp/node-sdk':
+        specifier: 6.0.0-nightly.20260528.6451ef9
+        version: 6.0.0-nightly.20260528.6451ef9
       execa:
         specifier: ^9.6.1
         version: 9.6.1
