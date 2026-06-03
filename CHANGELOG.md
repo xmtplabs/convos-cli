@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.4
+
+### Patch Changes
+
+- [#60](https://github.com/xmtplabs/convos-cli/pull/60) [`39c349a`](https://github.com/xmtplabs/convos-cli/commit/39c349a8d18aea318f71be5dbef73ebcadc4d819) Thanks [@insipx](https://github.com/insipx)! - Declare `@xmtp/node-sdk` and `@xmtp/node-bindings` as peer dependencies so consumers install a single copy. Prevents native-binding segfaults from duplicate node-sdk trees.
+
 ## 0.10.3
 
 ### Patch Changes
