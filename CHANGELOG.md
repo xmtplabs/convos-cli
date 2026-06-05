@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.5
+
+### Patch Changes
+
+- [#64](https://github.com/xmtplabs/convos-cli/pull/64) [`88d3794`](https://github.com/xmtplabs/convos-cli/commit/88d3794c5c7c011398cecaeec95b3aa9199399a2) Thanks [@insipx](https://github.com/insipx)! - Pin `@xmtp/node-sdk` and `@xmtp/node-bindings` to dev build `*-dev.f7b334d` (node-sdk `6.0.0-dev.f7b334d`, node-bindings `1.11.0-dev.f7b334d`). Widen the node-sdk/node-bindings peer ranges to `>=…-dev` so dev-channel prereleases satisfy the peer.
+
 ## 0.10.4
 
 ### Patch Changes
