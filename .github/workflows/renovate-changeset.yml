@@ -1,0 +1,37 @@
+name: Renovate Changeset
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, labeled]
+
+concurrency:
+  group: renovate-changeset-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  changeset:
+    name: Add changeset to Renovate PR
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.labels.*.name, 'dependencies')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Pin to the exact commit that triggered the event, not the mutable
+          # branch ref — closes the TOCTOU window where the branch could be
+          # force-pushed between the event firing and checkout running.
+          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.DEPENDENCY_UPDATE_GITHUB_TOKEN }}
+
+      - name: Add changeset
+        # Pinned to the v1.0.5 commit SHA for immutability (a retagged v1.0.5
+        # could otherwise run arbitrary code with contents:write + our PAT).
+        uses: mscharley/dependency-changesets-action@5d4104fd488c74aeeac510adc55a836dc182c253 # v1.0.5
+        with:
+          token: ${{ secrets.DEPENDENCY_UPDATE_GITHUB_TOKEN }}
+          use-conventional-commits: true
+          author-name: Renovate Changesets
+          author-email: github+renovate@xmtp.com
