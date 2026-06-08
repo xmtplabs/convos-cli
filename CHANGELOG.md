@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.6
+
+### Patch Changes
+
+- [#67](https://github.com/xmtplabs/convos-cli/pull/67) [`29f7593`](https://github.com/xmtplabs/convos-cli/commit/29f759307ddf3b37ccc5b09b5558d8ee2d10b47f) Thanks [@insipx](https://github.com/insipx)! - update xmtp to include init_logging panic fix
+
 ## 0.10.5
 
 ### Patch Changes
