@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.7
+
+### Patch Changes
+
+- [#70](https://github.com/xmtplabs/convos-cli/pull/70) [`ea300be`](https://github.com/xmtplabs/convos-cli/commit/ea300bec28e3d5e3c7157311cc08eac9e89d8116) Thanks [@insipx](https://github.com/insipx)! - update to libxmtp 06-09-2026, event-driven disappearing messages
+
 ## 0.10.6
 
 ### Patch Changes
