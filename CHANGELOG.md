@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.8
+
+### Patch Changes
+
+- [#73](https://github.com/xmtplabs/convos-cli/pull/73) [`d3cc3f2`](https://github.com/xmtplabs/convos-cli/commit/d3cc3f2a14e0976dcb0b2d9ac38dad97029a7eb4) Thanks [@insipx](https://github.com/insipx)! - update to xmtp 06-10-2026 pending self remove worker fix
+
 ## 0.10.7
 
 ### Patch Changes
