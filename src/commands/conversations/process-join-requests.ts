@@ -181,6 +181,17 @@ always-on usage).`;
       // If we can't read appData, skip tag check but continue
     }
 
+    // Scanning Allowed DMs means previously handled join requests come around
+    // again on every batch/catchup pass; an existing membership makes them a
+    // no-op instead of a re-add.
+    const existingMembers = await group.members();
+    if (existingMembers.some((m) => m.inboxId === message.senderInboxId)) {
+      this.log(
+        `${message.senderInboxId} already a member of ${conversationId} — skipping`,
+      );
+      return;
+    }
+
     this.log(`Adding ${message.senderInboxId} to conversation ${conversationId}`);
     await group.addMembers([message.senderInboxId]);
 
@@ -242,9 +253,12 @@ always-on usage).`;
     if (sinceNs === 0n) return;
     try {
       await client.conversations.sync();
+      // Include Allowed DMs: a repeat joiner's request arrives on the DM that
+      // was consented during their first join. Scanning only Unknown DMs
+      // silently drops those requests, leaving the joiner stuck "verifying".
       const dms = await client.conversations.list({
         conversationType: ConversationType.Dm,
-        consentStates: [ConsentState.Unknown],
+        consentStates: [ConsentState.Unknown, ConsentState.Allowed],
       });
       for (const dm of dms) {
         try {
@@ -313,9 +327,12 @@ always-on usage).`;
     const allResults = [];
     await client.conversations.sync();
 
+    // Include Allowed DMs: a repeat joiner's request arrives on the DM that
+    // was consented during their first join. Scanning only Unknown DMs
+    // silently drops those requests, leaving the joiner stuck "verifying".
     const dms = await client.conversations.list({
       conversationType: ConversationType.Dm,
-      consentStates: [ConsentState.Unknown],
+      consentStates: [ConsentState.Unknown, ConsentState.Allowed],
     });
 
     for (const dm of dms) {
