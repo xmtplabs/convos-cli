@@ -27,9 +27,11 @@ jobs:
           token: ${{ secrets.DEPENDENCY_UPDATE_GITHUB_TOKEN }}
 
       - name: Add changeset
-        # Pinned to the v1.0.5 commit SHA for immutability (a retagged v1.0.5
-        # could otherwise run arbitrary code with contents:write + our PAT).
-        uses: mscharley/dependency-changesets-action@5d4104fd488c74aeeac510adc55a836dc182c253 # v1.0.5
+        # Pinned to the v1.2.4 commit SHA for immutability (a retagged tag could
+        # otherwise run arbitrary code with contents:write + our PAT). v1.2.x is
+        # required: older tags still mandate the renamed `use-semantic-commits`
+        # input and run on the deprecated Node 20 runtime.
+        uses: mscharley/dependency-changesets-action@f96232368519695969bea8a8cfff7cca32b1e56a # v1.2.4
         with:
           token: ${{ secrets.DEPENDENCY_UPDATE_GITHUB_TOKEN }}
           use-conventional-commits: true
