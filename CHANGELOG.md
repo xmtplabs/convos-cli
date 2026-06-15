@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.9
+
+### Patch Changes
+
+- [#79](https://github.com/xmtplabs/convos-cli/pull/79) [`08a76dd`](https://github.com/xmtplabs/convos-cli/commit/08a76dd94209e98afb6fdd05c850e9ed1741dc7e) Thanks [@insipx](https://github.com/insipx)! - update xmtp
+
 ## 0.10.8
 
 ### Patch Changes
