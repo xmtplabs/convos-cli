@@ -1281,7 +1281,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
                 contentLength: encrypted.payload.length,
                 filename,
               },
-              false,
+              {},
             );
           }
 
@@ -1321,7 +1321,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
 
           const remoteMessageId = await conversation.sendRemoteAttachment(
             remoteAttachment,
-            false,
+            {},
           );
 
           this.emit({
