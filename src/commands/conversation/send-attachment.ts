@@ -164,7 +164,7 @@ without sending (for manual upload workflows).`;
         contentLength: encrypted.payload.length,
         filename,
       },
-      false,
+      {},
     );
 
     this.output({

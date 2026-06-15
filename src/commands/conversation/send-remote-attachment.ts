@@ -94,7 +94,7 @@ command to send the message.`;
 
     const messageId = await conversation.sendRemoteAttachment(
       remoteAttachment,
-      false,
+      {},
     );
 
     this.output({
