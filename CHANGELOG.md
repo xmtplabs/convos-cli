@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.10
+
+### Patch Changes
+
+- [#82](https://github.com/xmtplabs/convos-cli/pull/82) [`1a4a74c`](https://github.com/xmtplabs/convos-cli/commit/1a4a74c2744446b091d403dcb290d5c7913ef6b3) Thanks [@saulmc](https://github.com/saulmc)! - Fix `normalizeMessageContent` so a reply that carries a non-text payload renders its display string instead of a raw JSON dump of the decoded content. A reply containing a remote attachment now renders `reply to "…": [remote attachment: photo.jpg (… bytes) https://…]` rather than serializing the attachment envelope — which leaked the AES key material (secret/salt/nonce) into the message text. Inline attachments, reactions, and other nested content types render through the same path.
+
 ## 0.10.9
 
 ### Patch Changes
