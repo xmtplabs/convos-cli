@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   describeAppDataChange,
   getSenderProfile,
+  normalizeMessageContent,
   type ProfileMap,
 } from "../../src/utils/xmtp.js";
+import type { DecodedMessage } from "@xmtp/node-sdk";
 import {
   serializeAppData,
   type ConversationCustomMetadata,
@@ -495,5 +497,84 @@ describe("getSenderProfile", () => {
 
     const profile = getSenderProfile(appData, inboxB);
     expect(profile).toEqual({ name: "Bob", image: "https://example.com/b.jpg" });
+  });
+});
+
+describe("normalizeMessageContent", () => {
+  const ct = (typeId: string) => ({ authorityId: "xmtp.org", typeId });
+
+  const asMessage = (contentType: object, content: unknown) =>
+    ({ contentType, content }) as unknown as DecodedMessage;
+
+  it("returns plain text content verbatim", () => {
+    expect(
+      normalizeMessageContent(asMessage(ct("text"), "Hello everyone")),
+    ).toBe("Hello everyone");
+  });
+
+  it("renders a text reply with its inline parent context", () => {
+    const reply = asMessage(ct("reply"), {
+      referenceId: "abc123",
+      contentType: ct("text"),
+      content: "Thanks!",
+      inReplyTo: asMessage(ct("text"), "Hello everyone"),
+    });
+    expect(normalizeMessageContent(reply)).toBe(
+      'reply to "Hello everyone" (abc123): Thanks!',
+    );
+  });
+
+  it("renders a reply carrying a remote attachment as a display string, not a key-material dump", () => {
+    // The inner content is the decoded RemoteAttachment envelope, including the
+    // AES key material (secret/salt/nonce). Before the fix this was
+    // JSON.stringify'd verbatim into the reply text, leaking the key bytes.
+    const reply = asMessage(ct("reply"), {
+      referenceId: "7739f5bd",
+      contentType: ct("remoteStaticAttachment"),
+      content: {
+        url: "https://assets.example.com/742a7a0e.bin",
+        contentDigest: "969e25c9",
+        secret: new Uint8Array([1, 2, 3]),
+        salt: new Uint8Array([4, 5, 6]),
+        nonce: new Uint8Array([7, 8, 9]),
+        scheme: "https",
+        contentLength: 4521,
+        filename: "photo.jpg",
+      },
+      inReplyTo: asMessage(ct("text"), "see attached"),
+    });
+
+    const out = normalizeMessageContent(reply);
+
+    expect(out).toBe(
+      'reply to "see attached" (7739f5bd): [remote attachment: photo.jpg (4521 bytes) https://assets.example.com/742a7a0e.bin]',
+    );
+    expect(out).not.toContain("secret");
+    expect(out).not.toContain("salt");
+    expect(out).not.toContain("nonce");
+  });
+
+  it("renders a reply carrying an inline attachment as a display string", () => {
+    const reply = asMessage(ct("reply"), {
+      referenceId: "def456",
+      contentType: ct("attachment"),
+      content: { filename: "note.txt", mimeType: "text/plain" },
+      inReplyTo: null,
+    });
+    expect(normalizeMessageContent(reply)).toBe(
+      "reply to def456: [attachment: note.txt (text/plain)]",
+    );
+  });
+
+  it("falls back to JSON when a reply's inner content type is unknown", () => {
+    const reply = asMessage(ct("reply"), {
+      referenceId: "ghi789",
+      contentType: undefined,
+      content: { weird: true },
+      inReplyTo: null,
+    });
+    expect(normalizeMessageContent(reply)).toBe(
+      'reply to ghi789: {"weird":true}',
+    );
   });
 });

@@ -527,9 +527,24 @@ export function normalizeMessageContent(
     const r = message.content as {
       referenceId: string;
       content: unknown;
+      contentType?: DecodedMessage["contentType"];
       inReplyTo: DecodedMessage | null;
     };
-    const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+    // Render the inner content through the same normalizer so a reply that
+    // carries a non-text payload (a remote/inline attachment, a reaction, …)
+    // becomes its display string — e.g. "[remote attachment: photo.jpg (…) …]"
+    // — instead of a raw JSON dump of the decoded envelope, which for a remote
+    // attachment leaks the AES key material (secret/salt/nonce) into the text.
+    const text =
+      typeof r.content === "string"
+        ? r.content
+        : r.contentType
+          ? normalizeMessageContent(
+              { contentType: r.contentType, content: r.content } as DecodedMessage,
+              profiles,
+              depth + 1,
+            )
+          : JSON.stringify(r.content);
     const parentContent = r.inReplyTo && depth < 1
       ? normalizeMessageContent(r.inReplyTo, profiles, depth + 1)
       : undefined;
