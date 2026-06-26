@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.11
+
+### Patch Changes
+
+- [#85](https://github.com/xmtplabs/convos-cli/pull/85) [`eb09c2e`](https://github.com/xmtplabs/convos-cli/commit/eb09c2e0fd764b0709c89c5d26f0d749fab02bc0) Thanks [@insipx](https://github.com/insipx)! - update XMTP
+
 ## 0.10.10
 
 ### Patch Changes
