@@ -34,6 +34,11 @@ jobs:
         uses: mscharley/dependency-changesets-action@f96232368519695969bea8a8cfff7cca32b1e56a # v1.2.4
         with:
           token: ${{ secrets.DEPENDENCY_UPDATE_GITHUB_TOKEN }}
-          use-conventional-commits: true
+          # Must be explicitly false (the action defaults it to true). Our Renovate
+          # commits are prefixed `chore(deps):`, which the conventional-commit
+          # parser maps to an update type of `none` and then skips the PR without
+          # writing a changeset. With it off, the action defaults every dependency
+          # update to a `patch` changeset.
+          use-conventional-commits: false
           author-name: Renovate Changesets
           author-email: github+renovate@xmtp.com
