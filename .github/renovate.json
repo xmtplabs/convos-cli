@@ -3,6 +3,8 @@
   "extends": ["config:recommended"],
   "prConcurrentLimit": 3,
   "labels": ["dependencies"],
+  "automerge": true,
+  "platformAutomerge": true,
   "commitMessagePrefix": "chore(deps):",
   "packageRules": [
     {
