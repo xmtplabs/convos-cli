@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.12
+
+### Patch Changes
+
+- [#89](https://github.com/xmtplabs/convos-cli/pull/89) [`dfe5ad7`](https://github.com/xmtplabs/convos-cli/commit/dfe5ad72f76988b015cf5b07d27cf84377aee490) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
 ## 0.10.11
 
 ### Patch Changes
