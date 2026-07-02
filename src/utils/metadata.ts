@@ -5,7 +5,7 @@
  * Encoding: protobuf → optional DEFLATE compress → base64url
  */
 
-import { deflateSync, inflateSync } from "node:zlib";
+import { deflateSync, inflateRawSync, inflateSync } from "node:zlib";
 import protobuf from "protobufjs";
 
 const root = new protobuf.Root();
@@ -75,8 +75,24 @@ function compressIfSmaller(data: Buffer): Buffer {
 function decompressIfNeeded(data: Buffer): Buffer {
   if (data.length === 0) return data;
   if (data[0] === COMPRESSION_MARKER) {
-    // iOS format: [marker][4-byte size BE][zlib data]
-    const decompressed = Buffer.from(inflateSync(data.subarray(5)));
+    // Framed as [marker][4-byte original size BE][compressed body]. The body
+    // is zlib-wrapped when written by this library (Node deflateSync) but raw
+    // DEFLATE when written by iOS — Apple's COMPRESSION_ZLIB emits no zlib
+    // header despite the name. Accept both.
+    const body = data.subarray(5);
+    let decompressed: Buffer;
+    try {
+      decompressed = Buffer.from(inflateSync(body));
+    } catch (zlibError) {
+      try {
+        decompressed = Buffer.from(inflateRawSync(body));
+      } catch {
+        // Both formats failed. Surface the zlib error — it is the canonical
+        // format this library writes, so its failure is the meaningful one;
+        // the raw-deflate attempt was only the iOS-compat fallback.
+        throw zlibError;
+      }
+    }
     if (decompressed.length > MAX_DECOMPRESSED_SIZE) {
       throw new Error("Decompressed metadata exceeds size limit");
     }
@@ -111,14 +127,10 @@ function base64urlDecode(str: string): Buffer {
 const APP_DATA_LIMIT = 8 * 1024; // 8KB
 
 /**
- * Parse appData string into ConversationCustomMetadata.
- * Returns empty metadata if appData is empty or invalid.
+ * Strict decode: throws on undecodable appData. Internal — external callers
+ * use the lenient `parseAppData` or the write-guarded `parseAppDataForWrite`.
  */
-export function parseAppData(appData: string): ConversationCustomMetadata {
-  if (!appData || appData.length === 0) {
-    return { tag: "", profiles: [] };
-  }
-
+function decodeAppData(appData: string): ConversationCustomMetadata {
   // Try legacy JSON format first (from early invite tag storage)
   if (appData.startsWith("{")) {
     try {
@@ -133,8 +145,18 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
     }
   }
 
-  // Try base64url → decompress → protobuf
-  try {
+  // Buffer.from(str, "base64url") never throws — invalid characters are
+  // silently dropped, so garbage input "decodes" to garbage bytes (often
+  // empty), which protobuf then happily reads as an empty message. Reject
+  // non-alphabet input explicitly so undecodable appData fails the decode
+  // (and carries a cause upstream) instead of masquerading as decoded-but-
+  // empty metadata.
+  if (!/^[A-Za-z0-9_-]+$/.test(appData)) {
+    throw new Error("appData is not valid base64url");
+  }
+
+  // base64url → decompress → protobuf
+  {
     const rawBytes = base64urlDecode(appData);
     const decompressed = decompressIfNeeded(rawBytes);
     const msg = ConversationCustomMetadataType.decode(decompressed) as protobuf.Message & {
@@ -184,6 +206,20 @@ export function parseAppData(appData: string): ConversationCustomMetadata {
       encryptedGroupImage: parseEncryptedImageRef(msg.encryptedGroupImage),
       emoji: msg.emoji || undefined,
     };
+  }
+}
+
+/**
+ * Parse appData string into ConversationCustomMetadata.
+ * Returns empty metadata if appData is empty or invalid.
+ */
+export function parseAppData(appData: string): ConversationCustomMetadata {
+  if (!appData || appData.length === 0) {
+    return { tag: "", profiles: [] };
+  }
+
+  try {
+    return decodeAppData(appData);
   } catch {
     return { tag: "", profiles: [] };
   }
@@ -199,8 +235,22 @@ export function parseAppDataForWrite(appData: string): ConversationCustomMetadat
     return { tag: "", profiles: [] };
   }
 
-  const parsed = parseAppData(appData);
+  let parsed: ConversationCustomMetadata;
+  try {
+    parsed = decodeAppData(appData);
+  } catch (error) {
+    // Undecodable bytes: writing back would clobber whatever state the group
+    // actually has. The original decode error rides as `cause` so callers'
+    // telemetry can show WHAT failed (e.g. a zlib header mismatch) instead of
+    // only this guard message.
+    throw new Error("Could not parse existing appData safely for write", {
+      cause: error,
+    });
+  }
   if (!parsed.tag) {
+    // Decoded fine but tagless — still refuse (an empty tag written back
+    // would clobber a concurrent invite tag), with no cause: nothing failed
+    // to decode.
     throw new Error("Could not parse existing appData safely for write");
   }
 
