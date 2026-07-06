@@ -5,7 +5,7 @@
  * Encoding: protobuf → optional DEFLATE compress → base64url
  */
 
-import { deflateSync, inflateRawSync, inflateSync } from "node:zlib";
+import { deflateRawSync, inflateRawSync, inflateSync } from "node:zlib";
 import protobuf from "protobufjs";
 
 const root = new protobuf.Root();
@@ -55,14 +55,15 @@ export interface ConversationCustomMetadata {
   emoji?: string; // Stable conversation emoji (shared across all members)
 }
 
-// Wire format matches iOS: DEFLATE if payload >100 bytes, framed as
-// [marker: 1 byte][original_size: 4 bytes big-endian][zlib data].
+// Wire format matches iOS/Android: raw DEFLATE if payload >100 bytes, framed
+// as [marker: 1 byte][original_size: 4 bytes big-endian][raw DEFLATE data] —
+// what Apple's COMPRESSION_ZLIB and Android's Deflater(nowrap=true) produce.
 const COMPRESSION_MARKER = 0x1f;
 const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024; // 10MB
 
 function compressIfSmaller(data: Buffer): Buffer {
   if (data.length <= 100) return data;
-  const compressed = deflateSync(data);
+  const compressed = deflateRawSync(data);
   // 1 byte marker + 4 bytes size + compressed data
   if (compressed.length + 5 < data.length) {
     const sizeBytes = Buffer.alloc(4);
@@ -76,21 +77,21 @@ function decompressIfNeeded(data: Buffer): Buffer {
   if (data.length === 0) return data;
   if (data[0] === COMPRESSION_MARKER) {
     // Framed as [marker][4-byte original size BE][compressed body]. The body
-    // is zlib-wrapped when written by this library (Node deflateSync) but raw
-    // DEFLATE when written by iOS — Apple's COMPRESSION_ZLIB emits no zlib
-    // header despite the name. Accept both.
+    // is raw DEFLATE (the fleet-wide format: iOS, Android, and this library
+    // since the phase-2 writer convergence), but blobs written by this
+    // library before the flip are zlib-wrapped. Accept both.
     const body = data.subarray(5);
     let decompressed: Buffer;
     try {
-      decompressed = Buffer.from(inflateSync(body));
-    } catch (zlibError) {
+      decompressed = Buffer.from(inflateRawSync(body));
+    } catch (rawError) {
       try {
-        decompressed = Buffer.from(inflateRawSync(body));
+        decompressed = Buffer.from(inflateSync(body));
       } catch {
-        // Both formats failed. Surface the zlib error — it is the canonical
-        // format this library writes, so its failure is the meaningful one;
-        // the raw-deflate attempt was only the iOS-compat fallback.
-        throw zlibError;
+        // Both formats failed. Surface the raw-deflate error — it is the
+        // canonical format the fleet writes; the zlib attempt is only the
+        // historic-blob fallback.
+        throw rawError;
       }
     }
     if (decompressed.length > MAX_DECOMPRESSED_SIZE) {

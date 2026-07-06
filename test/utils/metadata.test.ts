@@ -1,4 +1,4 @@
-import { deflateRawSync } from "node:zlib";
+import { deflateRawSync, deflateSync, inflateRawSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 import {
@@ -412,6 +412,48 @@ describe("conversation metadata", () => {
         Buffer.from("definitely-not-deflate"),
       ]).toString("base64url");
       expect(parseAppData(garbage)).toEqual({ tag: "", profiles: [] });
+    });
+  });
+
+  describe("raw-DEFLATE writer (phase 2 of format convergence)", () => {
+    // Enough content to cross the 100-byte compression threshold.
+    const largeMetadata = {
+      tag: "phaseTwoTag",
+      profiles: [
+        { inboxId: inboxA, name: "Alice", image: "https://example.com/alice-avatar.png" },
+        { inboxId: inboxB, name: "Bob", image: "https://example.com/bob-avatar.png" },
+      ],
+    };
+
+    it("emits raw DEFLATE so iOS/Android raw-only readers can decode it", () => {
+      const encoded = serializeAppData(largeMetadata);
+      const rawBytes = Buffer.from(encoded, "base64url");
+      expect(rawBytes[0]).toBe(0x1f); // compressed
+      const declaredSize = rawBytes.readUInt32BE(1);
+      // Raw inflate must succeed DIRECTLY — no zlib header to skip. This is
+      // exactly what Apple's COMPRESSION_ZLIB and Inflater(nowrap=true) do.
+      const inflated = inflateRawSync(rawBytes.subarray(5));
+      expect(inflated.length).toBe(declaredSize);
+      expect(parseAppData(encoded)).toEqual(parseAppData(encoded));
+      expect(parseAppData(encoded).tag).toBe("phaseTwoTag");
+    });
+
+    it("still reads historic zlib-wrapped blobs written before the flip", () => {
+      // Mirror of the pre-phase-2 writer: zlib-wrapped deflate in the frame.
+      const protobufBytes = Buffer.from(
+        serializeAppData({ tag: "legacyZlib", profiles: [] }),
+        "base64url",
+      );
+      const compressed = deflateSync(protobufBytes);
+      const sizeBytes = Buffer.alloc(4);
+      sizeBytes.writeUInt32BE(protobufBytes.length);
+      const legacyBlob = Buffer.concat([
+        Buffer.from([0x1f]),
+        sizeBytes,
+        compressed,
+      ]).toString("base64url");
+
+      expect(parseAppData(legacyBlob).tag).toBe("legacyZlib");
     });
   });
 
