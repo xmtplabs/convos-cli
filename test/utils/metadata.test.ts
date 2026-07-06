@@ -1,3 +1,5 @@
+import { deflateRawSync } from "node:zlib";
+
 import { describe, expect, it } from "vitest";
 import {
   parseAppData,
@@ -372,6 +374,95 @@ describe("conversation metadata", () => {
     it("returns undefined if not found", () => {
       const meta = { tag: "t", profiles: [] };
       expect(getProfile(meta, inboxA)).toBeUndefined();
+    });
+  });
+
+  describe("raw-DEFLATE (iOS) compressed appData", () => {
+    // iOS compresses with Apple's COMPRESSION_ZLIB, which emits raw DEFLATE
+    // (no zlib header). Frame: [0x1f][4-byte size BE][raw deflate body].
+    function iosCompress(payload: Buffer): string {
+      const compressed = deflateRawSync(payload);
+      const sizeBytes = Buffer.alloc(4);
+      sizeBytes.writeUInt32BE(payload.length);
+      return Buffer.concat([
+        Buffer.from([0x1f]),
+        sizeBytes,
+        compressed,
+      ]).toString("base64url");
+    }
+
+    it("parses an iOS-compressed blob identically to its uncompressed form", () => {
+      // A <100-byte payload is below the writer's compression threshold, so
+      // serializeAppData returns the raw protobuf bytes base64url-encoded —
+      // no un-framing needed and no coupling to the writer's compression
+      // heuristics. Frame those bytes the way iOS does and parse.
+      const uncompressed = serializeAppData({ tag: "inviteTag123", profiles: [] });
+      const protobufBytes = Buffer.from(uncompressed, "base64url");
+
+      const iosBlob = iosCompress(protobufBytes);
+      const parsed = parseAppData(iosBlob);
+
+      expect(parsed).toEqual(parseAppData(uncompressed));
+      expect(parsed.tag).toBe("inviteTag123");
+    });
+
+    it("still rejects garbage compressed bodies", () => {
+      const garbage = Buffer.concat([
+        Buffer.from([0x1f, 0x00, 0x00, 0x00, 0x10]),
+        Buffer.from("definitely-not-deflate"),
+      ]).toString("base64url");
+      expect(parseAppData(garbage)).toEqual({ tag: "", profiles: [] });
+    });
+  });
+
+  describe("parseAppDataForWrite cause threading", () => {
+    it("attaches the decode error as cause when appData is undecodable", () => {
+      const garbage = Buffer.concat([
+        Buffer.from([0x1f, 0x00, 0x00, 0x00, 0x10]),
+        Buffer.from("definitely-not-deflate"),
+      ]).toString("base64url");
+      let thrown: unknown;
+      try {
+        parseAppDataForWrite(garbage);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toBe(
+        "Could not parse existing appData safely for write",
+      );
+      expect((thrown as Error).cause).toBeInstanceOf(Error);
+    });
+
+    it("attaches a cause for garbage that is not even base64url", () => {
+      // "!!!!": Buffer.from(.., "base64url") silently drops every char and
+      // yields an empty buffer, which protobuf reads as an empty message —
+      // without an explicit alphabet check this would misclassify as
+      // decoded-but-tagless (no cause).
+      let thrown: unknown;
+      try {
+        parseAppDataForWrite("!!!!");
+      } catch (err) {
+        thrown = err;
+      }
+      expect((thrown as Error).cause).toBeInstanceOf(Error);
+      // Lenient path is unchanged: still empty metadata, no throw.
+      expect(parseAppData("!!!!")).toEqual({ tag: "", profiles: [] });
+    });
+
+    it("throws WITHOUT cause when appData decodes but has an empty tag", () => {
+      const tagless = serializeAppData({
+        tag: "",
+        profiles: [{ inboxId: inboxA, name: "Agent" }],
+      });
+      let thrown: unknown;
+      try {
+        parseAppDataForWrite(tagless);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).cause).toBeUndefined();
     });
   });
 });
