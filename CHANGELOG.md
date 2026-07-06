@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.13
+
+### Patch Changes
+
+- [#91](https://github.com/xmtplabs/convos-cli/pull/91) [`2455d7c`](https://github.com/xmtplabs/convos-cli/commit/2455d7cafa507d0036a4789a8ed78a081bfbe5f1) Thanks [@insipx](https://github.com/insipx)! - Accept raw-DEFLATE (iOS-compressed) appData in parseAppData/parseAppDataForWrite, and attach the original decode error as `cause` on the write-guard throw.
+
 ## 0.10.12
 
 ### Patch Changes
