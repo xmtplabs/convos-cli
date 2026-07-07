@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.14
+
+### Patch Changes
+
+- [#94](https://github.com/xmtplabs/convos-cli/pull/94) [`b008c80`](https://github.com/xmtplabs/convos-cli/commit/b008c80d1a356b4f3ea49f5c6fb06b43e465305b) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#93](https://github.com/xmtplabs/convos-cli/pull/93) [`fcb4ce1`](https://github.com/xmtplabs/convos-cli/commit/fcb4ce1cdfa08094806cfbaf4f30035994ca908d) Thanks [@insipx](https://github.com/insipx)! - Write appData compressed bodies as raw DEFLATE (matching iOS/Android), completing the compression-format convergence. Historic zlib-wrapped blobs remain readable via the dual-format reader.
+
 ## 0.10.13
 
 ### Patch Changes
