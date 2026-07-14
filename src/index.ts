@@ -97,6 +97,16 @@ export {
   type ThinkingState,
 } from "./utils/thinking.js";
 
+// Thinking-control content type
+export {
+  ThinkingControlCodec,
+  ContentTypeThinkingControl,
+  isThinkingControlMessage,
+  getThinkingControlContent,
+  type ThinkingControl,
+  type ThinkingControlAction,
+} from "./utils/thinkingControl.js";
+
 // Explode settings content type
 export {
   ExplodeSettingsCodec,
