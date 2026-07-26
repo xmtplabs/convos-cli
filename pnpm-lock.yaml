@@ -61,11 +61,11 @@ importers:
         specifier: ^0.12.2
         version: 0.12.2
       '@xmtp/node-bindings':
-        specifier: 1.11.0-nightly.20260725.25f2060
-        version: 1.11.0-nightly.20260725.25f2060
+        specifier: 1.11.0-nightly.20260726.b649d1a
+        version: 1.11.0-nightly.20260726.b649d1a
       '@xmtp/node-sdk':
-        specifier: 6.1.0-nightly.20260725.25f2060
-        version: 6.1.0-nightly.20260725.25f2060
+        specifier: 6.1.0-nightly.20260726.b649d1a
+        version: 6.1.0-nightly.20260726.b649d1a
       execa:
         specifier: ^9.6.1
         version: 9.6.1
@@ -1179,8 +1179,8 @@ packages:
   '@xmtp/content-type-remote-attachment@2.0.4':
     resolution: {integrity: sha512-dHXXIsbn1y+PbNMXbQPkfjXr9LQ0QfQS8tIu/Hz6nL4h5QG5ECHsHfHVzVWE3P0eHlGfLVnQaKqg2dFiP8uwXw==}
 
-  '@xmtp/node-bindings@1.11.0-nightly.20260725.25f2060':
-    resolution: {integrity: sha512-hxzFgzuuR9X71I0Cf/hIpsuOV2TXjRoItutT+o9bvN37gPLruoehO6LSzEmQpgIiIdzZ/hmMOMfAB6XEtjYnhg==}
+  '@xmtp/node-bindings@1.11.0-nightly.20260726.b649d1a':
+    resolution: {integrity: sha512-W2+cCKDUz1tO5bctLIOB/JmJ1EHrOz1sOF2kiP+jY2MBLOmAUzgDilX74HSUGVIj9sh2fMLky46uJ2MhraDRWQ==}
     engines: {node: '>=22'}
 
   '@xmtp/node-bindings@1.8.0':
@@ -1191,8 +1191,8 @@ packages:
     resolution: {integrity: sha512-0cnAq7j8dPvxDZ5d7JpdbWTgSIKDiN421dxZj4sy1qw7QLOH4yTUKuuMY7CxoChoGa7/QPZGm+0sIIx/Gs2bAg==}
     engines: {node: '>=22'}
 
-  '@xmtp/node-sdk@6.1.0-nightly.20260725.25f2060':
-    resolution: {integrity: sha512-L61Bjga+GwOi8R/CCqvhtv9Lz0YpSrrsGfBCMeu2JvGfi3jNsJxzFx0qGZkXeM9j9K2jb8UPQbvYOo1NimP3Bw==}
+  '@xmtp/node-sdk@6.1.0-nightly.20260726.b649d1a':
+    resolution: {integrity: sha512-ATP2ABGVl3K7pu/1ZcIjlB0sjFyleIj/aa63jPockMaQ8ITc8hViBJgnXXqKNbqSyvx9FULYo+FLO8BO6jTBfQ==}
     engines: {node: '>=22'}
 
   '@xmtp/proto@3.78.0':
@@ -3984,16 +3984,16 @@ snapshots:
       '@xmtp/content-type-primitives': 2.0.3
       '@xmtp/proto': 3.78.0
 
-  '@xmtp/node-bindings@1.11.0-nightly.20260725.25f2060': {}
+  '@xmtp/node-bindings@1.11.0-nightly.20260726.b649d1a': {}
 
   '@xmtp/node-bindings@1.8.0': {}
 
   '@xmtp/node-bindings@1.9.1': {}
 
-  '@xmtp/node-sdk@6.1.0-nightly.20260725.25f2060':
+  '@xmtp/node-sdk@6.1.0-nightly.20260726.b649d1a':
     dependencies:
       '@xmtp/content-type-primitives': 3.0.0
-      '@xmtp/node-bindings': 1.11.0-nightly.20260725.25f2060
+      '@xmtp/node-bindings': 1.11.0-nightly.20260726.b649d1a
 
   '@xmtp/proto@3.78.0':
     dependencies:
