@@ -39,6 +39,7 @@ export {
   getProfile,
   type ConversationProfile,
   type ConversationCustomMetadata,
+  type AgentDmInfo,
 } from "./utils/metadata.js";
 
 // Profile messages (primary profile source)

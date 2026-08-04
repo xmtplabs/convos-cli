@@ -275,6 +275,44 @@ describe("conversation metadata", () => {
       expect(Buffer.from(decoded.imageEncryptionKey!)).toEqual(Buffer.from("deadbeef".repeat(4), "hex"));
     });
 
+    it("roundtrips agentDm originConversationId", () => {
+      const originId = "cc" + "11".repeat(31);
+      const original = {
+        tag: "agentDmTag",
+        profiles: [],
+        agentDm: { originConversationId: originId },
+      };
+      const encoded = serializeAppData(original);
+      const decoded = parseAppData(encoded);
+      expect(decoded.agentDm?.originConversationId).toBe(originId);
+    });
+
+    it("preserves agentDm through parseAppDataForWrite (RMW survival)", () => {
+      const originId = "dd" + "22".repeat(31);
+      const encoded = serializeAppData({
+        tag: "rmwTag",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+        agentDm: { originConversationId: originId },
+      });
+
+      // Write-guarded read: marker must survive so a later RMW can't strip it.
+      const forWrite = parseAppDataForWrite(encoded);
+      expect(forWrite.agentDm?.originConversationId).toBe(originId);
+
+      // Simulate lock: rotate tag, write back, marker persists.
+      forWrite.tag = "rotated";
+      const reEncoded = serializeAppData(forWrite);
+      const reParsed = parseAppData(reEncoded);
+      expect(reParsed.agentDm?.originConversationId).toBe(originId);
+      expect(reParsed.tag).toBe("rotated");
+    });
+
+    it("omits agentDm field when absent", () => {
+      const encoded = serializeAppData({ tag: "noAgentDm", profiles: [] });
+      const decoded = parseAppData(encoded);
+      expect(decoded.agentDm).toBeUndefined();
+    });
+
     it("stays under 8KB for many profiles", () => {
       const profiles = Array.from({ length: 50 }, (_, i) => ({
         inboxId: i.toString(16).padStart(64, "0"),

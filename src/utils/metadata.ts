@@ -21,16 +21,22 @@ const ConversationProfileType = new protobuf.Type("ConversationProfile")
   .add(new protobuf.Field("image", 3, "string", "optional"))
   .add(new protobuf.Field("encryptedImage", 4, "EncryptedImageRef", "optional"));
 
+const AgentDmInfoType = new protobuf.Type("AgentDmInfo").add(
+  new protobuf.Field("originConversationId", 1, "bytes", "optional"),
+);
+
 const ConversationCustomMetadataType = new protobuf.Type("ConversationCustomMetadata")
   .add(new protobuf.Field("tag", 1, "string"))
   .add(new protobuf.Field("profiles", 2, "ConversationProfile", "repeated"))
   .add(new protobuf.Field("expiresAtUnix", 3, "sfixed64", "optional"))
   .add(new protobuf.Field("imageEncryptionKey", 4, "bytes", "optional"))
   .add(new protobuf.Field("encryptedGroupImage", 5, "EncryptedImageRef", "optional"))
-  .add(new protobuf.Field("emoji", 6, "string", "optional"));
+  .add(new protobuf.Field("emoji", 6, "string", "optional"))
+  .add(new protobuf.Field("agentDm", 8, "AgentDmInfo", "optional"));
 
 root.add(EncryptedImageRefType);
 root.add(ConversationProfileType);
+root.add(AgentDmInfoType);
 root.add(ConversationCustomMetadataType);
 
 export interface EncryptedImageRef {
@@ -46,6 +52,10 @@ export interface ConversationProfile {
   encryptedImage?: EncryptedImageRef; // iOS encrypted avatar
 }
 
+export interface AgentDmInfo {
+  originConversationId?: string; // hex string
+}
+
 export interface ConversationCustomMetadata {
   tag: string;
   profiles: ConversationProfile[];
@@ -53,6 +63,7 @@ export interface ConversationCustomMetadata {
   imageEncryptionKey?: Uint8Array; // iOS group image key
   encryptedGroupImage?: EncryptedImageRef; // iOS group avatar
   emoji?: string; // Stable conversation emoji (shared across all members)
+  agentDm?: AgentDmInfo; // iOS agent-DM marker (origin conversation id)
 }
 
 // Wire format matches iOS/Android: raw DEFLATE if payload >100 bytes, framed
@@ -172,6 +183,7 @@ function decodeAppData(appData: string): ConversationCustomMetadata {
       imageEncryptionKey?: Uint8Array | null;
       encryptedGroupImage?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
       emoji?: string;
+      agentDm?: { originConversationId?: Uint8Array | null } | null;
     };
 
     const toNum = (v: number | { toNumber(): number } | undefined): number | undefined => {
@@ -191,6 +203,15 @@ function decodeAppData(appData: string): ConversationCustomMetadata {
       return { url: ref.url, salt: ref.salt, nonce: ref.nonce };
     };
 
+    const parseAgentDm = (
+      info: { originConversationId?: Uint8Array | null } | null | undefined,
+    ): AgentDmInfo | undefined => {
+      if (!info) return undefined;
+      const origin = info.originConversationId;
+      if (!origin || origin.length === 0) return undefined;
+      return { originConversationId: bytesToHex(origin) };
+    };
+
     return {
       tag: msg.tag || "",
       profiles: (msg.profiles || []).map((p) => ({
@@ -206,6 +227,7 @@ function decodeAppData(appData: string): ConversationCustomMetadata {
           : undefined,
       encryptedGroupImage: parseEncryptedImageRef(msg.encryptedGroupImage),
       emoji: msg.emoji || undefined,
+      agentDm: parseAgentDm(msg.agentDm),
     };
   }
 }
@@ -263,6 +285,12 @@ export function parseAppDataForWrite(appData: string): ConversationCustomMetadat
  * Throws if result exceeds 8KB.
  */
 export function serializeAppData(metadata: ConversationCustomMetadata): string {
+  const originHex = metadata.agentDm?.originConversationId;
+  const agentDm =
+    originHex && originHex.length > 0
+      ? { originConversationId: hexToBytes(originHex) }
+      : undefined;
+
   const obj = {
     tag: metadata.tag,
     profiles: metadata.profiles.map((p) => ({
@@ -275,6 +303,7 @@ export function serializeAppData(metadata: ConversationCustomMetadata): string {
     imageEncryptionKey: metadata.imageEncryptionKey,
     encryptedGroupImage: metadata.encryptedGroupImage,
     emoji: metadata.emoji,
+    agentDm,
   };
 
   const errMsg = ConversationCustomMetadataType.verify(obj);
