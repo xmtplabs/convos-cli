@@ -16,7 +16,7 @@
       "groupName": "xmtp"
     },
     {
-      "matchPackageNames": ["@xmtp/node-sdk"],
+      "matchPackageNames": ["@xmtp/node-sdk", "@xmtp/node-bindings"],
       "followTag": "nightly",
       "ignoreUnstable": false,
       "respectLatest": false
