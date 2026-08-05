@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.17
+
+### Patch Changes
+
+- [#117](https://github.com/xmtplabs/convos-cli/pull/117) [`31ff6f8`](https://github.com/xmtplabs/convos-cli/commit/31ff6f8f91e8e49566fafe0f9e82ebb8720467a6) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-sdk to v6.2.0-nightly.20260805.d14feba
+
+- [#120](https://github.com/xmtplabs/convos-cli/pull/120) [`3c6cefa`](https://github.com/xmtplabs/convos-cli/commit/3c6cefa2cb4067599900026bf1ff3cf933c34519) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-bindings to >=1.11.0-dev <1.12.0
+
+- [#121](https://github.com/xmtplabs/convos-cli/pull/121) [`fcc9b3e`](https://github.com/xmtplabs/convos-cli/commit/fcc9b3effdb93e996b4c44c6d6ec579dffeacd82) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-bindings to >=1.11.0-dev <1.13.0
+
 ## 0.10.16
 
 ### Patch Changes
