@@ -61,8 +61,8 @@ importers:
         specifier: ^0.12.2
         version: 0.12.2
       '@xmtp/node-bindings':
-        specifier: 1.11.0
-        version: 1.11.0
+        specifier: 1.12.0-nightly.20260805.d14feba
+        version: 1.12.0-nightly.20260805.d14feba
       '@xmtp/node-sdk':
         specifier: 6.2.0-nightly.20260805.d14feba
         version: 6.2.0-nightly.20260805.d14feba
@@ -1178,10 +1178,6 @@ packages:
 
   '@xmtp/content-type-remote-attachment@2.0.4':
     resolution: {integrity: sha512-dHXXIsbn1y+PbNMXbQPkfjXr9LQ0QfQS8tIu/Hz6nL4h5QG5ECHsHfHVzVWE3P0eHlGfLVnQaKqg2dFiP8uwXw==}
-
-  '@xmtp/node-bindings@1.11.0':
-    resolution: {integrity: sha512-10uuI7OKtfuDah/bjw2mR8ABEtZ4OfZekN3YWy0rZvIyz23pcO+tjhfVmmy3wZCuOgkrFOi3e6eAKYcwTM7uJg==}
-    engines: {node: '>=22'}
 
   '@xmtp/node-bindings@1.12.0-nightly.20260805.d14feba':
     resolution: {integrity: sha512-xJ2GeDY0owcW2xFnWYYlJvSaf/Zas0ysDd1ACAcGQTjTeS71d55Dk6bBi9cwrTl5IiBXTYUirNhk1wRDrzMlaw==}
@@ -3987,8 +3983,6 @@ snapshots:
       '@noble/secp256k1': 2.3.0
       '@xmtp/content-type-primitives': 2.0.3
       '@xmtp/proto': 3.78.0
-
-  '@xmtp/node-bindings@1.11.0': {}
 
   '@xmtp/node-bindings@1.12.0-nightly.20260805.d14feba': {}
 
