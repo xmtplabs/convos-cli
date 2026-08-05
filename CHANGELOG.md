@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.10.16
+
+### Patch Changes
+
+- [#116](https://github.com/xmtplabs/convos-cli/pull/116) [`3106bc1`](https://github.com/xmtplabs/convos-cli/commit/3106bc1fbbec4b8812002607c71bca5fc7fc471b) Thanks [@yewreeka](https://github.com/yewreeka)! - Add the `agentDm` marker (field 8) to the `ConversationCustomMetadata` codec (`AgentDmInfo.originConversationId`), matching the iOS proto so agent-DM markers round-trip byte-compatibly. Enables server-side (Herald) stamping of the marker for CON-761 agent-owned DM creation; `parseAppDataForWrite` preserves it across read-modify-write.
+
+- [#102](https://github.com/xmtplabs/convos-cli/pull/102) [`633d2a5`](https://github.com/xmtplabs/convos-cli/commit/633d2a50f6cb0d3dfa7ad1dc022e7bf5162eb406) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#103](https://github.com/xmtplabs/convos-cli/pull/103) [`6e272c9`](https://github.com/xmtplabs/convos-cli/commit/6e272c967ae6025e7f2731f81a4d0e606aab7259) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#104](https://github.com/xmtplabs/convos-cli/pull/104) [`472e963`](https://github.com/xmtplabs/convos-cli/commit/472e9631e3c5779a1cda44761f343bff6811dc42) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#105](https://github.com/xmtplabs/convos-cli/pull/105) [`12ee6a3`](https://github.com/xmtplabs/convos-cli/commit/12ee6a37482748d2960a2d4e31e9f615b8cab5d7) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#106](https://github.com/xmtplabs/convos-cli/pull/106) [`3beeea7`](https://github.com/xmtplabs/convos-cli/commit/3beeea79c30379e30a18f90dbe8c530cfc09ce43) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#107](https://github.com/xmtplabs/convos-cli/pull/107) [`3a66d35`](https://github.com/xmtplabs/convos-cli/commit/3a66d35545f522b29f971e7a48e1ecbf5262305c) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#108](https://github.com/xmtplabs/convos-cli/pull/108) [`0e5b559`](https://github.com/xmtplabs/convos-cli/commit/0e5b559384e24e2ddc3f01cd470530bef484530a) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#109](https://github.com/xmtplabs/convos-cli/pull/109) [`5f20fa9`](https://github.com/xmtplabs/convos-cli/commit/5f20fa9deb1efdd4a993036545da75d599380948) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#110](https://github.com/xmtplabs/convos-cli/pull/110) [`f804694`](https://github.com/xmtplabs/convos-cli/commit/f80469474ae38e6a0272e796738c1a1fccc5539f) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#111](https://github.com/xmtplabs/convos-cli/pull/111) [`b643c21`](https://github.com/xmtplabs/convos-cli/commit/b643c21ad8a579ca5e1d233aa3e8e4ec20ee74c6) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#112](https://github.com/xmtplabs/convos-cli/pull/112) [`1318571`](https://github.com/xmtplabs/convos-cli/commit/1318571cb46107774f7e962e69207b0aff0435a4) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-bindings to v1.11.0
+
+- [#113](https://github.com/xmtplabs/convos-cli/pull/113) [`b4916d4`](https://github.com/xmtplabs/convos-cli/commit/b4916d4dbc3b670f3d1df8676b3564a18fb5a00c) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-sdk to v6.2.0-nightly.20260730.3623322
+
+- [#114](https://github.com/xmtplabs/convos-cli/pull/114) [`6cd0f47`](https://github.com/xmtplabs/convos-cli/commit/6cd0f47b85a423c51b7ca7d806a0b6d8fc905e9a) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-sdk to v6.2.0-nightly.20260731.66944e2
+
+- [#115](https://github.com/xmtplabs/convos-cli/pull/115) [`2d7833d`](https://github.com/xmtplabs/convos-cli/commit/2d7833d7ee227ef60715021fb3aa89ce0d403387) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update dependency @xmtp/node-sdk to v6.2.0-nightly.20260804.0f01ea1
+
+- [#99](https://github.com/xmtplabs/convos-cli/pull/99) [`bc4b492`](https://github.com/xmtplabs/convos-cli/commit/bc4b492041b7dbfec2e72a5d50b69dba6eef0c25) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
 ## 0.10.15
 
 ### Patch Changes
