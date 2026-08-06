@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18
+
+### Patch Changes
+
+- [#122](https://github.com/xmtplabs/convos-cli/pull/122) [`afd1303`](https://github.com/xmtplabs/convos-cli/commit/afd13039ae1e5a03a632b23a7b9d175d87e9b561) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
 ## 0.10.17
 
 ### Patch Changes
