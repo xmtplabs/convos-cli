@@ -14,6 +14,27 @@ describe("conversation metadata", () => {
   const inboxA = "aa" + "00".repeat(31);
   const inboxB = "bb" + "00".repeat(31);
 
+  function encodeVarint(value: number): Buffer {
+    const bytes: number[] = [];
+    let remaining = value;
+    do {
+      let byte = remaining % 128;
+      remaining = Math.floor(remaining / 128);
+      if (remaining > 0) byte |= 0x80;
+      bytes.push(byte);
+    } while (remaining > 0);
+    return Buffer.from(bytes);
+  }
+
+  function encodeStringField(fieldNumber: number, value: string): Buffer {
+    const bytes = Buffer.from(value, "utf8");
+    return Buffer.concat([
+      encodeVarint(fieldNumber * 8 + 2),
+      encodeVarint(bytes.length),
+      bytes,
+    ]);
+  }
+
   describe("parseAppData / serializeAppData", () => {
     it("returns empty metadata for empty string", () => {
       const meta = parseAppData("");
@@ -33,6 +54,48 @@ describe("conversation metadata", () => {
       const decoded = parseAppData(encoded);
       expect(decoded.tag).toBe("abc123");
       expect(decoded.profiles).toEqual([]);
+    });
+
+    it("roundtrips an uncompressed spaceUrl", () => {
+      const spaceUrl = "https://spaces.example/test";
+      const encoded = serializeAppData({
+        tag: "space",
+        profiles: [],
+        spaceUrl,
+      });
+
+      expect(Buffer.from(encoded, "base64url")[0]).not.toBe(0x1f);
+      expect(parseAppData(encoded).spaceUrl).toBe(spaceUrl);
+    });
+
+    it("encodes spaceUrl at protobuf field number 9", () => {
+      const spaceUrl = "https://s.example";
+      const encoded = serializeAppData({
+        tag: "",
+        profiles: [],
+        spaceUrl,
+      });
+
+      expect(Buffer.from(encoded, "base64url")).toEqual(
+        Buffer.concat([
+          encodeStringField(1, ""),
+          encodeStringField(9, spaceUrl),
+        ]),
+      );
+    });
+
+    it("replaces an existing spaceUrl with last-write-wins semantics", () => {
+      const encoded = serializeAppData({
+        tag: "invite-tag",
+        profiles: [],
+        spaceUrl: "https://old.example",
+      });
+      const metadata = parseAppDataForWrite(encoded);
+      metadata.spaceUrl = "https://new.example";
+
+      const replaced = serializeAppData(metadata);
+      const decoded = parseAppData(replaced);
+      expect(decoded.spaceUrl).toBe("https://new.example");
     });
 
     it("roundtrips metadata with profiles", () => {
@@ -172,6 +235,25 @@ describe("conversation metadata", () => {
       expect(decoded.profiles[0].encryptedImage!.url).toBe("https://example.com/alice.enc");
       expect(Buffer.from(decoded.profiles[0].encryptedImage!.salt)).toEqual(Buffer.from("aabb", "hex"));
       expect(decoded.profiles[1].encryptedImage).toBeUndefined();
+    });
+
+    it("ignores the deprecated profile connections field without crashing", () => {
+      const profile = Buffer.concat([
+        Buffer.from([0x0a, 0x01, 0xaa]),
+        encodeStringField(5, "{\"calendar\":true}"),
+      ]);
+      const wire = Buffer.concat([
+        encodeStringField(1, "connections-wire"),
+        Buffer.from([0x12]),
+        encodeVarint(profile.length),
+        profile,
+        encodeStringField(9, "https://space.example"),
+      ]).toString("base64url");
+
+      const decoded = parseAppData(wire);
+      expect(decoded.profiles).toEqual([{ inboxId: "aa" }]);
+      expect(decoded.spaceUrl).toBe("https://space.example");
+      expect(() => serializeAppData(decoded)).not.toThrow();
     });
 
     it("preserves iOS fields through CLI read-modify-write cycle", () => {
@@ -322,6 +404,14 @@ describe("conversation metadata", () => {
       const meta = { tag: "bigGroup", profiles };
       const encoded = serializeAppData(meta);
       expect(Buffer.byteLength(encoded, "utf-8")).toBeLessThan(8 * 1024);
+    });
+
+    it("parses an appData vector written by the iOS serializer", () => {
+      const decoded = parseAppData(
+        "Cg5zd2lmdC1zcGFjZS12MUoRaHR0cHM6Ly9zLmV4YW1wbGU",
+      );
+      expect(decoded.tag).toBe("swift-space-v1");
+      expect(decoded.spaceUrl).toBe("https://s.example");
     });
   });
 
