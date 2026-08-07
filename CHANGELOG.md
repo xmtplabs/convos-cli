@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.19
+
+### Patch Changes
+
+- [#124](https://github.com/xmtplabs/convos-cli/pull/124) [`025c171`](https://github.com/xmtplabs/convos-cli/commit/025c1712943ea790a1124e894addafdd15ae21f8) Thanks [@neekolas](https://github.com/neekolas)! - Add `ConversationCustomMetadata.spaceUrl` appData support.
+
 ## 0.10.18
 
 ### Patch Changes
