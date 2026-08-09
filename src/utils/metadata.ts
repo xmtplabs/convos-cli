@@ -33,7 +33,7 @@ const ConversationCustomMetadataType = new protobuf.Type("ConversationCustomMeta
   .add(new protobuf.Field("encryptedGroupImage", 5, "EncryptedImageRef", "optional"))
   .add(new protobuf.Field("emoji", 6, "string", "optional"))
   .add(new protobuf.Field("agentDm", 8, "AgentDmInfo", "optional"))
-  .add(new protobuf.Field("spaceUrl", 9, "string", "optional"));
+  .add(new protobuf.Field("spaceUrl", 10, "string", "optional"));
 
 root.add(EncryptedImageRefType);
 root.add(ConversationProfileType);

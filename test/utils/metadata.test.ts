@@ -68,7 +68,7 @@ describe("conversation metadata", () => {
       expect(parseAppData(encoded).spaceUrl).toBe(spaceUrl);
     });
 
-    it("encodes spaceUrl at protobuf field number 9", () => {
+    it("encodes spaceUrl at protobuf field number 10", () => {
       const spaceUrl = "https://s.example";
       const encoded = serializeAppData({
         tag: "",
@@ -79,7 +79,7 @@ describe("conversation metadata", () => {
       expect(Buffer.from(encoded, "base64url")).toEqual(
         Buffer.concat([
           encodeStringField(1, ""),
-          encodeStringField(9, spaceUrl),
+          encodeStringField(10, spaceUrl),
         ]),
       );
     });
@@ -247,7 +247,7 @@ describe("conversation metadata", () => {
         Buffer.from([0x12]),
         encodeVarint(profile.length),
         profile,
-        encodeStringField(9, "https://space.example"),
+        encodeStringField(10, "https://space.example"),
       ]).toString("base64url");
 
       const decoded = parseAppData(wire);
@@ -408,7 +408,7 @@ describe("conversation metadata", () => {
 
     it("parses an appData vector written by the iOS serializer", () => {
       const decoded = parseAppData(
-        "Cg5zd2lmdC1zcGFjZS12MUoRaHR0cHM6Ly9zLmV4YW1wbGU",
+        "Cg5zd2lmdC1zcGFjZS12MVIRaHR0cHM6Ly9zLmV4YW1wbGU",
       );
       expect(decoded.tag).toBe("swift-space-v1");
       expect(decoded.spaceUrl).toBe("https://s.example");
