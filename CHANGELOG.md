@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.20
+
+### Patch Changes
+
+- [#126](https://github.com/xmtplabs/convos-cli/pull/126) [`5371411`](https://github.com/xmtplabs/convos-cli/commit/53714117bbc15c3958431e152ded6b41ba53ebf4) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#128](https://github.com/xmtplabs/convos-cli/pull/128) [`f5138db`](https://github.com/xmtplabs/convos-cli/commit/f5138db5f0a94e1842efcf068ad3388e849e490d) Thanks [@devin-ai-integration](https://github.com/apps/devin-ai-integration)! - Move `ConversationCustomMetadata.spaceUrl` to protobuf field 10 to deconflict with field 9.
+
 ## 0.10.19
 
 ### Patch Changes
