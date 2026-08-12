@@ -33,6 +33,7 @@ const ConversationCustomMetadataType = new protobuf.Type("ConversationCustomMeta
   .add(new protobuf.Field("encryptedGroupImage", 5, "EncryptedImageRef", "optional"))
   .add(new protobuf.Field("emoji", 6, "string", "optional"))
   .add(new protobuf.Field("agentDm", 8, "AgentDmInfo", "optional"))
+  .add(new protobuf.Field("participationMode", 9, "int32", "optional"))
   .add(new protobuf.Field("spaceUrl", 10, "string", "optional"));
 
 root.add(EncryptedImageRefType);
@@ -65,6 +66,7 @@ export interface ConversationCustomMetadata {
   encryptedGroupImage?: EncryptedImageRef; // iOS group avatar
   emoji?: string; // Stable conversation emoji (shared across all members)
   agentDm?: AgentDmInfo; // iOS agent-DM marker (origin conversation id)
+  participationMode?: number; // iOS ParticipationMode enum value, passed through opaquely
   spaceUrl?: string;
 }
 
@@ -186,6 +188,7 @@ function decodeAppData(appData: string): ConversationCustomMetadata {
       encryptedGroupImage?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
       emoji?: string;
       agentDm?: { originConversationId?: Uint8Array | null } | null;
+      participationMode?: number;
       spaceUrl?: string;
     };
 
@@ -231,6 +234,9 @@ function decodeAppData(appData: string): ConversationCustomMetadata {
       encryptedGroupImage: parseEncryptedImageRef(msg.encryptedGroupImage),
       emoji: msg.emoji || undefined,
       agentDm: parseAgentDm(msg.agentDm),
+      // Treat 0 as unset: protobufjs surfaces the int32 default when the
+      // field is absent, and iOS never writes the unspecified (0) mode.
+      participationMode: msg.participationMode || undefined,
       spaceUrl: msg.spaceUrl || undefined,
     };
   }
@@ -308,6 +314,7 @@ export function serializeAppData(metadata: ConversationCustomMetadata): string {
     encryptedGroupImage: metadata.encryptedGroupImage,
     emoji: metadata.emoji,
     agentDm,
+    participationMode: metadata.participationMode || undefined,
     spaceUrl: metadata.spaceUrl || undefined,
   };
 
