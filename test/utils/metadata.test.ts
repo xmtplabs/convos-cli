@@ -35,6 +35,10 @@ describe("conversation metadata", () => {
     ]);
   }
 
+  function encodeVarintField(fieldNumber: number, value: number): Buffer {
+    return Buffer.concat([encodeVarint(fieldNumber * 8), encodeVarint(value)]);
+  }
+
   describe("parseAppData / serializeAppData", () => {
     it("returns empty metadata for empty string", () => {
       const meta = parseAppData("");
@@ -96,6 +100,58 @@ describe("conversation metadata", () => {
       const replaced = serializeAppData(metadata);
       const decoded = parseAppData(replaced);
       expect(decoded.spaceUrl).toBe("https://new.example");
+    });
+
+    it("roundtrips an uncompressed participationMode", () => {
+      const encoded = serializeAppData({
+        tag: "mode",
+        profiles: [],
+        participationMode: 4,
+      });
+
+      expect(Buffer.from(encoded, "base64url")[0]).not.toBe(0x1f);
+      expect(parseAppData(encoded).participationMode).toBe(4);
+    });
+
+    it("encodes participationMode at protobuf field number 9", () => {
+      const encoded = serializeAppData({
+        tag: "",
+        profiles: [],
+        participationMode: 2,
+      });
+
+      expect(Buffer.from(encoded, "base64url")).toEqual(
+        Buffer.concat([encodeStringField(1, ""), encodeVarintField(9, 2)]),
+      );
+    });
+
+    it("treats missing participationMode as undefined", () => {
+      const encoded = serializeAppData({ tag: "noMode", profiles: [] });
+      expect(parseAppData(encoded).participationMode).toBeUndefined();
+    });
+
+    it("preserves participationMode byte-for-byte through an agent read-modify-write cycle", () => {
+      // Simulates: iOS sets the room's participation mode -> agent locks the
+      // conversation (parse, change tag, write back) -> the mode must survive.
+      const iosWritten = serializeAppData({
+        tag: "invite-abc",
+        profiles: [{ inboxId: inboxA, name: "Alice" }],
+        participationMode: 2,
+      });
+
+      const metadata = parseAppDataForWrite(iosWritten);
+      metadata.tag = "locked";
+      const reEncoded = serializeAppData(metadata);
+
+      const final = parseAppData(reEncoded);
+      expect(final.participationMode).toBe(2);
+      expect(final.tag).toBe("locked");
+      expect(final.profiles).toHaveLength(1);
+
+      // The field-9 varint bytes must be carried verbatim on the rewrite.
+      const wire = Buffer.from(reEncoded, "base64url");
+      expect(wire[0]).not.toBe(0x1f);
+      expect(wire.includes(encodeVarintField(9, 2))).toBe(true);
     });
 
     it("roundtrips metadata with profiles", () => {
