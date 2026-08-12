@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.21
+
+### Patch Changes
+
+- [#129](https://github.com/xmtplabs/convos-cli/pull/129) [`ea2455d`](https://github.com/xmtplabs/convos-cli/commit/ea2455d3131c37edf813a6e90bead0575b04a541) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#131](https://github.com/xmtplabs/convos-cli/pull/131) [`5d57e83`](https://github.com/xmtplabs/convos-cli/commit/5d57e830a627901700736773d37286b3f3833054) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
 ## 0.10.20
 
 ### Patch Changes
