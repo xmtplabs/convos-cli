@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.22
+
+### Patch Changes
+
+- [#132](https://github.com/xmtplabs/convos-cli/pull/132) [`fe418b5`](https://github.com/xmtplabs/convos-cli/commit/fe418b5cbbc6656e39a3520e3a06e17248c1535b) Thanks [@lourou](https://github.com/lourou)! - Preserve `ConversationCustomMetadata.participationMode` (field 9) through appData read-modify-write. The field was missing from the CLI schema, so any agent-side appData rewrite silently dropped a conversation's participation mode.
+
 ## 0.10.21
 
 ### Patch Changes
