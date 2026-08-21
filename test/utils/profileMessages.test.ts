@@ -15,6 +15,8 @@ import {
   type ProfileSnapshotContent,
   type ProfileMetadata,
   type ProfileMetadataValue,
+  ProfileUpdateV2Codec,
+  ContentTypeProfileUpdateV2,
 } from "../../src/utils/profileMessages.js";
 import {
   isDisplayableMessage,
@@ -399,6 +401,72 @@ describe("appData corruption prevention", () => {
     expect(result.profiles).toHaveLength(2);
     expect(result.profiles[0].name).toBe("Alice");
     expect(result.profiles[1].name).toBe("Bob");
+  });
+});
+
+// ─── v2 Wire Format ───
+
+describe("ProfileUpdate v2 fields", () => {
+  it("round-trips the avatar URL and version", () => {
+    const encoded = encodeProfileUpdate({
+      name: "Ada",
+      avatarUrl: "https://cdn.convos.org/profiles/abc.jpg",
+      version: 7,
+    });
+    const decoded = decodeProfileUpdate(encoded);
+    expect(decoded.name).toBe("Ada");
+    expect(decoded.avatarUrl).toBe("https://cdn.convos.org/profiles/abc.jpg");
+    expect(decoded.version).toBe(7);
+  });
+
+  it("omits the new fields when they are not set", () => {
+    const decoded = decodeProfileUpdate(encodeProfileUpdate({ name: "Ada" }));
+    expect(decoded.avatarUrl).toBeUndefined();
+    expect(decoded.version).toBeUndefined();
+  });
+
+  // The reason field 2 is still declared rather than reserved: a v1 sender
+  // populates it, and reserving it would decode their avatar as absent.
+  it("still decodes a v1 payload's encrypted image", () => {
+    const encoded = encodeProfileUpdate({
+      name: "Grace",
+      encryptedImage: {
+        url: "https://cdn.convos.org/old.enc",
+        salt: new Uint8Array(32).fill(1),
+        nonce: new Uint8Array(12).fill(2),
+      },
+    });
+    const decoded = decodeProfileUpdate(encoded);
+    expect(decoded.encryptedImage?.url).toBe("https://cdn.convos.org/old.enc");
+    expect(decoded.name).toBe("Grace");
+  });
+
+  // The XMTP codec registry keys on the full version string, so reading v2
+  // needs its own registered codec - not just a tolerant matcher.
+  it("registers a v2 codec that decodes the same payload", () => {
+    const v2 = new ProfileUpdateV2Codec();
+    expect(v2.contentType).toEqual(ContentTypeProfileUpdateV2);
+    expect(v2.contentType.versionMajor).toBe(2);
+    const decoded = v2.decode(encodeProfileUpdate({ name: "Alan" }));
+    expect(decoded.name).toBe("Alan");
+  });
+
+  // Sending stays on v1 deliberately: the proto is a superset, so the new
+  // fields ride along, and a client that predates v2 keeps decoding it.
+  it("keeps sending v1 while carrying the v2 fields", () => {
+    const encoded = encodeProfileUpdate({ name: "Ada", version: 3 });
+    expect(encoded.type?.versionMajor).toBe(1);
+    expect(decodeProfileUpdate(encoded).version).toBe(3);
+  });
+
+  it("recognizes a v2 message as a profile update", () => {
+    const message = mockMessage({
+      authorityId: "convos.org",
+      typeId: "profile_update",
+      versionMajor: 2,
+      versionMinor: 0,
+    });
+    expect(isProfileUpdateMessage(message)).toBe(true);
   });
 });
 

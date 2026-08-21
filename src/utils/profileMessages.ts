@@ -46,7 +46,12 @@ const ProfileUpdateType = new protobuf.Type("ProfileUpdate")
   .add(new protobuf.Field("name", 1, "string", "optional"))
   .add(new protobuf.Field("encrypted_image", 2, "EncryptedProfileImageRef", "optional"))
   .add(new protobuf.Field("member_kind", 3, "MemberKind", "optional"))
-  .add(new protobuf.MapField("metadata", 4, "string", "MetadataValue"));
+  .add(new protobuf.MapField("metadata", 4, "string", "MetadataValue"))
+  // v2. Field 2 stays declared rather than reserved: senders that have not
+  // upgraded still populate it, and reserving it would make their avatars
+  // decode as absent instead of failing loudly.
+  .add(new protobuf.Field("avatar_url", 5, "string", "optional"))
+  .add(new protobuf.Field("version", 6, "uint64", "optional"));
 
 const MemberProfileType = new protobuf.Type("MemberProfile")
   .add(new protobuf.Field("inbox_id", 1, "bytes"))
@@ -72,6 +77,24 @@ export const ContentTypeProfileUpdate = {
   authorityId: "convos.org",
   typeId: "profile_update",
   versionMajor: 1,
+  versionMinor: 0,
+};
+
+/**
+ * What the iOS client sends once profiles live on the backend: a plain avatar
+ * URL and a version instead of an encrypted image. Registered for reading,
+ * because the XMTP codec registry keys on the full version string - without
+ * this, a v2 message finds no codec and arrives as raw EncodedContent.
+ *
+ * The CLI keeps sending v1. The wire format is a superset, so v1 carries the
+ * new fields fine, and a client that predates v2 would ignore a v2-typed
+ * message entirely - which for an agent means its name silently stops
+ * updating on every un-upgraded client, in exchange for nothing.
+ */
+export const ContentTypeProfileUpdateV2 = {
+  authorityId: "convos.org",
+  typeId: "profile_update",
+  versionMajor: 2,
   versionMinor: 0,
 };
 
@@ -112,9 +135,14 @@ export type ProfileMetadata = Record<string, ProfileMetadataValue>;
 
 export interface ProfileUpdateContent {
   name?: string;
+  /** Pre-v2 senders only. New senders carry `avatarUrl` instead. */
   encryptedImage?: EncryptedProfileImageRef;
   memberKind?: MemberKind;
   metadata?: ProfileMetadata;
+  /** Plain CDN URL of the backend-hosted avatar. */
+  avatarUrl?: string;
+  /** The backend's monotonic profile version, so a reader can skip a fetch. */
+  version?: number;
 }
 
 export interface MemberProfileEntry {
@@ -274,6 +302,14 @@ export function encodeProfileUpdate(update: ProfileUpdateContent): EncodedConten
     obj.metadata = metadataToProto(update.metadata);
   }
 
+  if (update.avatarUrl !== undefined) {
+    obj.avatar_url = update.avatarUrl;
+  }
+
+  if (update.version !== undefined) {
+    obj.version = update.version;
+  }
+
   const errMsg = ProfileUpdateType.verify(obj);
   if (errMsg) throw new Error(`Invalid ProfileUpdate: ${errMsg}`);
 
@@ -344,6 +380,8 @@ interface RawProfileUpdateMsg {
   encrypted_image?: { url: string; salt: Uint8Array; nonce: Uint8Array } | null;
   member_kind?: number;
   metadata?: Record<string, RawMetadataValue>;
+  avatar_url?: string;
+  version?: number | { toNumber(): number };
 }
 
 /**
@@ -375,6 +413,21 @@ export function decodeProfileUpdate(encoded: EncodedContent): ProfileUpdateConte
 
   if (msg.member_kind) {
     result.memberKind = msg.member_kind as MemberKind;
+  }
+
+  if (msg.avatar_url) {
+    result.avatarUrl = msg.avatar_url;
+  }
+
+  if (msg.version !== undefined && msg.version !== null) {
+    // protobufjs hands back a Long for uint64 unless configured otherwise, and
+    // decodes an unset field as 0 rather than leaving it out. Backend versions
+    // start at 1, so 0 means the sender did not set one.
+    const version =
+      typeof msg.version === "number" ? msg.version : msg.version.toNumber();
+    if (version > 0) {
+      result.version = version;
+    }
   }
 
   const meta = metadataFromProto(msg.metadata);
@@ -467,6 +520,16 @@ export class ProfileUpdateCodec implements ContentCodec<ProfileUpdateContent> {
 
   shouldPush(_content: ProfileUpdateContent): boolean {
     return false;
+  }
+}
+
+/**
+ * Reads v2 profile updates. Decoding is identical - the proto is a superset
+ * and only the content type differs, which is what the registry keys on.
+ */
+export class ProfileUpdateV2Codec extends ProfileUpdateCodec {
+  get contentType(): ContentTypeId {
+    return ContentTypeProfileUpdateV2;
   }
 }
 
