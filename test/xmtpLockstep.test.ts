@@ -12,11 +12,14 @@ import { describe, expect, it } from "vitest";
  * "Inbox ID doesn't match nonce & address" identity failures.
  *
  * Nightlies of both packages are published together from a single libxmtp
- * commit, so the pins are in lockstep exactly when they share the same
- * `nightly.<date>.<hash>` suffix. Renovate bumps them as one grouped PR
- * (see .github/renovate.json); this test fails if anything desyncs them.
+ * commit, and dev releases likewise publish both from one libxmtp run — so
+ * the pins are in lockstep exactly when they share the same
+ * `nightly.<date>.<hash>` or `dev.<hash>` suffix. Renovate bumps nightlies
+ * as one grouped PR (see .github/renovate.json) and libxmtp's dev-release
+ * automation opens dev bumps the same way; this test fails if anything
+ * desyncs them.
  */
-const NIGHTLY_SUFFIX = /-(nightly\.\d{8}\.[0-9a-f]+)$/;
+const PRERELEASE_SUFFIX = /-(nightly\.\d{8}\.[0-9a-f]+|dev\.[0-9a-f]+)$/;
 
 describe("xmtp node-sdk / node-bindings lockstep", () => {
   const pkg = JSON.parse(
@@ -25,25 +28,25 @@ describe("xmtp node-sdk / node-bindings lockstep", () => {
   const nodeSdk = pkg.devDependencies["@xmtp/node-sdk"];
   const nodeBindings = pkg.devDependencies["@xmtp/node-bindings"];
 
-  it("pins both packages to nightlies", () => {
+  it("pins both packages to a nightly or dev build", () => {
     expect(
-      NIGHTLY_SUFFIX.test(nodeSdk),
-      `@xmtp/node-sdk ${nodeSdk} is not a nightly pin`,
+      PRERELEASE_SUFFIX.test(nodeSdk),
+      `@xmtp/node-sdk ${nodeSdk} is not a nightly or dev pin`,
     ).toBe(true);
     expect(
-      NIGHTLY_SUFFIX.test(nodeBindings),
-      `@xmtp/node-bindings ${nodeBindings} is not a nightly pin`,
+      PRERELEASE_SUFFIX.test(nodeBindings),
+      `@xmtp/node-bindings ${nodeBindings} is not a nightly or dev pin`,
     ).toBe(true);
   });
 
-  it("pins nightlies from the same libxmtp commit", () => {
-    const sdkSuffix = NIGHTLY_SUFFIX.exec(nodeSdk)?.[1];
-    const bindingsSuffix = NIGHTLY_SUFFIX.exec(nodeBindings)?.[1];
+  it("pins builds from the same libxmtp commit", () => {
+    const sdkSuffix = PRERELEASE_SUFFIX.exec(nodeSdk)?.[1];
+    const bindingsSuffix = PRERELEASE_SUFFIX.exec(nodeBindings)?.[1];
     expect(
       bindingsSuffix,
       `@xmtp/node-sdk ${nodeSdk} and @xmtp/node-bindings ${nodeBindings} ` +
-        "must be nightlies from the same libxmtp commit (matching " +
-        "nightly.<date>.<hash> suffix); a skewed pair breaks inbox-id " +
+        "must come from the same libxmtp commit (matching " +
+        "nightly.<date>.<hash> or dev.<hash> suffix); a skewed pair breaks inbox-id " +
         'derivation with "Inbox ID doesn\'t match nonce & address"',
     ).toBe(sdkSuffix);
   });
