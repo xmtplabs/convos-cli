@@ -109,6 +109,11 @@
     "@xmtp/node-bindings": ">=1.11.0-dev <1.13.0",
     "@xmtp/node-sdk": ">=6.0.0-dev <6.3.0"
   },
+  "peerDependenciesMeta": {
+    "@xmtp/node-bindings": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
