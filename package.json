@@ -115,7 +115,7 @@
     "@types/node": "^24.10.9",
     "@types/qrcode": "^1.5.6",
     "@types/qrcode-terminal": "^0.12.2",
-    "@xmtp/node-bindings": "1.12.0-nightly.20260822.a53a97e",
+    "@xmtp/node-bindings": "1.12.0-dev.999b077",
     "@xmtp/node-sdk": "6.2.0-dev.999b077",
     "execa": "^9.6.1",
     "oclif": "^4.22.70",
