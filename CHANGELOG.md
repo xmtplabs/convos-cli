@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.23
+
+### Patch Changes
+
+- [#134](https://github.com/xmtplabs/convos-cli/pull/134) [`b521691`](https://github.com/xmtplabs/convos-cli/commit/b521691d412c1551ce14476a7ca5881cff39ce4b) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#136](https://github.com/xmtplabs/convos-cli/pull/136) [`9cc51dd`](https://github.com/xmtplabs/convos-cli/commit/9cc51ddd9441aba7020af5a014748e050acace85) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#138](https://github.com/xmtplabs/convos-cli/pull/138) [`fe521a9`](https://github.com/xmtplabs/convos-cli/commit/fe521a9e555f3cb0df0bcd345bb758f31e4d4e5a) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#139](https://github.com/xmtplabs/convos-cli/pull/139) [`21f30b1`](https://github.com/xmtplabs/convos-cli/commit/21f30b134b98e2b770152cb8b4639e4d59acc9b8) Thanks [@renovate](https://github.com/apps/renovate)! - chore(deps): Update xmtp
+
+- [#143](https://github.com/xmtplabs/convos-cli/pull/143) [`b7d5d00`](https://github.com/xmtplabs/convos-cli/commit/b7d5d00d9875fe71778cf4fe05191877cdbb5c85) Thanks [@insipx](https://github.com/insipx)! - Mark the `@xmtp/node-bindings` peer dependency as optional.
+
+  convos-cli only ever imports types from `@xmtp/node-bindings`; at runtime the
+  bindings arrive through `@xmtp/node-sdk`'s exact-pinned dependency. A required
+  peer makes pnpm's `autoInstallPeers` fetch a second, registry-latest bindings
+  build in workspaces that pin bindings only via `pnpm.overrides` — a native
+  addon compiled against a different node-sdk than the one in the tree. Optional
+  peers are never auto-installed and still resolve to the single in-graph
+  bindings, so type imports keep working and the sdk/bindings compile contract
+  stays intact.
+
 ## 0.10.22
 
 ### Patch Changes
