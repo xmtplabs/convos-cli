@@ -17,7 +17,6 @@
     },
     {
       "matchPackageNames": ["@xmtp/node-sdk", "@xmtp/node-bindings"],
-      "followTag": "nightly",
       "ignoreUnstable": false,
       "respectLatest": false
     }
