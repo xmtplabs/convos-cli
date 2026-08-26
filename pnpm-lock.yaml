@@ -61,8 +61,8 @@ importers:
         specifier: ^0.12.2
         version: 0.12.2
       '@xmtp/node-bindings':
-        specifier: 1.12.0-dev.999b077
-        version: 1.12.0-dev.999b077
+        specifier: 2.0.0-nightly.20260604.90d0bfb
+        version: 2.0.0-nightly.20260604.90d0bfb
       '@xmtp/node-sdk':
         specifier: 6.2.0-dev.999b077
         version: 6.2.0-dev.999b077
@@ -1189,6 +1189,10 @@ packages:
 
   '@xmtp/node-bindings@1.9.1':
     resolution: {integrity: sha512-0cnAq7j8dPvxDZ5d7JpdbWTgSIKDiN421dxZj4sy1qw7QLOH4yTUKuuMY7CxoChoGa7/QPZGm+0sIIx/Gs2bAg==}
+    engines: {node: '>=22'}
+
+  '@xmtp/node-bindings@2.0.0-nightly.20260604.90d0bfb':
+    resolution: {integrity: sha512-t8yzEvZfg2xz18ICSqz5ajts+RIq7RFEINX9SXnHODLOzvFMIWdYSrFt03E2//j5u/bdejxHVdqw4a1GFUxUTA==}
     engines: {node: '>=22'}
 
   '@xmtp/node-sdk@6.2.0-dev.999b077':
@@ -3989,6 +3993,8 @@ snapshots:
   '@xmtp/node-bindings@1.8.0': {}
 
   '@xmtp/node-bindings@1.9.1': {}
+
+  '@xmtp/node-bindings@2.0.0-nightly.20260604.90d0bfb': {}
 
   '@xmtp/node-sdk@6.2.0-dev.999b077':
     dependencies:
