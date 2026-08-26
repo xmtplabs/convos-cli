@@ -17,6 +17,12 @@
     },
     {
       "matchPackageNames": ["@xmtp/node-sdk", "@xmtp/node-bindings"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false,
+      "description": "The native sdk/bindings pair never majors automatically: a stray 2.0.0-nightly from June 2026 sits on npm and version-sorted updates would offer it (and any future accidental major). Flip deliberately when a real major ships."
+    },
+    {
+      "matchPackageNames": ["@xmtp/node-sdk", "@xmtp/node-bindings"],
       "allowedVersions": "/-(?:pre\\.\\d{14}\\.(?:dev|nightly)\\.[0-9a-f]+|nightly\\.\\d{8}\\.[0-9a-f]+)$/",
       "ignoreUnstable": false,
       "respectLatest": false
