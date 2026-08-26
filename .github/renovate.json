@@ -17,7 +17,7 @@
     },
     {
       "matchPackageNames": ["@xmtp/node-sdk", "@xmtp/node-bindings"],
-      "allowedVersions": "/-(?:pre\\.\\d{12}\\.(?:dev|nightly)\\.[0-9a-f]+|nightly\\.\\d{8}\\.[0-9a-f]+)$/",
+      "allowedVersions": "/-(?:pre\\.\\d{14}\\.(?:dev|nightly)\\.[0-9a-f]+|nightly\\.\\d{8}\\.[0-9a-f]+)$/",
       "ignoreUnstable": false,
       "respectLatest": false
     }

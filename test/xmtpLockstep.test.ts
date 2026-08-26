@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
  * Nightlies of both packages are published together from a single libxmtp
  * commit, and dev releases likewise publish both from one libxmtp run — so
  * the pins are in lockstep exactly when they share the same suffix: the
- * unified `pre.<YYYYMMDDHHMM>.<channel>.<hash>` shape that main-cut dev and
+ * unified `pre.<YYYYMMDDHHMMSS>.<channel>.<hash>` shape that main-cut dev and
  * nightly releases now share (one release run stamps one timestamp, so both
  * packages carry an identical suffix), or the legacy
  * `nightly.<date>.<hash>` / `dev.<hash>` shapes, which are kept because
@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
  * desyncs them.
  */
 const PRERELEASE_SUFFIX =
-  /-(pre\.\d{12}\.(?:dev|nightly)\.[0-9a-f]+|nightly\.\d{8}\.[0-9a-f]+|dev\.[0-9a-f]+)$/;
+  /-(pre\.\d{14}\.(?:dev|nightly)\.[0-9a-f]+|nightly\.\d{8}\.[0-9a-f]+|dev\.[0-9a-f]+)$/;
 
 describe("xmtp node-sdk / node-bindings lockstep", () => {
   const pkg = JSON.parse(
