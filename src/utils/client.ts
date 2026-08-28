@@ -8,7 +8,11 @@ import {
 } from "@xmtp/content-type-remote-attachment";
 import { Client, IdentifierKind, LogLevel } from "@xmtp/node-sdk";
 import type { ClientOptions } from "@xmtp/node-sdk";
-import { ProfileUpdateCodec, ProfileSnapshotCodec } from "./profileMessages.js";
+import {
+  ProfileUpdateCodec,
+  ProfileUpdateV2Codec,
+  ProfileSnapshotCodec,
+} from "./profileMessages.js";
 import { JoinRequestCodec } from "./joinRequest.js";
 import { TypingIndicatorCodec } from "./typingIndicator.js";
 import { ExplodeSettingsCodec } from "./explodeSettings.js";
@@ -139,6 +143,7 @@ async function buildClient(
       new AttachmentCodec(),
       new RemoteAttachmentCodec(),
       new ProfileUpdateCodec() as any,
+      new ProfileUpdateV2Codec() as any,
       new ProfileSnapshotCodec() as any,
       new JoinRequestCodec() as any,
       new TypingIndicatorCodec() as any,
