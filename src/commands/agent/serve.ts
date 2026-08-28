@@ -88,6 +88,12 @@ import {
   isThinkingMessage,
   type Thinking,
 } from "../../utils/thinking.js";
+import {
+  ThinkingControlCodec,
+  getThinkingControlContent,
+  isThinkingControlMessage,
+  type ThinkingControl,
+} from "../../utils/thinkingControl.js";
 import { randomUUID } from "node:crypto";
 import {
   ConnectionInvocationCodec,
@@ -200,6 +206,12 @@ interface ThinkingCommand {
   /** Optional — only meaningful on `stop`. The agent's reply that closed the thinking. */
   resultMessageId?: string;
 }
+interface ThinkingControlCommand {
+  type: "thinking-control";
+  action: "stop" | "resume";
+  targetMessageId: string;
+  agentInboxId: string;
+}
 interface StopCommand { type: "stop"; }
 
 export type AgentCommand =
@@ -218,6 +230,7 @@ export type AgentCommand =
   | CapabilityRequestCommand
   | CloudConnectionGrantRequestCommand
   | ThinkingCommand
+  | ThinkingControlCommand
   | StopCommand;
 
 export default class AgentServe extends ConvosBaseCommand {
@@ -437,6 +450,7 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
       if (isCapabilityRequestMessage(message)) return "capability_request" as const;
       if (isCapabilityRequestResultMessage(message)) return "capability_result" as const;
       if (isThinkingMessage(message)) return "thinking" as const;
+      if (isThinkingControlMessage(message)) return "thinking_control" as const;
       return undefined;
     })();
     if (!handled) return false;
@@ -643,6 +657,24 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
           targetMessageId: thinking.targetMessageId,
           content: thinking.content,
           ...(thinking.resultMessageId && { resultMessageId: thinking.resultMessageId }),
+          sentAt: message.sentAt.toISOString(),
+          ...(catchup && { catchup: true }),
+        });
+      }
+      return true;
+    }
+
+    if (handled === "thinking_control") {
+      const control = getThinkingControlContent(message);
+      if (control) {
+        this.emit({
+          event: "thinking_control",
+          id: message.id,
+          senderInboxId: message.senderInboxId,
+          conversationId: conversation.id,
+          action: control.action,
+          targetMessageId: control.targetMessageId,
+          agentInboxId: control.agentInboxId,
           sentAt: message.sentAt.toISOString(),
           ...(catchup && { catchup: true }),
         });
@@ -1636,6 +1668,47 @@ STDERR: QR code, diagnostic logs (does not interfere with protocol)`;
             targetMessageId: thinking.targetMessageId,
             content: thinking.content,
             ...(thinking.resultMessageId && { resultMessageId: thinking.resultMessageId }),
+            conversationId: conversation.id,
+            timestamp: new Date().toISOString(),
+          });
+          break;
+        }
+
+        case "thinking-control": {
+          if (cmd.action !== "stop" && cmd.action !== "resume") {
+            this.emitError(
+              "thinking-control command requires 'action' to be 'stop' or 'resume'",
+            );
+            return;
+          }
+          if (typeof cmd.targetMessageId !== "string" || cmd.targetMessageId.length === 0) {
+            this.emitError(
+              "thinking-control command requires non-empty 'targetMessageId' field",
+            );
+            return;
+          }
+          if (typeof cmd.agentInboxId !== "string" || cmd.agentInboxId.length === 0) {
+            this.emitError(
+              "thinking-control command requires non-empty 'agentInboxId' field",
+            );
+            return;
+          }
+          const control: ThinkingControl = {
+            action: cmd.action,
+            targetMessageId: cmd.targetMessageId,
+            agentInboxId: cmd.agentInboxId,
+          };
+          const codec = new ThinkingControlCodec();
+          const encoded = codec.encode(control);
+          const controlMessageId = await conversation.send(encoded);
+
+          this.emit({
+            event: "sent",
+            id: controlMessageId,
+            type: "thinking-control",
+            action: control.action,
+            targetMessageId: control.targetMessageId,
+            agentInboxId: control.agentInboxId,
             conversationId: conversation.id,
             timestamp: new Date().toISOString(),
           });
